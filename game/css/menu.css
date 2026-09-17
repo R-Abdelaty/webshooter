@@ -1,0 +1,62 @@
+:root{--ink:#171312;--paper:#fff2d2;--red:#e5232b;--yellow:#ffe34c}
+*{box-sizing:border-box}
+body{margin:0;background:#08090c;color:#fff;font:16px Arial,sans-serif;overflow:hidden}
+#backdrop,#shade{position:fixed;inset:0;z-index:0;background:url('../bavkghround.webp') center 72%/cover no-repeat}
+#shade{z-index:1;background:rgba(4,6,10,.58)}
+.is-hidden{display:none!important}
+button{font:900 18px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.05em;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:4px solid var(--yellow);outline-offset:3px}
+
+/* The current high-resolution web image fills the outside menu. */
+#menu{position:relative;z-index:2;display:flex;align-items:center;min-height:100vh;min-height:100dvh;padding:clamp(20px,5vw,78px);overflow:hidden;background:#e00008 url('../assets/menu-background.png') center/cover no-repeat;isolation:isolate}
+#menu::before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(28,0,0,.16),transparent 72%);pointer-events:none}
+.menu-cover{position:relative;width:min(720px,100%);padding:35px clamp(22px,3.3vw,46px) 27px;background:var(--paper);color:var(--ink);border:5px solid var(--ink);box-shadow:13px 13px 0 var(--ink);transform:rotate(-1.3deg)}
+.menu-cover::after{content:'';position:absolute;right:12px;top:12px;width:62px;height:62px;opacity:.12;background:radial-gradient(var(--ink) 1.5px,transparent 2px) 0 0/7px 7px;pointer-events:none}
+.title-block h1{display:flex;align-items:baseline;gap:.14em;margin:0;font:900 clamp(55px,6.6vw,102px)/1 Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:-.035em;text-transform:uppercase;white-space:nowrap}
+.title-block h1 span{display:inline-block}
+.title-block h1 span:first-child{color:var(--red);-webkit-text-stroke:2px var(--ink);text-shadow:4px 4px 0 var(--ink)}
+.title-block h1 span:last-child{color:var(--yellow);-webkit-text-stroke:2px var(--ink);text-shadow:4px 4px 0 var(--ink)}
+.title-block p{position:relative;max-width:430px;margin:26px 0 25px;padding:13px 18px;border:3px solid var(--ink);border-radius:14px;background:#fff;color:var(--ink);font-weight:800;line-height:1.35;box-shadow:5px 5px 0 var(--ink)}
+.title-block p::after{content:'';position:absolute;bottom:-13px;left:34px;width:18px;height:18px;background:#fff;border-right:3px solid var(--ink);border-bottom:3px solid var(--ink);transform:rotate(45deg)}
+.menu-actions{display:grid;gap:12px}
+.menu-actions button{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:53px;padding:8px 16px;border:4px solid var(--ink);background:var(--yellow);color:var(--ink);box-shadow:5px 5px 0 var(--ink);text-align:left;transition:transform .12s,box-shadow .12s,background .12s}
+.menu-actions button:nth-child(2){background:#fff}
+.menu-actions button:nth-child(3){background:var(--red);color:var(--ink)}
+.menu-actions button:not(:disabled):hover{transform:translate(-3px,-3px);box-shadow:8px 8px 0 var(--ink)}
+.menu-actions button:disabled{opacity:.52;cursor:not-allowed}
+.menu-actions button span:last-child{font:900 24px Arial,sans-serif}
+.status{display:inline-block;margin:22px 0 0;padding:7px 10px;border:2px solid var(--ink);background:#fff;font:800 11px Arial,sans-serif;letter-spacing:.07em;transform:rotate(1deg)}
+.menu-stamp{position:absolute;right:8%;bottom:12%;display:grid;place-content:center;width:195px;height:195px;border:5px solid var(--ink);border-radius:50%;background:var(--yellow);color:var(--ink);font:900 38px/.9 Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;text-align:center;box-shadow:10px 10px 0 var(--ink);transform:rotate(14deg)}
+
+/* Inked paper panels shared by settings and encounter screens. */
+.panel-wrap,.card-wrap{position:fixed;inset:0;z-index:5;display:grid;place-items:center;padding:18px;background:rgba(4,4,6,.72);background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:7px 7px}
+.panel,.card{width:min(600px,100%);max-height:min(92vh,92dvh);border:5px solid var(--ink);background:var(--paper);color:var(--ink);box-shadow:12px 12px 0 #080708}
+.panel{display:flex;flex-direction:column;transform:rotate(-.8deg)}
+.panel-heading{position:relative;padding:14px 73px 10px 23px;background:var(--red);color:var(--ink);border-bottom:5px solid var(--ink)}
+.panel-close{position:absolute;right:17px;top:15px;display:grid;place-items:center;width:43px;height:43px;padding:0;border:3px solid var(--ink);background:var(--paper);color:var(--ink);box-shadow:4px 4px 0 var(--ink);font:900 28px/1 Arial,sans-serif}
+.panel-heading h2{margin:0;font:900 clamp(44px,6vw,68px)/.95 Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif}
+.panel-body{display:grid;gap:10px;overflow:auto;padding:20px 24px 24px}
+.panel-body h3{margin:8px 0 0;padding:0 0 5px;border-bottom:3px solid var(--red);color:var(--ink);font:900 16px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.08em}
+.panel-body label{display:flex;justify-content:space-between;align-items:center;gap:14px;min-height:36px;border-bottom:2px solid rgba(23,19,18,.25);font-size:12px;font-weight:900;letter-spacing:.06em}
+.panel-body label:has(input[type="checkbox"]){justify-content:flex-start}
+.panel-body input[type="range"]{width:min(210px,55%);accent-color:var(--red)}
+.panel-body input[type="checkbox"]{width:20px;height:20px;accent-color:var(--red)}
+.panel-body select{min-width:130px;padding:5px 8px;border:2px solid var(--ink);background:#fff;color:var(--ink);font-weight:800}
+.controller-status{margin:0;padding:9px 12px;border:2px solid var(--ink);background:#fff;font-size:12px;font-weight:700}
+.aim-tools{display:flex;gap:12px;align-items:stretch}
+.aim-tools button,.card button{min-height:43px;padding:8px 14px;border:3px solid var(--ink);background:var(--yellow);color:var(--ink);box-shadow:4px 4px 0 var(--ink)}
+.aim-tools button{flex:1}
+#reticle-preview{display:grid;place-items:center;width:56px;min-height:43px;border:3px solid var(--ink);background:#fff;color:var(--red);font:900 40px/.8 Arial,sans-serif}
+.panel button:hover,.card button:hover{filter:brightness(1.08);transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink)}
+.card{position:relative;width:min(450px,100%);padding:28px 30px 32px;text-align:center;transform:rotate(-1.3deg)}
+.card::before{content:'';position:absolute;right:9px;top:9px;width:46px;height:46px;opacity:.18;background:radial-gradient(var(--ink) 1.5px,transparent 2px) 0 0/7px 7px}
+.card h2{margin:0 0 8px;color:var(--red);font:900 clamp(52px,10vw,77px)/.95 Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;text-shadow:3px 3px 0 var(--ink)}
+.card[data-kind="victory"] h2,.card[data-kind="city-saved"] h2{color:#f4cb20}
+.card p{min-height:30px;margin:0 0 19px;color:var(--ink);font-weight:800;line-height:1.4}
+.card-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card-actions button{width:100%}
+.card-actions button:first-child{background:var(--red);color:var(--ink)}
+.card-actions button:last-child{background:#fff}
+@media(max-width:800px){.menu-stamp{right:3%;bottom:4%;width:130px;height:130px;font-size:26px}.menu-cover{width:min(620px,calc(100% - 55px))}.title-block h1{font-size:clamp(49px,7.5vw,70px)}}
+@media(max-width:570px){#menu{align-items:center;justify-content:center;padding:19px}.menu-cover{width:100%;padding:27px 18px 20px;box-shadow:8px 8px 0 var(--ink);transform:rotate(-.6deg)}.title-block h1{font-size:clamp(36px,9.5vw,52px)}.title-block p{font-size:14px}.menu-stamp{display:none}.panel,.card{box-shadow:6px 6px 0 #080708}.panel-body{padding:14px 17px 18px}.card{padding:23px 19px 27px}.card-actions{grid-template-columns:1fr}}
+@media(max-height:650px){#menu{align-items:center}.menu-cover{padding-top:20px;padding-bottom:16px}.title-block h1{font-size:clamp(42px,5.4vw,76px)}.title-block p{margin:18px 0}.menu-actions button{min-height:42px}.status{margin-top:16px}}

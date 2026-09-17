@@ -1,0 +1,9 @@
+# Machine-specific editor launch configuration
+.claude/
+
+# Local credentials and OS files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
