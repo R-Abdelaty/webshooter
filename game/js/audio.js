@@ -7,7 +7,7 @@
  *      live in the browser - no download, no file, nothing to install.
  *
  * Why synthesise at all? Because every oscillator, filter and envelope here is
- * the same idea as the buzzer on your wrist: make a waveform, shape how loud it
+ * a waveform, shaped for how loud it
  * is over time, and it becomes a sound. Same physics, nicer speakers.
  *
  * Browsers will not make noise until the user has clicked something, so

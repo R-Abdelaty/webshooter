@@ -41,7 +41,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:4px solid 
 .panel-body label:has(input[type="checkbox"]){justify-content:flex-start}
 .panel-body input[type="range"]{width:min(210px,55%);accent-color:var(--red)}
 .panel-body input[type="checkbox"]{width:20px;height:20px;accent-color:var(--red)}
-.panel-body select{min-width:130px;padding:5px 8px;border:2px solid var(--ink);background:#fff;color:var(--ink);font-weight:800}
+.panel-body select,.panel-body input[type="text"]{min-width:130px;padding:5px 8px;border:2px solid var(--ink);background:#fff;color:var(--ink);font-weight:800}
+.panel-body input[type="text"]{width:min(210px,55%);font-family:inherit;letter-spacing:.04em}
 .controller-status{margin:0;padding:9px 12px;border:2px solid var(--ink);background:#fff;font-size:12px;font-weight:700}
 .aim-tools{display:flex;gap:12px;align-items:stretch}
 .aim-tools button,.card button{min-height:43px;padding:8px 14px;border:3px solid var(--ink);background:var(--yellow);color:var(--ink);box-shadow:4px 4px 0 var(--ink)}
@@ -60,3 +61,45 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:4px solid 
 @media(max-width:800px){.menu-stamp{right:3%;bottom:4%;width:130px;height:130px;font-size:26px}.menu-cover{width:min(620px,calc(100% - 55px))}.title-block h1{font-size:clamp(49px,7.5vw,70px)}}
 @media(max-width:570px){#menu{align-items:center;justify-content:center;padding:19px}.menu-cover{width:100%;padding:27px 18px 20px;box-shadow:8px 8px 0 var(--ink);transform:rotate(-.6deg)}.title-block h1{font-size:clamp(36px,9.5vw,52px)}.title-block p{font-size:14px}.menu-stamp{display:none}.panel,.card{box-shadow:6px 6px 0 #080708}.panel-body{padding:14px 17px 18px}.card{padding:23px 19px 27px}.card-actions{grid-template-columns:1fr}}
 @media(max-height:650px){#menu{align-items:center}.menu-cover{padding-top:20px;padding-bottom:16px}.title-block h1{font-size:clamp(42px,5.4vw,76px)}.title-block p{margin:18px 0}.menu-actions button{min-height:42px}.status{margin-top:16px}}
+
+/* The reticle replaces the pointer on the menu, so the real one is hidden.
+   pointer-events:none matters: without it the reticle sits under itself and
+   elementFromPoint would never find the button beneath. */
+#menu-reticle{position:fixed;left:0;top:0;width:48px;height:48px;z-index:9;pointer-events:none;
+  filter:drop-shadow(0 0 3px rgba(0,0,0,.85))}
+#menu-reticle.is-hidden{display:none}
+body.aim-on{cursor:none}
+/* What the reticle is resting on, shown the same way a hover is - otherwise
+   there is no way to tell what a flick is about to press. */
+.menu-actions button.is-aimed:not(:disabled){transform:translate(-3px,-3px);box-shadow:8px 8px 0 var(--ink)}
+.panel button.is-aimed,.card button.is-aimed{filter:brightness(1.08);transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink)}
+.panel .is-aimed,.card .is-aimed{outline:4px solid var(--yellow);outline-offset:3px}
+
+/* The centre prompt. Covers everything on purpose: until there is an origin,
+   a reticle position would be meaningless, so there is nothing else to do. */
+.cal-wrap{position:fixed;inset:0;z-index:12;display:grid;place-items:center;padding:18px;
+  background:rgba(4,4,6,.86);background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:7px 7px}
+.cal-wrap.is-hidden{display:none}
+/* Exactly the middle of the screen - the thing being pointed at. */
+.cal-dot{position:fixed;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border:3px solid var(--yellow);
+  border-radius:50%;box-shadow:0 0 0 3px rgba(0,0,0,.6),0 0 22px 6px rgba(255,214,0,.45)}
+.cal-dot::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--yellow)}
+.cal-card{max-width:440px;padding:26px 24px;border:4px solid var(--ink);background:var(--paper,#f6efdd);color:var(--ink);text-align:center;box-shadow:8px 8px 0 var(--ink)}
+.cal-card h2{margin:0 0 10px;font:900 34px Impact,Haettenschweiler,"Arial Narrow Bold",sans-serif;letter-spacing:.04em;color:var(--red)}
+.cal-card p{margin:0 0 16px;font-size:14px;font-weight:700;line-height:1.5}
+.cal-card button{width:100%;min-height:50px;padding:10px 16px;border:4px solid var(--ink);background:var(--yellow);color:var(--ink);box-shadow:5px 5px 0 var(--ink)}
+.cal-card button:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.cal-card button:not(:disabled):hover{transform:translate(-3px,-3px);box-shadow:8px 8px 0 var(--ink)}
+.cal-note{margin:14px 0 0 !important;font-size:11px !important;font-weight:700;opacity:.72}
+
+/* Where the reticle has gone when it is off the screen. One strip per edge; the
+   bright part slides along the edge to the reticle's other coordinate, so it
+   shows the direction AND the spot, not just "somewhere over there". */
+#edge-glow{position:fixed;inset:0;z-index:10;pointer-events:none}
+#edge-glow i{position:fixed;display:block;opacity:0;transition:opacity .08s linear}
+#edge-glow i[data-edge="left"],#edge-glow i[data-edge="right"]{top:0;bottom:0;width:96px}
+#edge-glow i[data-edge="left"]{left:0;background:radial-gradient(76px 150px at 0 var(--at,50%),rgba(255,255,255,.98),rgba(255,48,48,.92) 34%,transparent 64%),radial-gradient(160px 240px at 0 var(--at,50%),rgba(80,0,0,.9),rgba(40,0,0,.4) 52%,transparent 80%)}
+#edge-glow i[data-edge="right"]{right:0;background:radial-gradient(76px 150px at 100% var(--at,50%),rgba(255,255,255,.98),rgba(255,48,48,.92) 34%,transparent 64%),radial-gradient(160px 240px at 100% var(--at,50%),rgba(80,0,0,.9),rgba(40,0,0,.4) 52%,transparent 80%)}
+#edge-glow i[data-edge="top"]{top:0;background:radial-gradient(150px 76px at var(--at,50%) 0,rgba(255,255,255,.98),rgba(255,48,48,.92) 34%,transparent 64%),radial-gradient(240px 160px at var(--at,50%) 0,rgba(80,0,0,.9),rgba(40,0,0,.4) 52%,transparent 80%)}
+#edge-glow i[data-edge="bottom"]{bottom:0;background:radial-gradient(150px 76px at var(--at,50%) 100%,rgba(255,255,255,.98),rgba(255,48,48,.92) 34%,transparent 64%),radial-gradient(240px 160px at var(--at,50%) 100%,rgba(80,0,0,.9),rgba(40,0,0,.4) 52%,transparent 80%)}
+#edge-glow i[data-edge="top"],#edge-glow i[data-edge="bottom"]{left:0;right:0;height:96px}

@@ -7,3 +7,9 @@
 !.env.example
 .DS_Store
 Thumbs.db
+
+# WiFi credentials for the shooter firmware (template: web_shooter/secrets.example.h)
+web_shooter/secrets.h
+
+# Editor/backup copies of sketches (the old one held a WiFi password)
+*.bak

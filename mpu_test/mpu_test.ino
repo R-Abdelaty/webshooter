@@ -24,7 +24,7 @@
 
 #include <Wire.h>
 
-#define PIN_SDA 33
+#define PIN_SDA 23  // must match PIN_SDA_WIRED in web_shooter.ino
 #define PIN_SCL 22
 
 // 0 = human readable table (Serial Monitor)
@@ -125,13 +125,35 @@ bool scanBus() {
     }
   }
 
+  // The scan above knocks with a zero-length write. Not every core and not
+  // every clone answers one of those, even with the chip sitting right there,
+  // so before believing "nothing found", ask the two IMU addresses for
+  // WHO_AM_I outright - a real register read they cannot ignore.
+  if (found == 0) {
+    const uint8_t tryAddr[2] = {0x68, 0x69};
+    for (uint8_t i = 0; i < 2 && !sawImu; i++) {
+      Wire.beginTransmission(tryAddr[i]);
+      Wire.write(REG_WHO_AM_I);
+      if (Wire.endTransmission(false) != 0) continue;
+      if (Wire.requestFrom((int)tryAddr[i], 1) != 1) continue;
+      uint8_t v = Wire.read();
+      if (v == 0x00 || v == 0xFF) continue;
+      mpuAddr = tryAddr[i];
+      sawImu = true;
+      found = 1;
+      Serial.printf("  no ACK to the scan, but 0x%02X answered WHO_AM_I = 0x%02X\n",
+                    mpuAddr, v);
+      Serial.println("  (the scan's empty-write probe is unreliable here - ignore it)");
+    }
+  }
+
   if (found == 0) {
     Serial.println("  nothing found.");
     Serial.println();
     Serial.println("  Check, in this order:");
     Serial.println("   1. IMU VCC to 3V3 (NOT VIN/5V on most breakouts)");
     Serial.println("   2. IMU GND to ESP32 GND - they must share a ground");
-    Serial.println("   3. SDA to GPIO 33, SCL to GPIO 22 (easy to swap)");
+    Serial.println("   3. SDA to GPIO 23, SCL to GPIO 22 (easy to swap)");
     Serial.println("   4. Header pins actually soldered, not just poked in");
     Serial.println("   5. Breadboard: the two halves of each rail can be split");
     return false;
@@ -285,7 +307,8 @@ void setup() {
   delay(500);
   Serial.println("\n\n=== MPU test ===\n");
 
-  Wire.begin(PIN_SDA, PIN_SCL, 400000);
+  // 100 kHz, same as web_shooter.ino - see the note there on why not 400.
+  Wire.begin(PIN_SDA, PIN_SCL, 100000);
   delay(100);
 
   bool ok = scanBus();
