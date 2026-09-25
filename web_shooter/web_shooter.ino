@@ -104,11 +104,11 @@ const uint8_t FLICK_AXIS = 0;     // 0 = gyro X, 1 = Y, 2 = Z. X on the default 
 // safe default; set the sign your flick shows in TUNE_MODE and an upward snap
 // can no longer fire.
 const int8_t FLICK_SIGN = 0;
-const float FLICK_ON = 320.0;     // deg/s on the flick axis - fires above this...
+const float FLICK_ON = 260.0;     // deg/s on the flick axis - fires above this...
 // ...but only if it got there FAST. A flick reaches full speed in ~30 ms; an
 // aim swing takes ~100 ms to build up even when it is fast. So the rate must
 // have risen by FLICK_RISE_DPS over the last FLICK_RISE_MS.
-const float FLICK_RISE_DPS = 200.0;
+const float FLICK_RISE_DPS = 150.0;
 const uint16_t FLICK_RISE_MS = 20;
 // Optional: also require an acceleration spike. 0 disables it. A real flick
 // is usually well past 2.5 g; set this if aiming still fires shots.

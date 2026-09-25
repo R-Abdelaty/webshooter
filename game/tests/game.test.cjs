@@ -534,7 +534,7 @@ function angleRig(settings){
   return {c,st,send,still,centre};
 }
 
-test('angle packets: the aim is the sum of the deltas, in degrees',()=>{
+test('angle packets: horizontal aim follows the running yaw in degrees',()=>{
   const r=angleRig();r.centre();
   for(let i=0;i<50;i++)r.send(.3,0);             // 15 degrees right at 30 deg/s
   const ideal=15*Controller.SCREENS_PER_DEG;
@@ -611,12 +611,27 @@ test('a flick is left out of the aim and the shot lands where you aimed before i
   const at=Controller.shot(r.c,{event:'shoot',seq:1,ms:r.st.ms-20,preYaw,prePitch});
   assert.ok(Math.abs(at.x-aimed.x)<1e-4&&Math.abs(at.y-aimed.y)<1e-9,'the shot missed the pre-flick aim');
   assert.deepEqual(r.c.pos,at,'the reticle was not put back at the pre-flick aim');
-  // the rest of the flick is flagged and must not move the aim
+  // the rest of the snap is flagged and must not move the aim
   [-12,-10,-6,4,8,10,8,5].forEach(d=>r.send(.4,d,{flick:true}));
   assert.deepEqual(r.c.pos,at,'flagged flick packets moved the aim');
+  const returnStep=(preYaw-r.st.yaw)/10;
+  for(let i=0;i<10;i++)r.send(returnStep,0);         // the wrist returns after the flag clears
   r.send(0,0);                                       // settled: aiming again, pitch absolute
   assert.ok(Math.abs(r.c.pos.x-aimed.x)<1e-4,'horizontal did not resume from the pre-flick aim');
-  assert.ok(Math.abs(r.c.pos.y-(.5-r.st.pitch*Controller.SCREENS_PER_DEG*Controller.VERTICAL_GAIN))<1e-9,'vertical is not the wrist pitch after the flick');
+ assert.ok(Math.abs(r.c.pos.y-(.5-r.st.pitch*Controller.SCREENS_PER_DEG*Controller.VERTICAL_GAIN))<1e-9,'vertical is not the wrist pitch after the flick');
+});
+
+test('repeated flicks return to the same horizontal aim when yaw returns',()=>{
+  const r=angleRig();r.centre();
+  const before=r.c.pos.x;
+  for(let shot=0;shot<8;shot++){
+    const preYaw=r.st.yaw,prePitch=r.st.pitch;
+    Controller.shot(r.c,{event:'shoot',ms:r.st.ms,preYaw,prePitch});
+    r.send(-3,0,{flick:true});                 // the snap is excluded
+    for(let i=0;i<100;i++)r.send(.03,0);     // slow return after the flick flag clears
+    assert.ok(Math.abs(r.st.yaw-preYaw)<1e-10,'the sensor did not return to its original yaw');
+    assert.ok(Math.abs(r.c.pos.x-before)<1e-10,'shot '+(shot+1)+' shifted the reticle right');
+  }
 });
 
 test('confirming the centre with a flick takes the pitch from before the snap',()=>{

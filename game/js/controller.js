@@ -1,14 +1,15 @@
 (function(root){'use strict';
  function clamp(v,a,b){return Math.max(a,Math.min(b,v));} function delta(a,b){return (a-b)>>>0;}
  function create(settings){return {pos:{x:.5,y:.5},lastSeq:null,lastMs:null,rateX:0,rateY:0,history:[],bias:{gx:0,gy:0,gz:0},quietFor:0,calibrated:false,recent:null,steadyFor:0,blocked:false,settleUntil:null,last:null,
-  // Angle mode: the device's own running yaw/pitch, and the pitch the centre was set at.
-  angles:false,yaw:null,pitch:null,centrePitch:null,
+  // Angle mode: map each heading to a fixed screen position. Summing filtered
+  // deltas made a fast flick and a slower return leave a permanent offset.
+  angles:false,yaw:null,pitch:null,centrePitch:null,yawAnchor:null,xAnchor:.5,xGain:null,
   // What the reticle is drawn from - see display().
   trail:[],clockOff:null,jitter:0,interval:25,
   settings:settings||{horizontalAxis:'z',verticalAxis:'x',sensitivity:1,invertHorizontal:false,invertVertical:false},source:'mouse'};}
  // Anything that moves the aim other than a packet drops the drawing trail, so
  // the reticle goes straight there instead of gliding from where it was.
- function center(c){c.pos={x:.5,y:.5};c.rateX=c.rateY=0;c.history=[];c.trail=[];if(c.pitch!==null)c.centrePitch=c.pitch;}
+ function center(c){c.pos={x:.5,y:.5};c.rateX=c.rateY=0;c.history=[];c.trail=[];c.yawAnchor=c.yaw;c.xAnchor=.5;c.xGain=yawGain(c);if(c.pitch!==null)c.centrePitch=c.pitch;}
  // Starting a round clears where you were aiming - but NOT what the controller
  // has learned about the hardware. The gyro's measured zero point took seconds
  // of stillness to establish, and rebuilding the controller threw it away, so
@@ -29,17 +30,18 @@
  }
  // A new socket: the device may have rebooted, so its sequence numbers and its
  // running yaw start again. Pitch is absolute, so the centre still holds.
- function resync(c){c.lastSeq=c.lastMs=null;c.yaw=null;c.trail=[];c.clockOff=null;return c;}
+ function resync(c){c.lastSeq=c.lastMs=null;c.yaw=null;c.yawAnchor=null;c.xAnchor=c.pos.x;c.xGain=yawGain(c);c.trail=[];c.clockOff=null;return c;}
  // gx/gy/gz arrive in deg/s straight from the shooter's gyro, and dyaw in
  // degrees. SCREENS_PER_DEG is how far a turn pushes the reticle - 250 degrees
  // of wrist turn is one screen, so a brisk 200-300 deg/s crosses it in about a
  // second at sensitivity 1.
  var SCREENS_PER_DEG=1/250, SCREENS_PER_DPS=SCREENS_PER_DEG;
- // Slow movement is scaled down smoothly rather than cut off: a rate v is kept
+ // Legacy rate packets only: slow movement is scaled down smoothly rather than cut off: a rate v is kept
  // in proportion v^2/(v^2+k^2). A hard dead zone made small corrections feel
  // sticky and then jumpy as they crossed it. At k=1.5, tremor and residual
  // drift (well under 1 deg/s) almost vanish, 3 deg/s keeps 80%, and slow
- // careful tracking at 5-20 deg/s keeps 92-99%.
+ // careful tracking at 5-20 deg/s keeps 92-99%. Fused angle packets use their
+ // running yaw directly so a slow return cancels a fast outward movement.
  var SOFT_DEAD_DPS=1.5;
  function soft(v){return v*v/(v*v+SOFT_DEAD_DPS*SOFT_DEAD_DPS);}
  // The aim is allowed to run off the screen instead of stopping dead at the
@@ -87,6 +89,7 @@
   if(c.recent&&steady(c))c.bias={gx:c.recent.gx,gy:c.recent.gy,gz:c.recent.gz};
   center(c);
   if(p&&Number.isFinite(p.prePitch))c.centrePitch=p.prePitch;
+  if(p&&Number.isFinite(p.preYaw))c.yawAnchor=p.preYaw;
   c.calibrated=true;c.blocked=false;c.settleUntil=null;c.steadyFor=0;c.quietFor=0;
   return c;
  }
@@ -169,29 +172,36 @@
   return clamp(.5-(pitch-c.centrePitch)*k,-OVERFLOW,1+OVERFLOW);
  }
  function yawGain(c){var S=c.settings||{};return sensOf(S.sensitivity)*SCREENS_PER_DEG*(S.invertHorizontal?-1:1);}
+ function yawToX(c,yaw){return clamp(c.xAnchor+(yaw-c.yawAnchor)*yawGain(c),-OVERFLOW,1+OVERFLOW);}
 
- // Current firmware: every packet says how far the wrist turned since the last
- // one, summed on the device from every sample, so there is nothing to
- // integrate and nothing lost to a late packet.
+ // Current firmware: use the running yaw for position. A return to the same
+ // heading must land at the same x, regardless of flick speed, packet gaps, or
+ // which part of a flick was flagged. Deltas still identify wrist motion.
  var WRIST_TAKEOVER_DPS=5;
  function aimAngles(c,p,dt,prevSeq,now){
   trackRest(c,p,dt);
-  // Consecutive packets: use the delta. After a dropped packet or a gap the
-  // deltas in between are gone, but the running yaw still knows the total.
+  // Consecutive packets use the delta for takeover. After a gap, recover the
+  // motion rate from the running yaw.
+  var previousYaw=c.yaw;
   var consecutive=prevSeq!==null&&delta(p.seq,prevSeq)===1&&dt<=GAP_SECONDS;
-  var dyaw=consecutive?p.dyaw:(c.yaw===null?0:p.yaw-c.yaw);
+  var dyaw=consecutive?p.dyaw:(previousYaw===null?0:p.yaw-previousYaw);
   var prevPitch=c.pitch===null?p.pitch:c.pitch;
   c.yaw=p.yaw;c.pitch=p.pitch;c.angles=true;
   c.last={gx:p.gx,gy:p.gy,gz:p.gz,yaw:p.yaw,pitch:p.pitch,flick:!!p.flick};
   if(!c.calibrated)return true;   // no origin yet, so nothing to move relative to
   if(c.centrePitch===null)c.centrePitch=p.pitch;   // centre was confirmed before the shooter spoke
+  if(c.yawAnchor===null){c.yawAnchor=p.yaw;c.xAnchor=c.pos.x;}
+  var gain=yawGain(c);
+  if(c.xGain!==gain){c.yawAnchor=previousYaw===null?p.yaw:previousYaw;c.xAnchor=c.pos.x;c.xGain=gain;}
   // The device marks the flick itself. The whole gesture is shooting, not
   // aiming; shot() puts the aim back where it was before it.
   if(p.flick){remember(c,p,now);return true;}
   var span=Math.max(dt,.001),yawRate=dyaw/span,pitchRate=(p.pitch-prevPitch)/span;
-  if(Math.max(Math.abs(yawRate),Math.abs(pitchRate))>WRIST_TAKEOVER_DPS)c.source='wrist';
+  if(c.source!=='wrist'&&Math.max(Math.abs(yawRate),Math.abs(pitchRate))>WRIST_TAKEOVER_DPS){
+   c.yawAnchor=previousYaw===null?p.yaw:previousYaw;c.xAnchor=c.pos.x;c.source='wrist';
+  }
   if(c.source==='wrist'){
-   c.pos.x=clamp(c.pos.x+dyaw*soft(yawRate)*yawGain(c),-OVERFLOW,1+OVERFLOW);
+   c.pos.x=yawToX(c,p.yaw);
    c.pos.y=pitchToY(c,p.pitch);
   }
   remember(c,p,now);
@@ -303,7 +313,7 @@
   var at={x:c.pos.x,y:c.pos.y};
   if(c.source!=='wrist')return at;                // the mouse is aiming; the flick only fires
   if(p&&c.angles&&Number.isFinite(p.preYaw)&&Number.isFinite(p.prePitch)&&c.yaw!==null){
-   at.x=clamp(c.pos.x-(c.yaw-p.preYaw)*yawGain(c),-OVERFLOW,1+OVERFLOW);
+   at.x=c.yawAnchor===null?c.pos.x:yawToX(c,p.preYaw);
    if(c.centrePitch!==null)at.y=pitchToY(c,p.prePitch);
    c.pos={x:at.x,y:at.y};c.trail=[];
    return at;
