@@ -40,7 +40,11 @@
   function showGlow() {
     var c = deps.getController();
     var strips = glow.children, off, i;
-    var hide = !c.calibrated || (c.settings || {}).aimMode === 'flick';
+    // In the 3D world, running off an edge will mean "turn" (Session 2), so
+    // the marker is only shown there while its PAUSED card is up.
+    var world = document.getElementById('world');
+    var roaming = world && !world.classList.contains('is-hidden') && !visible();
+    var hide = !c.calibrated || (c.settings || {}).aimMode === 'flick' || roaming;
     off = Controller.offscreen(c);
     for (i = 0; i < strips.length; i++) {
       var edge = strips[i].getAttribute('data-edge');
@@ -59,6 +63,13 @@
     // Nothing to point with until the centre has been set.
     var c = deps && deps.getController();
     if (c && !c.calibrated) return false;
+    // The 3D world draws its own crosshair; the reticle is only for its
+    // PAUSED card.
+    var world = document.getElementById('world');
+    if (world && !world.classList.contains('is-hidden')) {
+      var worldCard = document.getElementById('world-card');
+      return !!worldCard && !worldCard.classList.contains('is-hidden');
+    }
     var game = document.getElementById('game');
     if (!game || game.classList.contains('is-hidden')) return true;
     var card = document.getElementById('card');

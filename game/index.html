@@ -19,6 +19,7 @@
         <button id="btn-new" type="button"><span>START</span><span aria-hidden="true">→</span></button>
         <button id="btn-continue" type="button" disabled><span>CONTINUE</span><span aria-hidden="true">→</span></button>
         <button id="btn-training" type="button"><span>TRAINING</span><span aria-hidden="true">→</span></button>
+        <button id="btn-classic" type="button"><span>CLASSIC</span><span aria-hidden="true">→</span></button>
         <button id="btn-settings" type="button"><span>SETTINGS</span><span aria-hidden="true">→</span></button>
       </div>
       <p id="menu-status" class="status">CONTROLLER: DISCONNECTED</p>
@@ -38,6 +39,21 @@
     <pre id="hud-debug" class="hud-debug is-hidden" aria-hidden="true"></pre>
     <footer class="hud-bottom" id="hud-hint">Move to aim · Click / Space to shoot · Esc to pause · D for controller readout</footer>
     <div id="card" class="card-wrap is-hidden"><div class="card" id="card-inner"></div></div>
+  </section>
+  <section id="world" class="is-hidden">
+    <canvas id="world-canvas"></canvas>
+    <header class="world-hud">
+      <span class="world-tag">FREE ROAM</span>
+      <button id="btn-world-quit" class="hud-quit" type="button">← MENU</button>
+    </header>
+    <div class="crosshair" aria-hidden="true"></div>
+    <pre id="world-perf" class="world-perf is-hidden" aria-hidden="true"></pre>
+    <p id="world-loading" class="world-loading is-hidden">BUILDING THE CITY…</p>
+    <footer class="hud-bottom world-hint">Click to look · WASD / arrows move · Shift sprint · Space jump · Esc pause · P performance</footer>
+    <div id="world-card" class="card-wrap is-hidden"><div class="card" data-kind="paused">
+      <h2>PAUSED</h2><p>Take a breather. The city will wait.</p>
+      <div class="card-actions"><button id="btn-world-resume" type="button">RESUME</button><button id="btn-world-menu" type="button">MENU</button></div>
+    </div></div>
   </section>
   <div id="centre-cal" class="cal-wrap is-hidden" role="dialog" aria-modal="true" aria-labelledby="cal-title">
     <div class="cal-dot" aria-hidden="true"></div>
@@ -75,6 +91,14 @@
   <script src="js/controller.js"></script>
   <script src="js/shooter-link.js"></script>
   <script src="js/serial-link.js"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="js/world/move.js"></script>
+  <script src="js/world/city.js"></script>
+  <script src="js/world/player.js"></script>
+  <script src="js/world/textures.js"></script>
+  <script src="js/world/city-mesh.js"></script>
+  <script src="js/world/world.js"></script>
+  <script src="js/world/world-game.js"></script>
   <script src="js/game.js"></script>
   <script src="js/menu-aim.js"></script>
   <script src="js/menu.js"></script>

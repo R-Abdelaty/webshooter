@@ -1,6 +1,6 @@
 (function () {
   'use strict'; var $=id=>document.getElementById(id), SAVE_KEY='ws.save.v1', SETTINGS_KEY='ws.settings.v2';
-  var settings={music:60,sfx:80,muted:false,input:'mouse',sensitivity:1,horizontalAxis:'z',verticalAxis:'x',invertHorizontal:false,invertVertical:false,aimMode:'track'}; $('btn-new').disabled=true;
+  var settings={music:60,sfx:80,muted:false,input:'mouse',sensitivity:1,horizontalAxis:'z',verticalAxis:'x',invertHorizontal:false,invertVertical:false,aimMode:'track'}; $('btn-new').disabled=true;$('btn-classic').disabled=true;
   try{Object.assign(settings,JSON.parse(localStorage.getItem(SETTINGS_KEY)||'{}'));}catch(_){}
   function apply(){WSAudio.setMusicVolume(settings.music/100);WSAudio.setSfxVolume(settings.sfx/100);WSAudio.setMuted(settings.muted);$('vol-music').value=settings.music;$('vol-sfx').value=settings.sfx;$('chk-mute').checked=settings.muted;$('input-source').value=settings.input;$('sensitivity').value=settings.sensitivity;$('horizontal-axis').value=settings.horizontalAxis;$('vertical-axis').value=settings.verticalAxis;$('invert-horizontal').checked=settings.invertHorizontal;$('invert-vertical').checked=settings.invertVertical;$('aim-mode').value=settings.aimMode;try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));}catch(_){}}
   // The fusing firmware aims with the board axis that points along the forearm;
@@ -94,7 +94,7 @@
       var at=Controller.shot(c,p);
       if(MenuAim.active())MenuAim.press(at);else WebShooterGame.fire(at);});
   }
-  document.addEventListener('webshooter:ready',async()=>{apply();$('btn-new').disabled=false;MenuAim.mount({getController:()=>WebShooterGame.getController()});var c=WebShooterGame.getController();c.settings=settings;c.source=settings.input;
+  document.addEventListener('webshooter:ready',async()=>{apply();$('btn-new').disabled=false;$('btn-classic').disabled=false;MenuAim.mount({getController:()=>WebShooterGame.getController()});var c=WebShooterGame.getController();c.settings=settings;c.source=settings.input;
     wifi=new ShooterLink();$('shooter-host').value=wifi.host;wire(wifi);
     usb=new SerialLink();wire(usb);
     link=wifi;
@@ -114,5 +114,8 @@
     // is not tried at all.
     if(SerialLink.supported()){use(usb);if(await usb.resume())return;use(wifi);}
     wifi.connect();});
-  $('btn-new').onclick=()=>{WSAudio.init();WSAudio.startMusic();try{localStorage.setItem(SAVE_KEY,JSON.stringify({chapter:1,savedAt:new Date().toISOString()}));}catch(_){}WebShooterGame.start(0);};$('btn-continue').onclick=()=>{try{var s=JSON.parse(localStorage.getItem(SAVE_KEY));WebShooterGame.start(Math.max(0,Math.min(2,(s.chapter||1)-1)));}catch(_){}};$('btn-training').onclick=()=>{WSAudio.init();WebShooterGame.startTraining();};$('btn-settings').onclick=()=>{WebShooterGame.pause();$('settings').classList.remove('is-hidden');};$('btn-close').onclick=()=>$('settings').classList.add('is-hidden');$('btn-center').onclick=()=>Controller.center(WebShooterGame.getController());$('btn-cal').onclick=()=>{if(!$('btn-cal').disabled)calConfirm();};window.addEventListener('keydown',e=>{if(!WebShooterGame.getController().calibrated){if(e.code==='Space'||e.key==='Enter'){e.preventDefault();if(!$('btn-cal').disabled)calConfirm();}return;}if(e.key==='c'||e.key==='C')Controller.center(WebShooterGame.getController());});['vol-music','vol-sfx','input-source','sensitivity','horizontal-axis','vertical-axis','chk-mute','invert-horizontal','invert-vertical','aim-mode'].forEach(id=>$(id).onchange=write);try{$('btn-continue').disabled=!JSON.parse(localStorage.getItem(SAVE_KEY));}catch(_){}
+  // START is the 3D city; CLASSIC is the original 2D encounters, and CONTINUE
+  // still resumes those.
+  $('btn-new').onclick=()=>{WSAudio.init();WSAudio.startMusic();WorldGame.start();};
+  $('btn-classic').onclick=()=>{WSAudio.init();WSAudio.startMusic();try{localStorage.setItem(SAVE_KEY,JSON.stringify({chapter:1,savedAt:new Date().toISOString()}));}catch(_){}WebShooterGame.start(0);};$('btn-continue').onclick=()=>{try{var s=JSON.parse(localStorage.getItem(SAVE_KEY));WebShooterGame.start(Math.max(0,Math.min(2,(s.chapter||1)-1)));}catch(_){}};$('btn-training').onclick=()=>{WSAudio.init();WebShooterGame.startTraining();};$('btn-settings').onclick=()=>{WebShooterGame.pause();$('settings').classList.remove('is-hidden');};$('btn-close').onclick=()=>$('settings').classList.add('is-hidden');$('btn-center').onclick=()=>Controller.center(WebShooterGame.getController());$('btn-cal').onclick=()=>{if(!$('btn-cal').disabled)calConfirm();};window.addEventListener('keydown',e=>{if(!WebShooterGame.getController().calibrated){if(e.code==='Space'||e.key==='Enter'){e.preventDefault();if(!$('btn-cal').disabled)calConfirm();}return;}if(e.key==='c'||e.key==='C')Controller.center(WebShooterGame.getController());});['vol-music','vol-sfx','input-source','sensitivity','horizontal-axis','vertical-axis','chk-mute','invert-horizontal','invert-vertical','aim-mode'].forEach(id=>$(id).onchange=write);try{$('btn-continue').disabled=!JSON.parse(localStorage.getItem(SAVE_KEY));}catch(_){}
 })();
