@@ -1,6 +1,26 @@
 # Web Shooter
 
-Open `game/index.html` in a modern browser. Press **Start**, then **Go**. Move the mouse to aim; left-click or Space fires. Escape pauses, the **← MENU** button in the HUD quits to the menu at any time, C recentres aim, and the Controller settings provide wrist axes, inversion, sensitivity, and a visible Center Aim action.
+Open `game/index.html` in a modern browser (straight from disk is fine). **START** opens the 3D city; **CLASSIC** is the original 2D game described further down.
+
+## The city (START)
+
+You start on the roof of a 196 m tower by the river, looking north-east over a Manhattan-style city about 1.2 km square: brick walk-ups, sandstone apartments, offices and glass towers with setbacks, water tanks and roof plant, three supertall landmarks, avenues with lane markings and crossings, a park of 3 × 6 blocks with autumn trees and a pond, a riverside promenade, and a construction site with a steel frame, scaffolding, brick stacks, tarps and a crane. The city beyond the edges and across the river is backdrop that fades into the haze.
+
+| Control | Does |
+| --- | --- |
+| Click the view | Take the mouse for looking (pointer lock) |
+| Mouse | Look around |
+| W A S D or arrows | Walk |
+| Shift | Sprint |
+| Space | Jump (clears a roof parapet) |
+| Esc | Pause - RESUME or MENU on the card |
+| P | Frame rate, draw calls and position |
+
+You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. For now the view is first person with a centre crosshair and nothing to shoot; aiming and looking with the wrist shooter come next. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built.
+
+## Classic
+
+Press **CLASSIC**, then **Go**. Move the mouse to aim; left-click or Space fires. Escape pauses, the **← MENU** button in the HUD quits to the menu at any time, C recentres aim, and the Controller settings provide wrist axes, inversion, sensitivity, and a visible Center Aim action. **CONTINUE** resumes the classic encounters.
 
 The arena is fixed: `bavkghround.webp` is cover-cropped at a 72% vertical focal point. The villain stays one size and roams the arena between waypoints, breaking into a faster dodge for a moment each time you take a shot at it — so the weak spot moves and you have to track it. The background and camera stay still.
 
