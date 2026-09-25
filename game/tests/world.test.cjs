@@ -86,7 +86,7 @@ test('City: every building stands inside its block, off the sidewalk',()=>{
 });
 test('City: the spawn point is on a tall open roof',()=>{
   const s=city.spawn,b=city.buildings.find(x=>x.id===s.building),top=b.tiers[b.tiers.length-1];
-  assert.ok(s.x>top.x0+2&&s.x<top.x1-2&&s.z>top.z0+2&&s.z<top.z1-2,'spawn is not over the roof');
+  assert.ok(s.x>top.x0+1&&s.x<top.x1-1&&s.z>top.z0+1&&s.z<top.z1-1,'spawn is not over the roof');
   assert.equal(s.y,top.y1);assert.ok(s.y>150,'the spawn roof is not tall');
   assert.deepEqual(solidAt(city,s.x,s.z,s.y,s.y+1.8,.5),[],'something is in the way on the spawn spot');
   // And you stay there: gravity puts you on the roof, not through it.

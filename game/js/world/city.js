@@ -396,6 +396,10 @@
     part('crane', mx - 14, mx - 1, mastTop, mastTop + 1.6, mz - 1, mz + 1, { collide: false });
     part('counterweight', mx - 14, mx - 9, mastTop - 3, mastTop, mz - 1.4, mz + 1.4, { collide: false });
     part('cabin', mx + 1.2, mx + 3.6, mastTop - 3, mastTop, mz - 1.2, mz + 1.2, { collide: false });
+    // Everything above was laid out from the ground up; the block is a kerb-high
+    // slab, so stand it all on top of that.
+    parts.forEach(function (p) { p.y0 = round2(p.y0 + L.CURB); p.y1 = round2(p.y1 + L.CURB); });
+    frame.base = L.CURB;
     return { rect: r, ground: g, frame: frame, parts: parts, crane: crane, gate: { x: round2(gate), z: round2(fz1) } };
   }
 
@@ -487,6 +491,9 @@
     var spawnBlock = blockRect(L.SPAWN.i, L.SPAWN.j), spawnInner = inset(spawnBlock, L.SIDEWALK);
     var spawnLot = { x0: spawnInner.x0, x1: round2(spawnInner.x0 + 40), z0: spawnInner.z0, z1: spawnInner.z1 };
     var spawnCentre = { x: (spawnLot.x0 + spawnLot.x1) / 2, z: (spawnLot.z0 + spawnLot.z1) / 2 };
+    // You start in the roof's north-east corner, just inside the parapet, so
+    // the streets below are in view and not hidden behind it.
+    var spawnAt = { x: spawnLot.x1 - 1.8, z: spawnLot.z0 + 1.8 };
     var landmarkAt = {};
     LANDMARKS.forEach(function (lm) { landmarkAt[lm.i + ',' + lm.j] = lm; });
 
@@ -517,7 +524,7 @@
     }
 
     // Roofs: parapets on every tier, props on the top one.
-    var spawnClear = { x0: spawnCentre.x - 10, x1: spawnCentre.x + 10, z0: spawnCentre.z - 10, z1: spawnCentre.z + 10 };
+    var spawnClear = { x0: spawnAt.x - 12, x1: spawnAt.x + 12, z0: spawnAt.z - 12, z1: spawnAt.z + 12 };
     city.buildings.forEach(function (b) {
       b.tiers.forEach(function (t) { parapetsFor(t, TYPES[b.type].parapet, city.parapets); });
       if (b.spire) { city.props.push({ kind: 'spire', x0: b.spire.x - b.spire.r, x1: b.spire.x + b.spire.r,
@@ -528,7 +535,7 @@
     var spawnTower = city.buildings.filter(function (b) { return b.spawn; })[0];
     // Facing north-east: the park and the landmark towers ahead, the river on
     // your left - the opening shot of the second clip.
-    city.spawn = { x: round2(spawnCentre.x), y: spawnTower.height, z: round2(spawnCentre.z), yaw: -Math.PI / 4, building: spawnTower.id };
+    city.spawn = { x: round2(spawnAt.x), y: spawnTower.height, z: round2(spawnAt.z), yaw: -Math.PI / 4, building: spawnTower.id };
 
     city.park = park(rnd);
     var siteBlock = city.blocks.filter(function (b) { return b.kind === 'site'; })[0];

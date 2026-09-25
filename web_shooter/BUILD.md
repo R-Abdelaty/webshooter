@@ -95,15 +95,15 @@ is a named constant near the top of the sketch. Set `TUNE_MODE = true`, reflash,
 and it prints the detector's inputs next to each threshold 20 times a second:
 
 ```
-flick=842 (on>320 off<120) rise20ms=610 (>200) g=3.41 (>0.0) gx=-842 gy=35 gz=-60 yaw=12.3 pitch=-4.1
+flick=842 (on>260 off<120) rise20ms=610 (>150) g=3.41 (>0.0) gx=-842 gy=35 gz=-60 yaw=12.3 pitch=-4.1
 ```
 
 | Constant | Default | What it does |
 |---|---|---|
 | `FLICK_AXIS` | `0` (X) | The gyro axis the snap happens about. Flick while watching `gx= gy= gz=`: the one that spikes is it |
 | `FLICK_SIGN` | `0` (either) | `+1` or `-1` to accept only the direction your flick shows in TUNE_MODE, so an upward snap can't fire |
-| `FLICK_ON` | 320 °/s | Rate on the flick axis to fire. Raise it if it fires while you move about, lower it if you have to snap hard |
-| `FLICK_RISE_DPS` / `FLICK_RISE_MS` | 200 °/s in 20 ms | The rate must also have **risen** this fast. A flick hits full speed in ~30 ms; an aim swing takes ~100 ms to build even when it is fast. This is what stops fast aiming from firing |
+| `FLICK_ON` | 260 °/s | Rate on the flick axis to fire. Raise it if it fires while you move about, lower it if you have to snap hard |
+| `FLICK_RISE_DPS` / `FLICK_RISE_MS` | 150 °/s in 20 ms | The rate must also have **risen** this fast. A flick hits full speed in ~30 ms; an aim swing takes ~100 ms to build even when it is fast. This is what stops fast aiming from firing |
 | `FLICK_MIN_G` | 0 (off) | Optionally also require an acceleration spike, e.g. 2.5 g, if aiming still fires shots |
 | `FLICK_OFF` | 120 °/s | Must fall below this to re-arm |
 | `SHOT_COOLDOWN_MS` | 350 | Minimum time between shots. Raise it if one flick double-fires |

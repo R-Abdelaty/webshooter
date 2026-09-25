@@ -13,7 +13,7 @@
    'invert   horizontal='+(S.invertHorizontal?'yes':'no')+'  vertical='+(S.invertVertical?'yes':'no'),
    'packet   gx='+f(p&&p.gx)+'  gy='+f(p&&p.gy)+'  gz='+f(p&&p.gz)+(p&&p.flick?'  FLICK':''),
    c.angles
-    ?'angles   yaw='+f(c.yaw)+'  pitch='+f(c.pitch)+'  centre pitch='+f(c.centrePitch)+'   (soft dead zone '+Controller.SOFT_DEAD_DPS+' deg/s)'
+     ?'angles   yaw='+f(c.yaw)+'  pitch='+f(c.pitch)+'  centre pitch='+f(c.centrePitch)+'   (absolute yaw mapping)'
     :'rate     x='+f(c.rateX)+'  y='+f(c.rateY)+'   (soft dead zone '+Controller.SOFT_DEAD_DPS+' deg/s)',
    c.angles
     ?'drift    tracked on the device'
