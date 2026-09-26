@@ -333,6 +333,6 @@
   return at;
  }
 
- var api={create:create,center:center,reset:reset,resync:resync,markCentre:markCentre,steady:steady,offscreen:offscreen,display:display,forwardAxis:forwardAxis,soft:soft,OVERFLOW:OVERFLOW,STEADY_SECONDS:STEADY_SECONDS,aim:aim,shot:shot,clamp:clamp,delta:delta,FLICK_DPS:FLICK_DPS,SETTLE_DPS:SETTLE_DPS,SETTLE_MS:SETTLE_MS,SCREENS_PER_DPS:SCREENS_PER_DPS,SCREENS_PER_DEG:SCREENS_PER_DEG,VERTICAL_GAIN:VERTICAL_GAIN,SOFT_DEAD_DPS:SOFT_DEAD_DPS,BIAS_LEARN_LIMIT:BIAS_LEARN_LIMIT};
+ var api={create:create,center:center,reset:reset,resync:resync,markCentre:markCentre,steady:steady,offscreen:offscreen,display:display,renderDelay:renderDelay,forwardAxis:forwardAxis,soft:soft,OVERFLOW:OVERFLOW,STEADY_SECONDS:STEADY_SECONDS,aim:aim,shot:shot,clamp:clamp,delta:delta,FLICK_DPS:FLICK_DPS,SETTLE_DPS:SETTLE_DPS,SETTLE_MS:SETTLE_MS,SCREENS_PER_DPS:SCREENS_PER_DPS,SCREENS_PER_DEG:SCREENS_PER_DEG,VERTICAL_GAIN:VERTICAL_GAIN,SOFT_DEAD_DPS:SOFT_DEAD_DPS,BIAS_LEARN_LIMIT:BIAS_LEARN_LIMIT};
  if(typeof module!=='undefined')module.exports=api;root.Controller=api;
 })(typeof window==='undefined'?globalThis:window);
