@@ -21,7 +21,7 @@ You start on the roof of a 196 m tower by the river, looking north-east over a M
 | P | Frame rate, draw calls, position, and what the look is doing |
 | M | Model viewer (a debug tool): see *Character models* below |
 
-You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villain pictures are the PNGs in `assets/villains/`, copied into `js/world/villain-sprites.js` as data URIs because WebGL refuses images loaded from a `file://` page; after changing a PNG, run `node game/tools/embed-sprites.cjs`.
+You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villains are 3D models kept inside script files (see *Character models*).
 
 ### Looking with the wrist
 
@@ -38,13 +38,13 @@ The flick itself never moves the view. The web goes where the crosshair was just
 
 Three encounters, each placed somewhere in the city with a spot to fight it from, because until the shooter has a stick the wrist can't walk you anywhere. Starting one puts you there facing the action, with an **INTRO** card: **GO** starts it, **FREE ROAM** lets you wander instead, **MENU** leaves.
 
-1. **Green Goblin** (100 HP) glides in circles round the roof you start on, dipping and climbing. You fight from the middle of the roof, so he goes behind you: turn with him.
-2. **Rhino** (140 HP) charges up and down an avenue, turning round at each end and swerving across the lanes. You perch on the parapet of a low roof above it.
-3. **Venom** (180 HP) is at the construction site. First a wave of six masked thugs in black suits: half go down to one hit, half take two. Once they are all down Venom drops in and leaps from beam to beam of the steel frame. You fight from a shipping container in the yard.
+1. **Green Goblin** (100 HP) swoops in on his glider, taunts you, then circles the roof you start on, dipping, climbing and banking into his turns. You fight from the middle of the roof, so he goes behind you: turn with him.
+2. **Rhino** (140 HP) crashes down onto the avenue below and flexes, winds up, then charges up and down it: he speeds up, swerves across the lanes, skids to a stop at each end and turns round to charge back. You perch on the parapet of a low roof above it.
+3. **Venom** (180 HP) is at the construction site. First a wave of six masked thugs in black suits: half go down to one hit, half take two. Once they are all down Venom drops onto a beam from high above and roars, then leaps from beam to beam of the steel frame, crouching before each leap and landing facing the next one. You fight from a shipping container in the yard.
 
-The rules are the classic game's: each hit on the highlighted weak spot does 20 damage and moves the highlight to the next one (chest, head, shoulder), anything else does nothing, you can fire about three times a second, and you have **30 seconds** - which for Venom only start when he arrives; the thug wave is untimed. Every shot at the villain, hit or miss, makes it dodge: the Goblin veers and may reverse, the Rhino swerves, Venom leaps sooner.
+The rules are the classic game's: each hit on the highlighted weak spot does 20 damage and moves the highlight to the next one (chest, head, shoulder), anything else does nothing, you can fire about three times a second, and you have **30 seconds**, which start once the villain has made his entrance (the HUD says GET READY until then; he can't be hurt yet). The thug wave is untimed too. Every shot at the villain, hit or miss, makes it dodge, ducking away from the shot: the Goblin veers and may reverse, the Rhino swerves (and cuts his turn short), and Venom dashes sideways along his beam, or if he is already in the air, leaps on sooner.
 
-The villains are the classic game's pictures, standing at real size in the city and turned to face you. The weak spot to hit is a white ring with a red cross; the others show as faint dashed rings. A shot counts if it passes within 1.5 degrees of the weak spot, since a wrist is less steady than a mouse, but not through a wall. A hit flashes the view and shakes it, and a web sticks to the villain (or the thug, who topples over); a miss leaves a web wherever it lands, on the villain's body included. When what you should be shooting at is off the screen, a red arrow at the edge points the way to turn.
+The villains are animated 3D models at real size, and the weak spots are on their bodies: the chest, the head and a shoulder, following them as they move. The weak spot to hit is a white ring with a red cross; the others show as faint dashed rings. A shot counts if it passes within 1.5 degrees of the weak spot, since a wrist is less steady than a mouse, but not through a wall. A hit makes him flinch (and stagger on the last hit before the end), flashes the view and shakes it, and a web sticks to him and moves with him (or to the thug, who topples over); a miss leaves a web wherever it lands, on the villain's body included. When he is beaten he goes down - the Goblin is knocked off his glider, which spins away without him - before the VICTORY card comes up. When what you should be shooting at is off the screen, a red arrow at the edge points the way to turn.
 
 As in the classic game, a flicked shot is judged where you aimed just before the flick - including where the villain was then, so a dodge that starts during the flick doesn't make you miss.
 
@@ -54,7 +54,7 @@ The HUD shows the encounter, the villain's health (or the thugs left), the weak 
 
 ## Character models
 
-The villains are moving from flat pictures to rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). The fights still use the pictures for now. You can already look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino and Venom stand in a row in front of you at their real size, facing you. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
+The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If one can't be loaded, its fight still plays with the classic game's picture of it instead, and the console says so once. You can look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino and Venom stand in a row in front of you at their real size, facing you. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
 
 | Key | Does |
 | --- | --- |
@@ -66,7 +66,7 @@ The villains are moving from flat pictures to rigged, animated 3D models (see `d
 | / | Freeze the clips |
 | M | Close (it forms again in front of you next time) |
 
-A model loads only when it is first needed. One that can't load is reported once in the console and left out. The models are game rips kept for personal use only; don't publish them.
+The three villains load when the city is first built, so each fight's is ready by its GO. One that can't load is reported once in the console and left out. The models are game rips kept for personal use only; don't publish them.
 
 **Rebuilding the models** (for developers). The source files are in `assets-src/characters/` (Git LFS). `tools/blender/<id>.py` turns each one into `assets/models/<id>.glb`, and `assets/models/characters.json` says how the game uses them. One command compresses those and writes the scripts the page loads, `js/world/models/*.js`. These hold the models as base64, because a page opened from disk can't load files.
 
@@ -76,7 +76,7 @@ A model loads only when it is first needed. One that can't load is reported once
     node game/tools/build-models.cjs --sheets       also re-render docs/reference/clips/
     node game/tools/build-models.cjs --only venom   one character
 
-Blender is found through `BLENDER_PATH`, then `PATH`, then `C:\Program Files\Blender Foundation\`. After editing only `characters.json`, run `node game/tools/embed-models.cjs`. The Three.js loaders come from `vendor/three-addons.js` (see `vendor/README.md`).
+Blender is found through `BLENDER_PATH`, then `PATH`, then `C:\Program Files\Blender Foundation\`. After editing only `characters.json`, run `node game/tools/embed-models.cjs`. The fallback pictures are the PNGs in `assets/villains/`, kept as data URIs in `js/world/villain-sprites.js` (fetched only if a model fails); after changing a PNG, run `node game/tools/embed-sprites.cjs`. The Three.js loaders come from `vendor/three-addons.js` (see `vendor/README.md`).
 
 ## Training (3D)
 
