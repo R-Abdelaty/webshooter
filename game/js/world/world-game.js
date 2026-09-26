@@ -15,12 +15,14 @@
   var STRAND_MS = 220;             // how long the strand from the wrist to the hit shows
   var SHAKE = .012, SHAKE_MS = 260; // a hit's screen shake: radians, and how long it takes to settle
   var SAVE_KEY = 'ws.save3d.v1';
+  // How long the defeat (or the villain getting away) plays before its card.
+  var END_MS = { won: 1800, lost: 900 };
   var canvas = $('world-canvas'), fx = $('world-fx'), fxc = fx.getContext('2d'), cross = $('world-crosshair');
-  var world = null, city = null, spots = null, player = null, webs = null, actors = null, look = Look.create(), strands = [];
+  var world = null, city = null, spots = null, player = null, webs = null, actors = null, villains = null, look = Look.create(), strands = [];
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
   var mode = 'roam', fight = null, enc = null, range = null, shownEnd = null, endAt = 0, armed = false;
-  var shakeAt = -1e9, shakeAmp = 0, hud = {}, hooks = [];
+  var shakeAt = -1e9, shakeAmp = 0, hud = {}, hooks = [], modelShown = false, going = false;
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -36,6 +38,9 @@
     world = World3D.create(canvas, city);
     webs = WorldWebs.create(world.scene);
     actors = WorldActors.create(world.scene, allSpots());
+    // The villains' models, loaded now so each fight's is ready by its GO.
+    villains = WorldVillains.create(world.scene, world);
+    villains.preload();
     window.addEventListener('resize', function () { if (running) layout(); });
   }
   function layout() {
@@ -161,11 +166,24 @@
     if (a === 'menu') return quit();
     if (a === 'settings') return show($('settings'), true);
     if (a === 'roam') { webs.clear(); return enterRoam(false); }
+    if (a === 'go' && fight) return go();
     if (a === 'go' || a === 'resume') { if (fight) Fight.play(fight); return closeCard(); }
     if (a === 'retry') return enterFight(enc.index);
     if (a === 'next') return enterFight(enc.index < 2 ? enc.index + 1 : 0);
     if (a === 'train') return enterTraining();
     if (a.indexOf('fight') === 0) return enterFight(+a.slice(5));
+  }
+
+  // GO: the fight starts once its villain's model is in (it almost always
+  // already is); until then the button says so.
+  function go() {
+    var id = VILLAINS[fight.villain].id, f = fight;
+    if (villains.state(id) !== undefined) { Fight.play(fight); return closeCard(); }
+    if (going) return;
+    going = true;
+    var b = document.querySelector('#world-card-inner button[data-action="go"]');
+    if (b) b.textContent = 'LOADING…';
+    villains.ready(id).then(function () { going = false; if (fight === f && paused) { Fight.play(fight); closeCard(); } });
   }
 
   function pause() {
@@ -212,15 +230,20 @@
       if (range) Training3D.tick(range, dt);
       if (mode === 'roam') triggers();
     }
-    ending(now);
     var eye = Player.eye(player);
+    // The villain's model: its clips move on while the fight is played, and
+    // through its defeat even once the card is up. Its bones are sampled into
+    // the fight now, before the camera below records what this frame shows.
+    var animDt = !paused || (fight && (fight.mode === 'won' || fight.mode === 'lost')) ? dt : 0;
+    modelShown = villains.update(fight, animDt, eye, now);
+    ending(now);
     world.setFov(fov());
     world.update(dt, eye, player.yaw, player.pitch);
     shake(now);
     Look.record(look, deviceTime(c, now), camera());
     // Extras that draw into the world (the model viewer): (dt, now, paused).
     for (var h = 0; h < hooks.length; h++) hooks[h](paused ? 0 : dt, now, paused);
-    actors.drawFight(fight, VILLAINS, eye, now, fight && fight.mode === 'won' ? Math.max(0, 1 - (now - endAt) / 800) : 1);
+    actors.drawFight(fight, VILLAINS, eye, now, fight && fight.mode === 'won' ? Math.max(0, 1 - (now - endAt) / 800) : 1, modelShown);
     actors.drawTarget(range && range.target3, now);
     actors.showBeacons(mode === 'roam');
     cross.style.left = r.crosshair.x * 100 + '%'; cross.style.top = r.crosshair.y * 100 + '%';
@@ -243,15 +266,20 @@
     if (t.kind === 'range') enterTraining(); else enterFight(t.index);
   }
 
-  // The end of a fight: its card, once.
+  // The end of a fight: its card, once, after the villain's defeat (or his
+  // getaway roar) has had a moment to play.
   function ending(now) {
     if (!fight) return;
-    if (fight.mode === 'lost' && shownEnd !== 'lost') {
-      shownEnd = 'lost'; endAt = now; WSAudio.fail && WSAudio.fail();
+    if ((fight.mode === 'lost' || fight.mode === 'won') && shownEnd !== fight.mode && shownEnd !== fight.mode + '-card') {
+      shownEnd = fight.mode; endAt = now;
+      if (fight.mode === 'won') WSAudio.fanfare && WSAudio.fanfare(); else WSAudio.fail && WSAudio.fail();
+    }
+    if (shownEnd !== fight.mode || now - endAt < END_MS[fight.mode]) return;
+    shownEnd = fight.mode + '-card';
+    if (fight.mode === 'lost') {
       card('defeat', 'DEFEAT', 'Out of time. ' + VILLAINS[enc.villain].name + ' got away.', [['RETRY', 'retry'], ['FREE ROAM', 'roam'], ['MENU', 'menu']]);
     }
-    if (fight.mode === 'won' && shownEnd !== 'won') {
-      shownEnd = 'won'; endAt = now; WSAudio.fanfare && WSAudio.fanfare();
+    if (fight.mode === 'won') {
       var lastOne = enc.index >= 2;
       card(lastOne ? 'city-saved' : 'victory', lastOne ? 'CITY SAVED' : 'VICTORY',
         lastOne ? 'The city is safe!' : 'One villain down. The city still needs you.',
@@ -297,13 +325,19 @@
     if (fight) {
       var r = Fight.fire(fight, VILLAINS, shot, cam.seen);
       out.hit = r.hit; out.kind = r.kind;
-      // Webs on the villain are placed on the sprite as it is drawn now: a
-      // rewound shot was judged where it was, but it has moved on since.
-      var bbNow = fight.at && Fight.billboard(fight, VILLAINS, Player.eye(player));
+      // Webs on the villain are placed on him as he is drawn now - on the
+      // model, stuck to the bone under the spot - since a rewound shot was
+      // judged where he was, and he has moved on since.
+      var bbNow = !modelShown && fight.at && Fight.billboard(fight, VILLAINS, Player.eye(player)), st;
       if (r.hit && r.kind === 'villain') {
-        var spot = Fight.weakSpots(fight, VILLAINS, Player.eye(player)).filter(function (w) { return w.name === r.spot.name; })[0] || r.spot;
-        if (bbNow) webs.add(spot, bbNow.normal, dist(cam.eye, spot), now, actors.villainAnchor(), r.spot.r * 3.2);
-        end = spot; actors.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
+        st = modelShown && villains.stickSpot(fight, r.spot.name, cam.eye);
+        if (st) { webs.add(st.point, st.normal, dist(cam.eye, st.point), now, st.parent, st.size); end = st.point; }
+        else {
+          var spot = Fight.weakSpots(fight, VILLAINS, Player.eye(player)).filter(function (w) { return w.name === r.spot.name; })[0] || r.spot;
+          if (bbNow) webs.add(spot, bbNow.normal, dist(cam.eye, spot), now, actors.villainAnchor(), r.spot.r * 3.2);
+          end = spot;
+        }
+        actors.flash(now); villains.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
         WSAudio.crunch();
       } else if (r.hit) {
         webs.add(r.point, back(dir), dist(cam.eye, r.point), now, actors.thugAnchor(r.thug), .9);
@@ -311,8 +345,10 @@
         WSAudio.crunch(); if (r.down && WSAudio.impact) WSAudio.impact();
       } else {
         // A miss can still land on the villain - just not on the weak spot.
-        var body = fight.phase === 'villain' ? Fight.bodyHit(Fight.billboard(fight, VILLAINS, cam.eye, cam.seen && cam.seen.villain), cam.eye, dir) : null;
-        if (body && body.distance < shot.blocked && bbNow) {
+        var body = r.body;
+        st = body && body.capsule !== undefined && modelShown && villains.stickBody(fight, body.capsule, body.t, cam.eye);
+        if (st) { webs.add(st.point, st.normal, body.distance, now, st.parent, st.size); end = st.point; }
+        else if (body && body.u !== undefined && bbNow) {
           var on = Fight.onSprite(bbNow, body.u, body.v);
           webs.add(on, bbNow.normal, body.distance, now, actors.villainAnchor());
           end = on;
@@ -357,7 +393,7 @@
   var camPos = new THREE.Vector3();
   function goal() {
     if (fight && fight.mode === 'playing') {
-      if (fight.phase === 'villain') return fight.at && { x: fight.at.x, y: fight.at.y + VILLAINS[enc.villain].height / 2, z: fight.at.z };
+      if (fight.phase !== 'thugs') return fight.at && { x: fight.at.x, y: fight.at.y + VILLAINS[enc.villain].height / 2, z: fight.at.z };
       var eye = Player.eye(player), best = null;
       fight.thugs.forEach(function (t) { if (!t.down && (!best || dist(eye, t) < dist(eye, best))) best = t; });
       return best && Fight.thugSphere(best);
@@ -400,6 +436,10 @@
         put('world-info', 'THUGS · ' + left + ' LEFT');
         bar(left / fight.thugs.length, true);
         put('world-timer', 'WAVE'); timerLow(false);
+      } else if (fight.phase === 'arrive') {
+        put('world-info', fight.health + ' / ' + fight.maxHealth + '  ·  GET READY');
+        bar(1, true);
+        put('world-timer', fight.timeLimit.toFixed(1) + 's'); timerLow(false);
       } else {
         var spot = v.targets[fight.targetIndex % v.targets.length].name, rem = Math.max(0, fight.timeLimit - fight.elapsed);
         put('world-info', fight.health + ' / ' + fight.maxHealth + (fight.mode === 'playing' ? '  ·  HIT THE ' + spot : ''));
@@ -484,6 +524,7 @@
     paused: function () { return paused; },
     saved: function () { try { var s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.chapter ? s.chapter : 0; } catch (_) { return 0; } },
     get mode() { return mode; }, get fight() { return fight; }, get range() { return range; }, get spots() { return spots; },
-    get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; }
+    get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
+    get villains() { return villains; }
   };
 })();

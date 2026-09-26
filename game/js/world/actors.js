@@ -1,9 +1,12 @@
 (function (root) {
   'use strict';
-  // Draws what fight.js and training3d.js describe: the villain as a sprite
-  // that turns to face you, glowing markers on its weak spots, the masked
-  // thugs, the training target, and the light columns that mark where each
-  // fight starts when you are roaming. A handful of draw calls in all.
+  // Draws what fight.js and training3d.js describe: glowing markers on the
+  // villain's weak spots, the masked thugs, the training target, and the
+  // light columns that mark where each fight starts when you are roaming. A
+  // handful of draw calls in all. The villains themselves are animated models
+  // (villain-view.js); only if one can't be loaded is it drawn here, as the
+  // old sprite that turns to face you - whose pictures (villain-sprites.js,
+  // 1.7 MB) are only fetched then.
 
   var T = root.THREE;
   var BEACON_H = 260;
@@ -16,6 +19,9 @@
   // glow round it. The ring is RING of the texture's half-width, so a sprite
   // of size r / RING shows a ring of radius r.
   var RING = .62;
+  // A marker's ring is at least this wide on screen (radians of radius), so a
+  // weak spot the size of a head still shows at the Rhino's 25 metres.
+  var MIN_MARK = .6 * Math.PI / 180;
   function markTexture(kind) {
     var S = 128, c = canvas(S, S), g = c.getContext('2d'), m = S / 2, r = m * RING;
     if (kind === 'current') {
@@ -58,23 +64,45 @@
   var COLORS = { suit: 0x17181b, white: 0xe9e6df, black: 0x050505 };
   var MAX_THUGS = 12;
 
+  // The sprite pictures, fetched the first time a sprite is needed.
+  var spritesLoading = null;
+  function spritePictures() {
+    if (root.VillainSprites) return Promise.resolve(root.VillainSprites);
+    if (!spritesLoading) spritesLoading = new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = 'js/world/villain-sprites.js';
+      s.onload = function () { resolve(root.VillainSprites || {}); };
+      s.onerror = function () { resolve({}); };
+      document.head.appendChild(s);
+    });
+    return spritesLoading;
+  }
+
   function create(scene, spots) {
     var group = new T.Group(); scene.add(group);
-    var loader = new T.TextureLoader(), sprites = root.VillainSprites || {};
+    var loader = new T.TextureLoader();
     var plane = new T.PlaneGeometry(1, 1); plane.translate(0, .5, 0);
 
-    // One sprite per villain; only the one being fought is shown. The group
-    // turns to face you and is what webs stick to; the scaled mesh inside it
-    // is the picture.
+    // The fallback: one sprite per villain, made the first time it is needed;
+    // only the one being fought is shown. The group turns to face you and is
+    // what webs stick to; the scaled mesh inside it is the picture.
     var villains = (root.VILLAINS || []).map(function (v) {
-      var map = loader.load(sprites[v.id] || v.sprite); map.colorSpace = T.SRGBColorSpace;
-      var mat = new T.MeshBasicMaterial({ map: map, transparent: true, alphaTest: .4, side: T.DoubleSide, toneMapped: false });
+      var mat = new T.MeshBasicMaterial({ transparent: true, alphaTest: .4, side: T.DoubleSide, toneMapped: false, visible: false });
       var mesh = new T.Mesh(plane, mat), g = new T.Group();
       mesh.scale.set(v.height * v.aspect, v.height, 1); mesh.renderOrder = 1;
       g.rotation.order = 'YXZ'; g.add(mesh); g.visible = false; group.add(g);
-      return { group: g, mesh: mesh, mat: mat };
+      return { group: g, mesh: mesh, mat: mat, data: v, asked: false };
     });
+    function picture(v) {
+      if (v.asked) return;
+      v.asked = true;
+      spritePictures().then(function (pics) {
+        var map = loader.load(pics[v.data.id] || v.data.sprite); map.colorSpace = T.SRGBColorSpace;
+        v.mat.map = map; v.mat.visible = true; v.mat.needsUpdate = true;
+      });
+    }
     var shown = null, flashAt = -1e9;
+    var toEye = new T.Vector3();
 
     var texCurrent = markTexture('current'), texOther = markTexture('other'), texPulse = markTexture('pulse');
     var marks = [0, 1, 2].map(function () { var s = sprite(texOther); group.add(s); return s; });
@@ -108,30 +136,38 @@
     });
 
     // --- per frame ---
-    // fight: a Fight state (or null); eye: where you are; now: ms.
-    function drawFight(fight, villainsData, eye, now, fade) {
-      var id = fight && fight.phase === 'villain' && fight.at ? fight.villain : null;
+    // fight: a Fight state (or null); eye: where you are; now: ms. model: the
+    // villain is drawn as its model (villain-view.js), so only its weak-spot
+    // markers are drawn here; otherwise it is the sprite, faded by `fade`.
+    function drawFight(fight, villainsData, eye, now, fade, model) {
+      var here = fight && fight.at && (fight.phase === 'villain' || fight.phase === 'arrive');
+      var id = here && !model ? fight.villain : null;
       villains.forEach(function (v, k) { v.group.visible = k === id; });
       shown = id;
-      var spots3 = id === null ? [] : root.Fight.weakSpots(fight, villainsData, eye);
-      marks.forEach(function (m, k) { m.visible = false; });
+      marks.forEach(function (m) { m.visible = false; });
       if (id !== null) {
         var bb = root.Fight.billboard(fight, villainsData, eye), v = villains[id];
+        picture(v);
         v.group.position.set(bb.at.x, bb.at.y, bb.at.z);
         v.group.rotation.set(-bb.tilt, Math.atan2(bb.normal.x, bb.normal.z), 0);
         // A hit flashes it bright; defeat fades it out.
         var f = Math.max(0, 1 - (now - flashAt) / 180);
         v.mat.color.setRGB(1 + f * 1.6, 1 + f * .5, 1 + f * .5);
         v.mat.opacity = fade === undefined ? 1 : fade;
-        if (fight.mode === 'playing') spots3.forEach(function (w, k) {
-          var m = marks[k], pulseK = w.current ? 1 + .1 * Math.sin(now / 120) : 1;
-          m.material.map = w.current ? texCurrent : texOther;
-          m.position.set(w.x + bb.normal.x * .08, w.y + bb.normal.y * .08, w.z + bb.normal.z * .08);
-          m.scale.setScalar(w.r / RING * pulseK * (w.current ? 1 : .9));
-          m.renderOrder = w.current ? 4 : 3;
-          m.visible = true;
-        });
       }
+      if (here && fight.mode === 'playing') root.Fight.weakSpots(fight, villainsData, eye).forEach(function (w, k) {
+        var m = marks[k], pulseK = w.current ? 1 + .1 * Math.sin(now / 120) : 1;
+        // On the side of the sphere facing you - on a model, its surface -
+        // and never so small on screen that it can't be seen.
+        toEye.set(eye.x - w.x, eye.y - w.y, eye.z - w.z);
+        var d = toEye.length(), r = Math.max(w.r, d * MIN_MARK);
+        toEye.multiplyScalar((model ? w.r * 1.25 + .05 : .08) / (d || 1));
+        m.material.map = w.current ? texCurrent : texOther;
+        m.position.set(w.x + toEye.x, w.y + toEye.y, w.z + toEye.z);
+        m.scale.setScalar(r / RING * pulseK * (w.current ? 1 : .9));
+        m.renderOrder = w.current ? 4 : 3;
+        m.visible = true;
+      });
       drawThugs(fight ? fight.thugs : [], eye, fight ? fight.time : 0);
     }
 
