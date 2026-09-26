@@ -6,18 +6,31 @@
   //
   //   LOW   about 720p worth of pixels, a small shadow map the villains
   //         don't cast into - a blob under them instead - and half the hit
-  //         particles. For a weak integrated GPU, or a big screen.
+  //         particles. The city ends at 1.5 km in a thicker haze, and there
+  //         are half the cars and walkers, drawn nearer. For a weak
+  //         integrated GPU, or a big screen.
   //   MED   the default, for an integrated GPU at 1080p: 1080p worth of
-  //         pixels, villains cast real shadows.
+  //         pixels, villains cast real shadows, the city reaches 3.2 km.
   //
   // Both have the colour grade (it is part of the tone mapping, so it is
   // free) and the canvas's own MSAA. There is no post chain: Session C4's
   // HIGH setting (SSAO, bloom, SMAA) ran at 20 fps on this laptop's
   // integrated GPU and the user removed it.
+  //
+  //   far, fog      the camera's far plane (m) and the haze's density; the
+  //                 haze hides the far plane
+  //   cars, people  how many of the city's cars and walkers exist (a share,
+  //                 Traffic's rank), how far away they are drawn (m) and at
+  //                 most how many at once; the traffic casts shadows where
+  //                 `cast` is on
 
   var TIERS = {
-    low: { name: 'low', pixels: 1280, shadow: 1024, grade: true, cast: false, blob: true, env: 64, particles: .5 },
-    med: { name: 'med', pixels: 1920, shadow: 2048, grade: true, cast: true, blob: false, env: 128, particles: 1 }
+    low: { name: 'low', pixels: 1280, shadow: 1024, grade: true, cast: false, blob: true, env: 64, particles: .5,
+      far: 1500, fog: .00125,
+      cars: { density: .5, range: 260, max: 110 }, people: { density: .5, range: 110, max: 70 } },
+    med: { name: 'med', pixels: 1920, shadow: 2048, grade: true, cast: true, blob: false, env: 128, particles: 1,
+      far: 3200, fog: .00068,
+      cars: { density: 1, range: 450, max: 300 }, people: { density: 1, range: 190, max: 200 } }
   };
   var DEFAULT = 'med';
   var MIN_RATIO = .5;          // never render at less than half the CSS pixels
@@ -26,8 +39,11 @@
   // saved before it was removed - is MED), as a copy.
   function tier(name) {
     var t = TIERS[String(name || '').toLowerCase()] || TIERS[DEFAULT];
-    return Object.assign({}, t);
+    return JSON.parse(JSON.stringify(t));
   }
+  // How much of what is at distance d the haze lets through (1 clear, 0
+  // gone), for FogExp2 of density `fog`.
+  function clarity(d, fog) { return Math.exp(-Math.pow(fog * d, 2)); }
 
   // The pixel ratio to render at for a canvas `cssWidth` CSS pixels wide on a
   // screen of device pixel ratio `dpr`: at most the tier's pixel width, and
@@ -49,7 +65,7 @@
   // Metres per shadow texel for a box and a tier.
   function texel(box, t) { return box.half * 2 / t.shadow; }
 
-  var api = { TIERS: TIERS, DEFAULT: DEFAULT, SHADOW: SHADOW, tier: tier, pixelRatio: pixelRatio, shadowBox: shadowBox, texel: texel,
+  var api = { TIERS: TIERS, DEFAULT: DEFAULT, SHADOW: SHADOW, tier: tier, pixelRatio: pixelRatio, shadowBox: shadowBox, texel: texel, clarity: clarity,
     names: function () { return Object.keys(TIERS); } };
   if (typeof module !== 'undefined') module.exports = api;
   root.Gfx = api;
