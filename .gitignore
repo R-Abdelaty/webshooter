@@ -19,3 +19,6 @@ __pycache__/
 
 # Dev dependencies (package.json): only for building vendor/three-addons.js and the models
 node_modules/
+
+# Intermediate compressed models; js/world/models/*.js hold the same bytes
+game/assets/models/dist/
