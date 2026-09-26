@@ -13,3 +13,6 @@ web_shooter/secrets.h
 
 # Editor/backup copies of sketches (the old one held a WiFi password)
 *.bak
+
+# Python bytecode from the Blender build scripts
+__pycache__/
