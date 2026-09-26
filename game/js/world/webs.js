@@ -26,14 +26,21 @@
       return { mesh: m, born: 0, size: 1 };
     }
 
-    // point and normal are THREE.Vector3s; distance is from the shooter.
-    function add(point, normal, distance, now) {
+    // point and normal are THREE.Vector3s (or plain {x, y, z}); distance is
+    // from the shooter. A parent (an Object3D that moves - a villain, a thug)
+    // carries the web with it; without one it stays where it landed.
+    var P = new T.Vector3(), N = new T.Vector3();
+    function add(point, normal, distance, now, parent, size) {
       var w = pool.length < MAX ? (pool.push(make()), pool[pool.length - 1]) : pool[n++ % MAX];
-      w.born = now; w.size = Math.max(SIZE_MIN, Math.min(SIZE_MAX, distance * SIZE_PER_M));
-      w.mesh.position.copy(point).addScaledVector(normal, LIFT);
-      q.setFromUnitVectors(Z, normal);
+      if (w.mesh.parent !== scene) scene.add(w.mesh);      // unstick it from whatever it was on
+      P.set(point.x, point.y, point.z); N.set(normal.x, normal.y, normal.z).normalize();
+      w.born = now; w.size = size || Math.max(SIZE_MIN, Math.min(SIZE_MAX, distance * SIZE_PER_M));
+      w.mesh.position.copy(P).addScaledVector(N, LIFT);
+      q.setFromUnitVectors(Z, N);
       spin.setFromAxisAngle(Z, Math.random() * Math.PI * 2);
       w.mesh.quaternion.copy(q).multiply(spin);
+      w.mesh.scale.setScalar(.05 * w.size);
+      if (parent) { parent.updateMatrixWorld(true); parent.attach(w.mesh); }
       w.mesh.visible = true;
       update(now);
     }
