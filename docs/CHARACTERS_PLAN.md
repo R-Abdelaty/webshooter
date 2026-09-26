@@ -504,3 +504,61 @@ and anything the next session must know._
     - Attach the glider by adding its `root` under the Goblin's `root`, as the viewer does.
     - Spawn the bomb at `ValveBiped.Bip01_R_Hand` on the `release` event.
     - Lower Venom by ~0.85 m while his leap clips play (see his manifest notes).
+- 2026-09-26 — **Session C2 done in code: all three fights use the real models and play to the end; still to be
+  played with the real shooter.** 141 tests pass (126 old, several rewritten, plus `villain-anim.test.cjs`).
+  - **User decision that overrides this plan: no targets on the villains.** Mid-session the user asked for no
+    weak-spot markers and for a hit *anywhere* on the villain to do the damage. So in the 3D fights a shot counts
+    if it meets any body capsule (torso, head, upper/lower arms and legs) or passes within the 1.5° aim-assist
+    cone of one; the cone opens in 4 steps (`Fight.constants.CONE_STEPS`) so the part nearest the shot's line is
+    the one hit. 20 damage, cooldown, the 30 s clock and the dodge are unchanged, and each villain still takes
+    its 2D number of hits. The rings and the HUD's "HIT THE ..." are gone. `targetIndex` still counts up inside
+    `Combat.judge` but nothing reads it. **CLASSIC (2D) still has its weak spots** — the user was told; ask
+    before changing it. The manifest's `weakSpots` (tuned, see below) are now unused by the game; the viewer
+    still draws them. Remove them, or use them for something like a head-shot bonus, if the user wants.
+  - **Manifest (`characters.json`).** Weak-spot offsets/radii were measured from the skinned vertices of each part
+    in the idle pose (checked in the viewer; they sat on chest, head and shoulder). Limbs are split at elbow and
+    knee (10 capsules each); a capsule may take a 4th element, an `[x, y, z]` offset past its second bone (the
+    head's reaches the crown); radii are measured limb thickness. `speeds` measured from the planted foot: Rhino
+    1.7/5.5, Venom 1.5/5.3 m/s. New `shoulders` (upper-arm pair, all three) and `airborne` (Venom: feet, ankle
+    0.17 m, the jump/descent clips). Samples now carry bone names. `Rig.rayBody`/`Rig.along` are new.
+  - **Fight logic (`fight.js`).** Judged against `s.body` (bone sample) or the snapshot's, so lag compensation
+    holds; the sprite path remains only as the fallback. New `arrive` phase before `villain`: an untimed
+    entrance, no damage, webs still stick (`ARRIVE`: Goblin 1.7 s roar, Rhino 3.3 s drop-in + flex, Venom 3.4 s
+    drop 14 m + land + roar); HUD says GET READY. `s.face` (0 = +z, positive = turning left) with turn rates;
+    `s.vel`, `s.turnRate`; `s.dodge = {n, side}` ('l'/'r'/null, the side away from the shot). Rhino states
+    turn → windup (first charge only) → run (ACCEL 12) → skid (DECEL 11, stops exactly at the end) → turn round
+    (0.9 s, sweeping past the player). Venom: crouch 0.23 s → leap → picks the beam after at take-off and turns to
+    it over the last 45% of the leap, so he lands facing it; dodge while perched = 1.8 m dash along a beam across
+    his view (`perches[i].beams`, new in `encounters.js`), in the air = leaps sooner.
+  - **`villain-anim.js` (new, tested)** turns fight state into clip commands (Goblin fly/fly_turn_l/r by yaw rate
+    plus bank/pitch; Rhino entrance, roar, turn_l/r, attack, speed-blended loco, skid; Venom descent_start/loop/
+    end, roar, leap_start at 0.6× so its take-off frame (0.14 s) lands on the crouch's end, leap_air, land 0.12 s
+    before touchdown; all: hit additive, hit_big when one hit is left, dodge_l/r by side, defeat held, roar on
+    time-out). `curve`/`bodyYaw`: every clip's shoulder-line yaw is sampled at load; each clip's average is taken
+    out of the root's yaw, and clips that swing > 1 rad (turns, roars, dodges) follow the whole curve — Venom's
+    idle stood 53° to his right, Rhino ~20°; now every clip faces within ~10° of `s.face` (measured). `lift` lowers
+    Venom so his lowest ankle rides the leap arc (verified: 0.17 m above it mid-air).
+  - **Render (`villain-view.js`, new).** Loads the three villains when the city is built; GO waits (button says
+    LOADING…) only if a model isn't in yet. A `craft` group per villain carries position, yaw, bank; the glider is
+    inside the Goblin's. Samples bones into `fight.body` before `Look.record`, so a snapshot holds the pose that
+    frame shows. Hit flash on cloned materials. Defeat: the Goblin tumbles and keeps falling to the floor below,
+    the glider detaches and spins away; VICTORY waits 1.8 s (DEFEAT 0.9 s) so it plays. Webs stick to the bone
+    under the hit (`webs.js` now cancels a parent's scale, for the Rhino's 2.1×). The Rhino is hidden during his
+    INTRO card (he drops in on GO). `villain-sprites.js` is no longer a page script: `actors.js` fetches it only
+    when a model fails (verified by forcing the Rhino to fail: one warning, sprite shown, hits count).
+  - **Verified** in headless Chrome on this PC's RTX 4070 (a DevTools driver in the session scratchpad, because
+    the app's pane was hidden and its screenshots were cropped/stale): each fight's entrance, run/skid/turn,
+    leap/land/dodge and defeat, captured as stills; all three fights won through the real `WorldGame.fire` with
+    body shots; hits on torso, head, forearm and calves each do 20, a shot 3 m beside does nothing. Also from
+    `file://` (Venom fight, all models load, no warnings). 1280×720: 130–164 fps, 29–60 draw calls, ~350–390k
+    triangles. CLASSIC still plays with its PNGs. No console errors beyond the known Three.js deprecation.
+  - **Not verified.** The real shooter (wrist aim at these sizes and speeds) — ask the user to play all three.
+    60 fps on MED at 1080p on an integrated GPU (no MED tier exists yet; C4). Foot slide at the Rhino's dodge
+    speed (12.8 m/s, run clip capped at 1.6×).
+  - **Constants to tune by feel.** `Fight.constants`: `ARRIVE`, `TURN`, `WINDUP`, `CHARGE_TURN`, `ACCEL`,
+    `DECEL`, `CROUCH`, `DASH`, `DASH_T`, `LAND_TURN`, `CONE_STEPS`. `VillainAnim.constants`: `TURN_ON/OFF`,
+    `BANK`, `BANK_MAX`, `LEAP_SPEED`/`TAKEOFF`, `LAND_LEAD`, `DROP_LEAD`, `TURNING`. `villain-view.js`: `BOB`,
+    `GLIDER_OFF`, `FLASH_MS`. `world-game.js`: `END_MS`. Capsule radii in the manifest set how generous a hit is.
+  - **For C3/C4.** The Goblin's bomb (`attack` + `release`) is still unused; no attacks at the player exist yet.
+    Rhino `stun`, `idle_fidget` and Venom's `cling_*`/`crawl_*` are unused (the crawl/cling poses are for walls,
+    not beam tops). The models are dark under the current light (Rhino especially); that is C4's.
