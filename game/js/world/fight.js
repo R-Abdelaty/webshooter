@@ -4,7 +4,7 @@
   // 20 damage a hit, the cooldown, the 30 second clock, the modes the cards
   // follow - intro, playing, paused, lost, won), with the 3D parts added:
   // where the villain is in the world, which way it faces and how it moves,
-  // where its weak spots are, and for Venom the wave of thugs that comes first.
+  // what of him a shot can hit, and for Venom the wave of thugs that comes first.
   //
   // A fight goes: (thugs, for Venom) -> arrive -> villain. The arrival is the
   // villain's entrance - the Goblin's taunt, the Rhino dropping onto the
@@ -12,14 +12,15 @@
   // the thug wave, it is untimed and he can't be hurt in it. The 30 seconds
   // start when it ends.
   //
-  // The villain is an animated model (world/villain-view.js draws it). Each
-  // frame the render side samples its bones into plain data - the weak-spot
-  // spheres and body capsules - and puts it in `s.body`; shots are judged
-  // against that, or against the one in a snapshot from when the player
-  // aimed. Without a model (the logged fallback) the villain is a flat sprite
-  // that turns to face you, and its weak spots are the ones in villains.js,
-  // placed on the sprite. Either way a shot is a ray, and it hits a sphere if
-  // it passes within the aim-assist cone of it (aim-assist.js).
+  // There are no targets on him: a shot that hits him anywhere does the 20
+  // damage. The villain is an animated model (world/villain-view.js draws
+  // it); each frame the render side samples its bones into plain data - body
+  // capsules that follow the limbs - and puts it in `s.body`. Shots are
+  // judged against that, or against the one in a snapshot from when the
+  // player aimed. Without a model (the logged fallback) he is a flat sprite
+  // that turns to face you, and a shot hits its rectangle. Either way a shot
+  // is a ray, and it counts if it passes within the aim-assist cone
+  // (aim-assist.js) of him, since a wrist is less steady than a mouse.
   //
   // No Three.js: world-game.js and villain-view.js draw what this says.
   // x east, z south, y up; `face` is the yaw the villain faces, with 0 facing
@@ -31,10 +32,10 @@
   var RigRef = need('Rig', './rig.js');
 
   var K = {
-    WEAK_R: .11,            // a sprite's weak spot radius, as a fraction of its height (the fallback)
     THUG_CHEST: 1.2, THUG_R: .5,   // a thug is one sphere, from his knees to his head
     THUG_PATROL: 1, THUG_SPEED: .6, // metres each way he paces, and how fast
     CENTRE: 1.2,            // metres above a villain's feet that count as his middle
+    CONE_STEPS: 4,          // a shot that misses him is retried with the aim-assist cone opened in this many steps
     // How long each entrance lasts: the length of the clips it plays (the
     // goblin's roar; the rhino's drop-in and flex; venom's drop, landing and roar).
     ARRIVE: { glider: 1.7, charge: 3.3, leap: 3.4 },
@@ -355,22 +356,6 @@
     var ox = (u - .5) * bb.w, oy = (1 - v) * bb.h;
     return { x: bb.at.x + bb.right.x * ox + bb.up.x * oy, y: bb.at.y + oy * bb.up.y, z: bb.at.z + bb.right.z * ox + bb.up.z * oy };
   }
-  // Every weak spot, with the one to hit now marked current: from the model's
-  // bones (s.body, or seen.body from a snapshot), or on the sprite if there is
-  // no model. Only once the entrance is over.
-  function weakSpots(s, villains, eye, seen) {
-    var at = seen ? seen.villain : s.at, body = seen ? seen.body : s.body;
-    if (!at || s.phase !== 'villain') return [];
-    var list = villains[s.villain].targets, cur = list[s.targetIndex % list.length].name;
-    if (body && body.spots && body.spots.length) return body.spots.map(function (w) {
-      return { name: w.name, x: w.x, y: w.y, z: w.z, r: w.r, bone: w.bone, current: w.name === cur };
-    });
-    var bb = billboard(s, villains, eye, at);
-    return list.map(function (t) {
-      var p = onSprite(bb, t.x, t.y);
-      return { name: t.name, x: p.x, y: p.y, z: p.z, r: K.WEAK_R * bb.h, current: t.name === cur };
-    });
-  }
   // Where a ray meets the sprite's rectangle (not its outline), or null.
   function bodyHit(bb, origin, dir) {
     if (!bb) return null;
@@ -385,19 +370,36 @@
     p.distance = t; p.u = side / bb.w + .5; p.v = 1 - up / bb.h;
     return p;
   }
-  // Where a shot that missed the weak spot lands on the villain, if it does:
-  // { capsule, t (along it), point, distance } on the model's body capsules,
-  // or { u, v, point, distance } on the sprite. Null if it misses him or the
-  // city is in the way.
+  // Where a shot meets the villain, if it does: { capsule, t (along it),
+  // point, distance } on the model's body capsules, or { u, v, point,
+  // distance } on the sprite. Each is widened by the aim-assist cone at its
+  // distance, so a shot just past his edge still counts. Null if it misses
+  // him or the city is in the way.
   function onBody(s, villains, shot, seen) {
     var at = seen ? seen.villain : s.at, body = seen ? seen.body : s.body, h = null;
+    var o = shot.origin, cone = Math.tan(Aim.TOLERANCE_DEG * Math.PI / 180);
     if (!at || s.phase === 'thugs') return null;
     if (body && body.capsules && body.capsules.length) {
-      var b = RigRef.rayBody(shot.origin, shot.dir, body.capsules);
+      // Straight through him first; failing that, the cone opened in steps,
+      // so the part of him nearest the line of the shot is the one it hits.
+      var dist = body.capsules.map(function (c) {
+        return Math.hypot((c.a.x + c.b.x) / 2 - o.x, (c.a.y + c.b.y) / 2 - o.y, (c.a.z + c.b.z) / 2 - o.z);
+      }), b = null;
+      for (var k = 0; k <= K.CONE_STEPS && !b; k++) {
+        b = RigRef.rayBody(o, shot.dir, body.capsules.map(function (c, i) { return { a: c.a, b: c.b, r: c.r + dist[i] * cone * k / K.CONE_STEPS }; }));
+      }
       if (b) h = { capsule: b.index, t: b.t, point: b.point, distance: b.distance };
     } else {
-      var p = bodyHit(billboard(s, villains, shot.origin, at), shot.origin, shot.dir);
-      if (p) h = { u: p.u, v: p.v, point: { x: p.x, y: p.y, z: p.z }, distance: p.distance };
+      var bb = billboard(s, villains, o, at);
+      if (bb) {
+        var m = Math.hypot(bb.centre.x - o.x, bb.centre.y - o.y, bb.centre.z - o.z) * cone * 2;
+        var big = Object.assign({}, bb, { w: bb.w + m, h: bb.h + m, at: { x: bb.at.x - bb.up.x * m / 2, y: bb.at.y - bb.up.y * m / 2, z: bb.at.z - bb.up.z * m / 2 } });
+        var p = bodyHit(big, o, shot.dir);
+        if (p) {
+          var u = Math.max(0, Math.min(1, (p.u - .5) * big.w / bb.w + .5)), v = Math.max(0, Math.min(1, 1 - ((1 - p.v) * big.h - m / 2) / bb.h));
+          h = { u: u, v: v, point: { x: p.x, y: p.y, z: p.z }, distance: p.distance };
+        }
+      }
     }
     return h && h.distance < (Number.isFinite(shot.blocked) ? shot.blocked : Infinity) ? h : null;
   }
@@ -424,11 +426,10 @@
   // --- a shot ---------------------------------------------------------------------
   // shot: { origin, dir (unit), blocked: how far the city is along the ray }
   // seen: a snapshot from when the player aimed, or nothing to use the present.
-  // Returns { accepted, hit, kind: 'thug' | 'villain', ... }; a villain shot
-  // that missed the weak spot but met him says where, as `body`.
+  // Returns { accepted, hit, kind: 'thug' | 'villain', ... }; a shot that met
+  // the villain says where, as `body` (and `point`).
   function fire(s, villains, shot, seen) {
     if (s.mode !== 'playing' || s.cooldownRemaining > 0) return { accepted: false };
-    var opts = { blocked: shot.blocked };
     if (s.phase === 'thugs') {
       s.cooldownRemaining = CombatRef.COOLDOWN; s.shots++;
       var idx = [], spheres = [];
@@ -437,7 +438,7 @@
         var was = seen && seen.thugs && seen.thugs[i];
         idx.push(i); spheres.push(thugSphere(was || t));
       });
-      var p = Aim.pick(shot.origin, shot.dir, spheres, opts);
+      var p = Aim.pick(shot.origin, shot.dir, spheres, { blocked: shot.blocked });
       if (!p) return { accepted: true, hit: false, kind: 'thug' };
       var t = s.thugs[idx[p.index]];
       t.hp--; t.hitAt = s.time; s.thugHits++;
@@ -452,20 +453,17 @@
       s.cooldownRemaining = CombatRef.COOLDOWN;
       return { accepted: true, hit: false, kind: 'villain', early: true, body: onBody(s, villains, shot, seen) };
     }
-    var at = (seen && seen.villain) || s.at;
-    var spot = weakSpots(s, villains, shot.origin, seen && seen.villain ? seen : null).filter(function (w) { return w.current; })[0];
-    var hit = spot ? Aim.pick(shot.origin, shot.dir, [spot], opts) : null;
-    var r = CombatRef.judge(s, !!hit);
+    var at = (seen && seen.villain) || s.at, body = onBody(s, villains, shot, seen);
+    var r = CombatRef.judge(s, !!body);
     if (!r.accepted) return r;
     if (s.mode === 'playing') dodge(s, at && awayFrom(s, shot, at));
-    r.kind = 'villain'; r.spot = spot;
-    if (hit) r.point = Aim.closest(shot.origin, shot.dir, spot);
-    else r.body = onBody(s, villains, shot, seen);
+    r.kind = 'villain'; r.body = body;
+    if (body) r.point = body.point;
     return r;
   }
 
   var api = { start: start, play: play, pause: pause, tick: tick, fire: fire, snapshot: snapshot,
-    billboard: billboard, onSprite: onSprite, weakSpots: weakSpots, bodyHit: bodyHit, onBody: onBody,
+    billboard: billboard, onSprite: onSprite, bodyHit: bodyHit, onBody: onBody,
     thugSphere: thugSphere, standing: standing, left: left, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Fight = api;

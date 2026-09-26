@@ -1,8 +1,7 @@
 (function (root) {
   'use strict';
-  // Draws what fight.js and training3d.js describe: glowing markers on the
-  // villain's weak spots, the masked thugs, the training target, and the
-  // light columns that mark where each fight starts when you are roaming. A
+  // Draws what fight.js and training3d.js describe: the masked thugs, the
+  // training target, and the light columns that mark where each fight starts when you are roaming. A
   // handful of draw calls in all. The villains themselves are animated models
   // (villain-view.js); only if one can't be loaded is it drawn here, as the
   // old sprite that turns to face you - whose pictures (villain-sprites.js,
@@ -15,13 +14,10 @@
   function canvas(w, h) { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
   function tex(c) { var t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; return t; }
 
-  // The target mark, as in the 2D game: a white ring with a red cross, and a
-  // glow round it. The ring is RING of the texture's half-width, so a sprite
-  // of size r / RING shows a ring of radius r.
+  // The training target's mark, as in the 2D game: a white ring with a red
+  // cross, and a glow round it. The ring is RING of the texture's half-width,
+  // so a sprite of size r / RING shows a ring of radius r.
   var RING = .62;
-  // A marker's ring is at least this wide on screen (radians of radius), so a
-  // weak spot the size of a head still shows at the Rhino's 25 metres.
-  var MIN_MARK = .6 * Math.PI / 180;
   function markTexture(kind) {
     var S = 128, c = canvas(S, S), g = c.getContext('2d'), m = S / 2, r = m * RING;
     if (kind === 'current') {
@@ -29,9 +25,6 @@
       g.strokeStyle = '#fff'; g.lineWidth = 7; g.beginPath(); g.arc(m, m, r, 0, Math.PI * 2); g.stroke();
       g.shadowBlur = 0; g.strokeStyle = '#e3262e'; g.lineWidth = 6; g.beginPath();
       g.moveTo(m - r, m); g.lineTo(m + r, m); g.moveTo(m, m - r); g.lineTo(m, m + r); g.stroke();
-    } else if (kind === 'other') {
-      g.strokeStyle = 'rgba(159,240,255,.75)'; g.lineWidth = 4; g.setLineDash([9, 7]);
-      g.beginPath(); g.arc(m, m, r * .8, 0, Math.PI * 2); g.stroke();
     } else {                          // the pulse ring round a training target
       g.strokeStyle = '#fff'; g.lineWidth = 4; g.beginPath(); g.arc(m, m, r * 1.45, 0, Math.PI * 2); g.stroke();
     }
@@ -102,10 +95,8 @@
       });
     }
     var shown = null, flashAt = -1e9;
-    var toEye = new T.Vector3();
 
-    var texCurrent = markTexture('current'), texOther = markTexture('other'), texPulse = markTexture('pulse');
-    var marks = [0, 1, 2].map(function () { var s = sprite(texOther); group.add(s); return s; });
+    var texCurrent = markTexture('current'), texPulse = markTexture('pulse');
     // The training target sits half a metre off a wall; drawn over it, so a
     // big far one isn't cut by the wall it is mounted on. It is only ever
     // placed where there is a clear line to it from the training roof.
@@ -137,14 +128,13 @@
 
     // --- per frame ---
     // fight: a Fight state (or null); eye: where you are; now: ms. model: the
-    // villain is drawn as its model (villain-view.js), so only its weak-spot
-    // markers are drawn here; otherwise it is the sprite, faded by `fade`.
+    // villain is drawn as its model (villain-view.js), so not here; otherwise
+    // it is the sprite, faded by `fade`.
     function drawFight(fight, villainsData, eye, now, fade, model) {
       var here = fight && fight.at && (fight.phase === 'villain' || fight.phase === 'arrive');
       var id = here && !model ? fight.villain : null;
       villains.forEach(function (v, k) { v.group.visible = k === id; });
       shown = id;
-      marks.forEach(function (m) { m.visible = false; });
       if (id !== null) {
         var bb = root.Fight.billboard(fight, villainsData, eye), v = villains[id];
         picture(v);
@@ -155,19 +145,6 @@
         v.mat.color.setRGB(1 + f * 1.6, 1 + f * .5, 1 + f * .5);
         v.mat.opacity = fade === undefined ? 1 : fade;
       }
-      if (here && fight.mode === 'playing') root.Fight.weakSpots(fight, villainsData, eye).forEach(function (w, k) {
-        var m = marks[k], pulseK = w.current ? 1 + .1 * Math.sin(now / 120) : 1;
-        // On the side of the sphere facing you - on a model, its surface -
-        // and never so small on screen that it can't be seen.
-        toEye.set(eye.x - w.x, eye.y - w.y, eye.z - w.z);
-        var d = toEye.length(), r = Math.max(w.r, d * MIN_MARK);
-        toEye.multiplyScalar((model ? w.r * 1.25 + .05 : .08) / (d || 1));
-        m.material.map = w.current ? texCurrent : texOther;
-        m.position.set(w.x + toEye.x, w.y + toEye.y, w.z + toEye.z);
-        m.scale.setScalar(r / RING * pulseK * (w.current ? 1 : .9));
-        m.renderOrder = w.current ? 4 : 3;
-        m.visible = true;
-      });
       drawThugs(fight ? fight.thugs : [], eye, fight ? fight.time : 0);
     }
 

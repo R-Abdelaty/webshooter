@@ -12,7 +12,6 @@ function aimAt(from,to){const d=Math.hypot(to.x-from.x,to.y-from.y,to.z-from.z);
 // A direction `deg` degrees off `dir`, turned about the vertical.
 function turned(dir,deg){const a=deg*DEG,c=Math.cos(a),s=Math.sin(a);return{x:dir.x*c+dir.z*s,y:dir.y,z:-dir.x*s+dir.z*c};}
 function shotAt(origin,point){return{origin,dir:aimAt(origin,point),blocked:Infinity};}
-const current=(s,eye)=>Fight.weakSpots(s,villains,eye).find(w=>w.current);
 // Knock every thug down with direct hits, waiting out the cooldown between shots.
 function clearThugs(s,eye){
   for(let n=0;n<40&&s.phase==='thugs';n++){
@@ -87,23 +86,26 @@ test('encounters: you can see the rhino\'s avenue, venom\'s beams and every thug
 
 // --- the fight rules -------------------------------------------------------------
 // A stand-in for what villain-view.js samples off a model's bones each frame:
-// weak spots on the chest, head and (left) shoulder, and a torso and a head
-// capsule, placed from where the villain stands and which way it faces.
+// a torso, a head and a leg capsule, placed from where the villain stands
+// and which way it faces.
 function pose(s){
   if(!s.at){s.body=null;return s;}
   const a=s.at,f={x:Math.sin(s.face),z:Math.cos(s.face)},L=Fight.left(s.face);
   const at=(up,fw,lf)=>({x:a.x+f.x*fw+L.x*lf,y:a.y+up,z:a.z+f.z*fw+L.z*lf});
-  const sp=(name,p,r,bone)=>Object.assign({name,r,bone},p);
-  s.body={spots:[sp('CHEST',at(1.4,.12,0),.22,'spine'),sp('HEAD',at(1.95,.05,0),.14,'head'),sp('SHOULDER',at(1.6,0,.42),.16,'upperarm_l')],
-    capsules:[{a:at(.9,0,0),b:at(1.75,0,0),r:.3,bones:['pelvis','neck']},{a:at(1.75,0,0),b:at(2.1,0,0),r:.15,bones:['neck','head']}]};
+  s.body={spots:[],capsules:[{a:at(.9,0,0),b:at(1.6,0,0),r:.3,bones:['pelvis','neck']},{a:at(1.75,0,0),b:at(2.1,0,0),r:.15,bones:['neck','head']},
+    {a:at(.9,0,.15),b:at(.1,0,.2),r:.12,bones:['thigh_l','foot_l']}]};
   return s;
 }
+// The middle of a capsule of the villain's body (the torso by default), with its radius.
+function middle(s,i){const c=s.body.capsules[i||0];return{x:(c.a.x+c.b.x)/2,y:(c.a.y+c.b.y)/2,z:(c.a.z+c.b.z)/2,r:c.r};}
 function step(s,dt){Fight.tick(s,dt);return pose(s);}
 // Tick through the villain's entrance, a frame at a time.
 function arrived(s){for(let n=0;n<400&&s.phase==='arrive';n++)step(s,1/30);return pose(s);}
 const playing=enc=>arrived(Fight.play(Fight.start(enc,levels)));
 const ang=(a,b)=>Math.abs(Math.atan2(Math.sin(a-b),Math.cos(a-b)));
 const yawTo=(a,b)=>Math.atan2(b.x-a.x,b.z-a.z);
+// Close in front of the villain, where the aim-assist cone is small.
+function closeEye(s,d){const f={x:Math.sin(s.face),z:Math.cos(s.face)};return{x:s.at.x+f.x*(d||6),y:s.at.y+1.4,z:s.at.z+f.z*(d||6)};}
 
 test('fight: each encounter keeps its 2D health, 20 damage, cooldown and 30 second clock',()=>{
   spots.fights.forEach((enc,i)=>{
@@ -121,8 +123,7 @@ test('fight: the entrance is untimed and he can\'t be hurt in it, but a web stil
   for(const enc of [goblin,rhino]){
     const s=pose(Fight.play(Fight.start(enc,levels))),eye=eyeAt(enc.vantage);
     assert.equal(s.phase,'arrive');assert.ok(s.at,enc.id+' is not there for his entrance');
-    assert.deepEqual(Fight.weakSpots(s,villains,eye),[],'no weak spots to aim at yet');
-    const r=Fight.fire(s,villains,shotAt(eye,s.body.spots[0]));
+    const r=Fight.fire(s,villains,shotAt(eye,middle(s)));
     assert.deepEqual([r.accepted,r.hit,r.early],[true,false,true]);
     assert.equal(s.health,levels[enc.level].health);assert.equal(s.shots,0);
     assert.ok(r.body&&r.body.capsule===0,'the web sticks to his body');
@@ -131,54 +132,40 @@ test('fight: the entrance is untimed and he can\'t be hurt in it, but a web stil
     step(s,.5);assert.ok(Math.abs(s.elapsed-.5)<.11,enc.id+' clock after the entrance: '+s.elapsed);
   }
 });
-test('fight: a hit on the current weak spot does 20 damage and advances to the next',()=>{
-  const s=playing(goblin),eye=eyeAt(goblin.vantage);
-  step(s,.5);
-  const names=[];
-  for(let n=0;n<3;n++){
-    const w=current(s,eye);names.push(w.name);
-    assert.equal(w.x,s.body.spots.find(b=>b.name===w.name).x,'weak spots come from the sampled bones');
-    const r=Fight.fire(s,villains,shotAt(eye,w));
-    assert.equal(r.accepted,true);assert.equal(r.hit,true,'hit '+n);assert.equal(r.kind,'villain');
-    assert.equal(s.health,100-20*(n+1));assert.equal(s.targetIndex,n+1);
-    assert.ok(r.point&&Math.hypot(r.point.x-w.x,r.point.y-w.y,r.point.z-w.z)<w.r+1e-9,'the web lands on the spot');
-    assert.equal(r.spot.bone,w.bone,'and knows which bone it is on');
+test('fight: a hit anywhere on him does 20 damage - body, head or leg - and says where it landed',()=>{
+  const s=playing(rhino);
+  step(s,.2);
+  const eye=closeEye(s);
+  [0,1,2].forEach((i,n)=>{
+    // High on the head and low on the leg: where they meet the torso, its
+    // rounded ends come first.
+    const c=s.body.capsules[i],tt=i===0?.5:.75,p={x:c.a.x+(c.b.x-c.a.x)*tt,y:c.a.y+(c.b.y-c.a.y)*tt,z:c.a.z+(c.b.z-c.a.z)*tt},r=Fight.fire(s,villains,shotAt(eye,p));
+    assert.deepEqual([r.accepted,r.hit,r.kind],[true,true,'villain'],'capsule '+i);
+    assert.equal(s.health,140-20*(n+1));
+    assert.equal(r.body.capsule,i,'it knows which part it hit');
+    assert.ok(Math.abs(r.body.t-tt)<.25,'where along it: '+r.body.t);
+    assert.ok(Math.hypot(r.point.x-p.x,r.point.y-p.y,r.point.z-p.z)<c.r+.2,'the web lands on him');
     step(s,Combat.COOLDOWN);
-  }
-  assert.deepEqual(names,villains[0].targets.map(t=>t.name),'weak spots go in the 2D order');
-  assert.equal(Fight.fire(s,villains,shotAt(eye,current(s,eye))).hit,true);
-  assert.deepEqual(Fight.fire(s,villains,shotAt(eye,current(s,eye))),{accepted:false},'no cooldown between shots');
+  });
+  assert.equal(Fight.fire(s,villains,shotAt(eye,middle(s))).hit,true);
+  assert.deepEqual(Fight.fire(s,villains,shotAt(eye,middle(s))),{accepted:false},'no cooldown between shots');
 });
-test('fight: hitting a weak spot that is not the current one, or missing, does no damage',()=>{
-  // Up close, so the other weak spots are well outside the current one's cone.
+test('fight: a shot just past his edge still counts (aim assist), one further off misses and does no damage',()=>{
   const s=playing(rhino);
   step(s,.2);
-  const f={x:Math.sin(s.face),z:Math.cos(s.face)},eye={x:s.at.x+f.x*6,y:s.at.y+1.6,z:s.at.z+f.z*6};
-  const other=Fight.weakSpots(s,villains,eye).find(w=>!w.current&&w.name==='SHOULDER');
-  let r=Fight.fire(s,villains,shotAt(eye,other));
-  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,140);assert.equal(s.targetIndex,0);
+  // Beside his middle, at chest height, well clear of his head and legs.
+  const eye=closeEye(s),mid=middle(s),to=aimAt(eye,mid),d=Math.hypot(mid.x-eye.x,mid.y-eye.y,mid.z-eye.z);
+  const edge=Math.asin(mid.r/d)/DEG,tol=AimAssist.TOLERANCE_DEG;
+  let r=Fight.fire(s,villains,{origin:eye,dir:turned(to,edge+tol+.4),blocked:Infinity});
+  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,140);assert.equal(r.body,null);
   step(s,Combat.COOLDOWN);
-  const w=current(s,eye),miss=aimAt(eye,w),edge=Math.asin(w.r/Math.hypot(w.x-eye.x,w.y-eye.y,w.z-eye.z))/DEG;
-  r=Fight.fire(s,villains,{origin:eye,dir:turned(miss,edge+AimAssist.TOLERANCE_DEG+.3),blocked:Infinity});
-  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,140);
-  assert.equal(s.shots,2);assert.equal(s.hits,0);
+  r=Fight.fire(s,villains,{origin:eye,dir:turned(aimAt(eye,middle(s)),edge+tol-.4),blocked:Infinity});
+  assert.deepEqual([r.accepted,r.hit],[true,true]);assert.equal(s.health,120);
+  step(s,Combat.COOLDOWN);
+  assert.equal(Fight.fire(s,villains,shotAt(eye,{x:eye.x,y:eye.y+100,z:eye.z})).hit,false,'a clean miss');
+  assert.equal(s.shots,3);assert.equal(s.hits,1);
 });
-test('fight: a miss that meets the body says which capsule it hit and how far along',()=>{
-  // Close up, so the chest's aim-assist cone doesn't reach down to the belly.
-  const s=playing(rhino);
-  step(s,.2);
-  const f={x:Math.sin(s.face),z:Math.cos(s.face)},eye={x:s.at.x+f.x*6,y:s.at.y+1.6,z:s.at.z+f.z*6};
-  const c=s.body.capsules[0],low={x:c.a.x+(c.b.x-c.a.x)*.1,y:c.a.y+(c.b.y-c.a.y)*.1,z:c.a.z+(c.b.z-c.a.z)*.1};
-  // Aim low on the belly: the current spot is the chest, so it's a miss - on him.
-  const r=Fight.fire(s,villains,{origin:eye,dir:aimAt(eye,low),blocked:Infinity});
-  assert.equal(r.hit,false);assert.ok(r.body,'the shot met his body');
-  assert.equal(r.body.capsule,0);assert.ok(r.body.t<.3,'low down: '+r.body.t);
-  step(s,Combat.COOLDOWN);
-  assert.equal(Fight.fire(s,villains,{origin:eye,dir:aimAt(eye,low),blocked:2}).body,null,'not through a wall');
-  step(s,Combat.COOLDOWN);
-  assert.equal(Fight.fire(s,villains,shotAt(eye,{x:eye.x,y:eye.y+100,z:eye.z})).body,null,'a clean miss');
-});
-test('fight: without a model (the fallback) the sprite faces you square on, and its weak spots are on it',()=>{
+test('fight: without a model (the fallback) the sprite faces you square on, and a shot anywhere on it hits',()=>{
   const s=playing(rhino),eye=eyeAt(rhino.vantage);
   s.body=null;
   assert.ok(Fight.billboard(s,villains,eye).tilt>.6,'from the roof the sprite should tip back');
@@ -188,21 +175,20 @@ test('fight: without a model (the fallback) the sprite faces you square on, and 
     const off=Math.acos(Math.min(1,to.x*bb.normal.x+to.y*bb.normal.y+to.z*bb.normal.z))/DEG;
     assert.ok(off<3,'the sprite is '+off.toFixed(1)+' degrees off facing the eye');
     assert.ok(Math.abs(bb.at.y-s.at.y)<1e-12,'its feet left the ground');
-    const list=Fight.weakSpots(s,villains,eye);
-    assert.equal(list.length,3);
-    list.forEach((w,k)=>{
-      const p=Fight.bodyHit(bb,eye,aimAt(eye,w)),t=villains[1].targets[k];
-      assert.ok(p&&Math.abs(p.u-t.x)<1e-9&&Math.abs(p.v-t.y)<1e-9,'weak spot '+t.name+' is off the sprite');
-    });
   }
-  const w=current(s,eye);Fight.tick(s,Combat.COOLDOWN);s.body=null;
-  assert.equal(Fight.fire(s,villains,shotAt(eye,w)).hit,true,'and they can be hit');
+  const bb=Fight.billboard(s,villains,eye),low=Fight.onSprite(bb,.3,.85);
+  let r=Fight.fire(s,villains,shotAt(eye,low));
+  assert.equal(r.hit,true,'low on the sprite counts');
+  assert.ok(Math.abs(r.body.u-.3)<.02&&Math.abs(r.body.v-.85)<.02,'and says where: '+r.body.u+', '+r.body.v);
+  Fight.tick(s,Combat.COOLDOWN);s.body=null;
+  const bb2=Fight.billboard(s,villains,eye),far=Fight.onSprite(bb2,2.5,.5);
+  assert.equal(Fight.fire(s,villains,shotAt(eye,far)).hit,false,'well to the side of it misses');
 });
-test('fight: a weak spot behind a wall cannot be hit through it',()=>{
-  const s=playing(goblin),eye=eyeAt(goblin.vantage),w=current(s,eye);
+test('fight: he cannot be hit through a wall',()=>{
+  const s=playing(goblin),eye=eyeAt(goblin.vantage),w=middle(s);
   const d=Math.hypot(w.x-eye.x,w.y-eye.y,w.z-eye.z);
   const r=Fight.fire(s,villains,{origin:eye,dir:aimAt(eye,w),blocked:d/2});
-  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,100);
+  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,100);assert.equal(r.body,null);
 });
 test('fight: being shot at makes it dodge, faster than it drifts, and says which side it went',()=>{
   for(const enc of [goblin,rhino]){
@@ -318,7 +304,7 @@ test('fight: pausing holds everything exactly where it was, and resuming carries
     const s=enc.thugs?Fight.play(Fight.start(enc,levels)):playing(enc),eye=eyeAt(enc.vantage);
     step(s,1.3);
     if(enc.thugs)Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(s.thugs[1])));
-    else Fight.fire(s,villains,shotAt(eye,current(s,eye)));
+    else Fight.fire(s,villains,shotAt(eye,middle(s)));
     step(s,2.1);
     Fight.pause(s);assert.equal(s.mode,'paused');
     const held=JSON.stringify(s);
@@ -335,7 +321,6 @@ test('fight: pausing holds everything exactly where it was, and resuming carries
 test('fight: the thugs have to be cleared before venom shows, and his clock starts after his entrance',()=>{
   const s=Fight.play(Fight.start(venom,levels)),eye=eyeAt(venom.vantage);
   assert.equal(s.phase,'thugs');assert.equal(s.at,null,'venom is there before the thugs are down');
-  assert.equal(Fight.weakSpots(s,villains,eye).length,0);
   // Shooting where venom will perch does nothing to him.
   const q=venom.path.perches[0];
   Fight.fire(s,villains,shotAt(eye,{x:q.x,y:q.y+1.3,z:q.z}));
@@ -360,13 +345,13 @@ test('fight: the thugs have to be cleared before venom shows, and his clock star
   arrived(s);assert.equal(s.elapsed,0);assert.equal(s.health,180);
   step(s,2);
   assert.ok(s.elapsed>1.9&&s.elapsed<2.01,'the clock did not start after his entrance');
-  r=Fight.fire(s,villains,shotAt(eye,current(s,eye)));
+  r=Fight.fire(s,villains,shotAt(eye,middle(s)));
   assert.equal(r.hit,true);assert.equal(s.health,160);
 });
 test('fight: a shot is judged against the pose that was on screen when you aimed, not where it is now',()=>{
   const s=playing(goblin),eye=eyeAt(goblin.vantage);
   step(s,1);
-  const seen=Fight.snapshot(s),w=current(s,eye);
+  const seen=Fight.snapshot(s),w=middle(s);
   assert.equal(seen.body,s.body,'the snapshot keeps the sampled bones');
   step(s,.25);                                         // it has moved on since
   assert.ok(Math.hypot(s.at.x-seen.villain.x,s.at.z-seen.villain.z)>.8);
@@ -380,7 +365,7 @@ test('fight: five hits beat the goblin, and the rest of the fights need their 2D
     const s=Fight.play(Fight.start(enc,levels)),eye=eyeAt(enc.vantage);
     clearThugs(s,eye);arrived(s);
     let n=0;
-    while(s.mode==='playing'&&n<50){step(s,Combat.COOLDOWN);if(Fight.fire(s,villains,shotAt(eye,current(s,eye))).hit)n++;}
+    while(s.mode==='playing'&&n<50){step(s,Combat.COOLDOWN);if(Fight.fire(s,villains,shotAt(eye,middle(s))).hit)n++;}
     assert.equal(s.mode,'won',enc.id);assert.equal(n,levels[i].health/20);assert.equal(s.health,0);
   });
 });

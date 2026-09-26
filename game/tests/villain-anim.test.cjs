@@ -30,10 +30,10 @@ function run(enc){
 function clearThugs(s,eye){
   for(let n=0;n<40&&s.phase==='thugs';n++){const t=s.thugs.find(t=>!t.down);Fight.tick(s,Combat.COOLDOWN);Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(t)));}
 }
-// Stand-in weak spots, so the tests can land hits (villain-view.js samples real ones).
-function pose(s){const a=s.at;s.body={spots:['CHEST','HEAD','SHOULDER'].map((name,i)=>({name,x:a.x,y:a.y+1.2+i*.3,z:a.z,r:.3,bone:'b'})),capsules:[]};}
-function hitCurrent(r,eye){
-  pose(r.s);const w=Fight.weakSpots(r.s,villains,eye).find(w=>w.current);
+// A stand-in body, so the tests can land hits (villain-view.js samples real ones).
+function pose(s){const a=s.at;s.body={spots:[],capsules:[{a:{x:a.x,y:a.y+.9,z:a.z},b:{x:a.x,y:a.y+1.8,z:a.z},r:.3,bones:['a','b']}]};}
+function hitHim(r,eye){
+  pose(r.s);const w={x:r.s.at.x,y:r.s.at.y+1.35,z:r.s.at.z};
   Fight.tick(r.s,Combat.COOLDOWN);return Fight.fire(r.s,villains,shotAt(eye,w));
 }
 
@@ -42,9 +42,9 @@ test('anim: every clip asked for is one the model has',()=>{
     const r=run(enc),eye=eyeAt(enc.vantage);
     if(enc.thugs)clearThugs(r.s,eye);
     r.for(12);
-    for(let n=0;n<3;n++){hitCurrent(r,eye);r.for(1);}
+    for(let n=0;n<3;n++){hitHim(r,eye);r.for(1);}
     Fight.fire(r.s,villains,shotAt(eye,{x:0,y:-1e4,z:0}));r.for(2);
-    while(r.s.mode==='playing'){hitCurrent(r,eye);r.frame();}
+    while(r.s.mode==='playing'){hitHim(r,eye);r.frame();}
     r.for(1);
     for(const c of new Set(r.clips()))assert.ok(c==='loco'||c in CLIPS[enc.kind],enc.id+' asked for '+c);
     assert.equal(r.clips().at(-1),'defeat',enc.id+' should end on defeat');
@@ -107,7 +107,7 @@ test('anim: a dodge plays the side it went, a hit flinches, the last one before 
   const d=r.log.slice(n).map(e=>e.c);
   assert.deepEqual(d.filter(c=>/dodge/.test(c)),[r.s.dodge.side==='l'?'dodge_l':'dodge_r']);
   const clips=[];
-  while(r.s.mode==='playing'){n=r.log.length;const h=hitCurrent(r,eye);r.frame();if(h.hit)clips.push(r.log.slice(n).map(e=>e.c).filter(c=>/hit|defeat/.test(c)));}
+  while(r.s.mode==='playing'){n=r.log.length;const h=hitHim(r,eye);r.frame();if(h.hit)clips.push(r.log.slice(n).map(e=>e.c).filter(c=>/hit|defeat/.test(c)));}
   assert.deepEqual(clips,[['hit'],['hit'],['hit'],['hit_big'],['defeat']]);
   const def=r.log.find(e=>e.c==='defeat');assert.equal(def.opts.hold,true,'defeat holds its last frame');
 });
@@ -116,13 +116,22 @@ test('anim: running out of time, he roars',()=>{
   r.until(()=>r.s.mode==='lost',30*40);r.for(.2);
   assert.equal(r.clips().at(-1),'roar');
 });
-test('anim: a turn clip\'s own turning is measured so the root can take it back out',()=>{
-  const curves={turn_l:{duration:1,samples:[-1,-1,-.2,.5,.57]}};
-  assert.equal(VillainAnim.turnYaw([{clip:'idle',t:.5,w:1}],curves),0);
-  assert.ok(Math.abs(VillainAnim.turnYaw([{clip:'turn_l',t:1,w:1}],curves)-1.57)<1e-9,'the whole turn at its end');
-  assert.ok(Math.abs(VillainAnim.turnYaw([{clip:'turn_l',t:1,w:.5},{clip:'idle',t:0,w:.5}],curves)-.785)<1e-9,'half, cross-fading out');
-  assert.ok(Math.abs(VillainAnim.turnYaw([{clip:'turn_l',t:.375,w:1}],curves)-.4)<1e-9,'in between samples');
-  assert.equal(VillainAnim.turnYaw([{clip:'turn_l',t:1,w:1,additive:true}],curves),0);
+test('anim: which way each clip squares the chest is measured, so the root can take it back out',()=>{
+  const near=(a,b,m)=>assert.ok(Math.abs(a-b)<1e-9,m+': '+a+' vs '+b);
+  // A stance held 53 degrees to the right, and a turn of 90 degrees to the left from it.
+  const idle=VillainAnim.curve([-.92,-.93,-.92,-.91],2),turn=VillainAnim.curve([-.92,-.92,-.2,.5,.65],1);
+  assert.equal(idle.turning,false);assert.ok(Math.abs(idle.mean+.92)<.01,'the stance: its average');
+  assert.equal(turn.turning,true,'a clip that turns the body');
+  const curves={idle,turn_l:turn};
+  near(VillainAnim.bodyYaw([{clip:'idle',t:.7,w:1}],curves),idle.mean,'a stance counts as its average, whatever the time');
+  near(VillainAnim.bodyYaw([{clip:'turn_l',t:0,w:1}],curves),-.92,'a turn starts from its stance');
+  near(VillainAnim.bodyYaw([{clip:'turn_l',t:1,w:1}],curves),.65,'and follows the whole turn');
+  near(VillainAnim.bodyYaw([{clip:'turn_l',t:.625,w:1}],curves),.15,'in between samples');
+  near(VillainAnim.bodyYaw([{clip:'turn_l',t:1,w:.5},{clip:'idle',t:0,w:.5}],curves),(.65+idle.mean)/2,'weighted through a cross-fade');
+  near(VillainAnim.bodyYaw([{clip:'turn_l',t:1,w:1,additive:true},{clip:'other',t:0,w:1}],curves),0,'additive and unmeasured clips count for nothing');
+  const round=VillainAnim.curve([3,3.1,-3.1,-3],1);
+  assert.ok(round.samples.every((s,i)=>!i||Math.abs(s-round.samples[i-1])<.3),'unwrapped across 180 degrees: '+round.samples);
+  assert.equal(round.turning,false);
 });
 test('anim: a clip that lifts the feet is lowered to follow the arc, never raised',()=>{
   const clips=['leap_air','land'];

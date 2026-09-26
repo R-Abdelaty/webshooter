@@ -325,18 +325,8 @@
     if (fight) {
       var r = Fight.fire(fight, VILLAINS, shot, cam.seen);
       out.hit = r.hit; out.kind = r.kind;
-      // Webs on the villain are placed on him as he is drawn now - on the
-      // model, stuck to the bone under the spot - since a rewound shot was
-      // judged where he was, and he has moved on since.
-      var bbNow = !modelShown && fight.at && Fight.billboard(fight, VILLAINS, Player.eye(player)), st;
       if (r.hit && r.kind === 'villain') {
-        st = modelShown && villains.stickSpot(fight, r.spot.name, cam.eye);
-        if (st) { webs.add(st.point, st.normal, dist(cam.eye, st.point), now, st.parent, st.size); end = st.point; }
-        else {
-          var spot = Fight.weakSpots(fight, VILLAINS, Player.eye(player)).filter(function (w) { return w.name === r.spot.name; })[0] || r.spot;
-          if (bbNow) webs.add(spot, bbNow.normal, dist(cam.eye, spot), now, actors.villainAnchor(), r.spot.r * 3.2);
-          end = spot;
-        }
+        end = stickToVillain(r.body, cam.eye, now) || end;
         actors.flash(now); villains.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
         WSAudio.crunch();
       } else if (r.hit) {
@@ -344,15 +334,9 @@
         end = r.point; flash(.2); shakeAt = now; shakeAmp = SHAKE * (r.down ? .9 : .5);
         WSAudio.crunch(); if (r.down && WSAudio.impact) WSAudio.impact();
       } else {
-        // A miss can still land on the villain - just not on the weak spot.
-        var body = r.body;
-        st = body && body.capsule !== undefined && modelShown && villains.stickBody(fight, body.capsule, body.t, cam.eye);
-        if (st) { webs.add(st.point, st.normal, body.distance, now, st.parent, st.size); end = st.point; }
-        else if (body && body.u !== undefined && bbNow) {
-          var on = Fight.onSprite(bbNow, body.u, body.v);
-          webs.add(on, bbNow.normal, body.distance, now, actors.villainAnchor());
-          end = on;
-        } else if (hit) webs.add(hit.point, hit.normal, hit.distance, now);
+        // A miss - or a shot during his entrance, which still sticks to him.
+        var on = stickToVillain(r.body, cam.eye, now);
+        if (on) end = on; else if (hit) webs.add(hit.point, hit.normal, hit.distance, now);
         WSAudio.thunk();
       }
     } else if (range) {
@@ -366,6 +350,24 @@
     }
     strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now });
     return out;
+  }
+  // A web where a shot met the villain (Fight.fire's `body`), placed on him
+  // as he is drawn now - on the model, stuck to the bone under it - since a
+  // rewound shot was judged where he was, and he has moved on since. Returns
+  // where it went, or null.
+  function stickToVillain(body, from, now) {
+    if (!body) return null;
+    if (body.capsule !== undefined && modelShown) {
+      var st = villains.stickBody(fight, body.capsule, body.t, from);
+      if (st) { webs.add(st.point, st.normal, dist(from, st.point), now, st.parent, st.size); return st.point; }
+    }
+    var bb = !modelShown && fight.at && Fight.billboard(fight, VILLAINS, Player.eye(player));
+    if (bb && body.u !== undefined) {
+      var on = Fight.onSprite(bb, body.u, body.v);
+      webs.add(on, bb.normal, body.distance, now, actors.villainAnchor(), .9);
+      return on;
+    }
+    return null;
   }
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
   function back(d) { return { x: -d.x, y: -d.y, z: -d.z }; }
@@ -441,8 +443,8 @@
         bar(1, true);
         put('world-timer', fight.timeLimit.toFixed(1) + 's'); timerLow(false);
       } else {
-        var spot = v.targets[fight.targetIndex % v.targets.length].name, rem = Math.max(0, fight.timeLimit - fight.elapsed);
-        put('world-info', fight.health + ' / ' + fight.maxHealth + (fight.mode === 'playing' ? '  ·  HIT THE ' + spot : ''));
+        var rem = Math.max(0, fight.timeLimit - fight.elapsed);
+        put('world-info', fight.health + ' / ' + fight.maxHealth);
         bar(fight.health / fight.maxHealth, true);
         put('world-timer', rem.toFixed(1) + 's'); timerLow(rem <= 10);
       }

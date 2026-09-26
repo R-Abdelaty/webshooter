@@ -1,5 +1,5 @@
 {
-  "_about": "Game-ready character models built by game/tools/blender/*.py from game/assets-src/characters/. Units are metres; each model stands on y=0 facing +Z (glTF). The runtime scales each model root by `scale` (1 when omitted) to reach `height`: goblin and venom are exported at real size, rhino at his native 1.383 m. Clip names are the standard ones from docs/CHARACTERS_PLAN.md. Weak spots and body capsules follow bones (js/world/rig.js): a weak spot's offset is in metres along the bone's own axes (rotation only, so the rhino's scale doesn't stretch it) and its radius is in metres; a capsule runs between two bones' origins, or past the second by an optional [x, y, z] along its axes (the head's reaches the crown). Weak spots sit on the middle of the body part they name, with a radius about its half-thickness; capsule radii are the limb's measured thickness (Session C2, from the skinned vertices in the idle pose; check them with the model viewer, M in the 3D city). `airborne` (venom) names the clips that lift his feet off the ground in the clip itself: while they play, the model is lowered so his lowest ankle stays `ankle` metres above the point the fight moves him along. `speeds` are the ground speeds (m/s) at which walk and run look right, for blending them by speed without foot slide, measured from the planted foot in each clip. `hipLine` (left and right thigh) is how the game measures how far a clip turns the body by itself (the turn clips), so it can take that turn back out and turn him by code. Rebuild a model with: blender --background --factory-startup --python game/tools/blender/<id>.py",
+  "_about": "Game-ready character models built by game/tools/blender/*.py from game/assets-src/characters/. Units are metres; each model stands on y=0 facing +Z (glTF). The runtime scales each model root by `scale` (1 when omitted) to reach `height`: goblin and venom are exported at real size, rhino at his native 1.383 m. Clip names are the standard ones from docs/CHARACTERS_PLAN.md. Weak spots and body capsules follow bones (js/world/rig.js): a weak spot's offset is in metres along the bone's own axes (rotation only, so the rhino's scale doesn't stretch it) and its radius is in metres; a capsule runs between two bones' origins, or past the second by an optional [x, y, z] along its axes (the head's reaches the crown). Weak spots sit on the middle of the body part they name, with a radius about its half-thickness; capsule radii are the limb's measured thickness (Session C2, from the skinned vertices in the idle pose; check them with the model viewer, M in the 3D city). `airborne` (venom) names the clips that lift his feet off the ground in the clip itself: while they play, the model is lowered so his lowest ankle stays `ankle` metres above the point the fight moves him along. `speeds` are the ground speeds (m/s) at which walk and run look right, for blending them by speed without foot slide, measured from the planted foot in each clip. `shoulders` (left and right upper arm) is how the game measures which way each clip squares the chest: it takes out each clip's average (Venom's idle stands 53 degrees to his right) and, for clips that turn the body by themselves (the turn clips), the whole turn, so the villain faces exactly where the fight says. Rebuild a model with: blender --background --factory-startup --python game/tools/blender/<id>.py",
   "villains": {
     "goblin": {
       "file": "goblin.glb",
@@ -16,6 +16,7 @@
         }
       },
       "loops": ["idle", "fly", "fly_turn_l", "fly_turn_r"],
+      "shoulders": ["TreyarchBiped.Bip01_UpperArm_L", "TreyarchBiped.Bip01_UpperArm_R"],
       "events": {
         "attack": {
           "release_frame": 21,
@@ -48,7 +49,7 @@
       "scale": 2.0973,
       "loops": ["idle", "idle_fidget", "run", "walk"],
       "speeds": { "walk": 1.7, "run": 5.5 },
-      "hipLine": ["mixamorig:LeftUpLeg", "mixamorig:RightUpLeg"],
+      "shoulders": ["mixamorig:LeftArm", "mixamorig:RightArm"],
       "notes": "Clips are keyed at 25 fps (his source rate); durations in the file are right in seconds. run, walk, skid, turn_l/r, dodge_l/r, hit, hit_big, stun and defeat are retargeted from Venom (built the same way as Venom's own). idle, idle_fidget, entrance (drops in from above, lands), roar (flex) and attack (charge wind-up) are his own. All clips are in place except defeat, which falls back ~1 m.",
       "weakSpots": [
         { "name": "CHEST", "bone": "mixamorig:Spine2", "offset": [0, 0.16, -0.04], "radius": 0.34 },
@@ -73,7 +74,7 @@
       "height": 2.5,
       "loops": ["idle", "walk", "run", "leap_air", "cling_idle", "crawl_idle", "crawl_move", "descent_loop"],
       "speeds": { "walk": 1.5, "run": 5.3 },
-      "hipLine": ["thigh_l", "thigh_r"],
+      "shoulders": ["upperarm_l", "upperarm_r"],
       "notes": "All clips are in place (the root bone never moves). The jump clips lift the pelvis: leap_start rises from 0.92 m to 1.96 m and leap_air holds ~1.95 m, versus 1.13 m standing, so when he follows a leap arc in code, lower the model by ~0.85 m while leap_start/leap_air/land play. defeat is Dead_F (falls backwards ~1.3 m). hit is a short flinch toward the start of Knockout's recoil. dodge_l/r are his dash-leap, landed and settled back into idle (0.9 s), so move him sideways in code while they play. cling_*/crawl_* are for the steel frame's columns and beams; descent_* is his entrance from above.",
       "weakSpots": [
         { "name": "CHEST", "bone": "spine_04", "offset": [0.07, 0, 0.05], "radius": 0.28 },

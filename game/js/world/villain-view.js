@@ -3,14 +3,17 @@
   // The villains as animated models in the fights. world/fight.js says where
   // the villain is and which way it faces; villain-anim.js says which clips to
   // play; this places the model, plays them, and each frame samples its bones
-  // into plain weak spots and body capsules (fight.body), which is what shots
-  // are judged against - and what a snapshot keeps for lag compensation.
+  // into plain body capsules (fight.body), which is what shots are judged
+  // against - a hit anywhere on him counts - and what a snapshot keeps for
+  // lag compensation.
   //
   // Each villain stands in a `craft` group that carries its position, facing
   // and (for the Goblin, who rides his glider) bank. Inside it:
-  //  - the turn clips turn the body by themselves; that turn is measured once
-  //    per clip and taken back out of the craft's yaw, so the villain turns
-  //    exactly as fight.js says while the clip supplies the footwork;
+  //  - each clip squares the chest its own way (Venom's idle stands 53
+  //    degrees to his right; the turn clips turn the body by themselves);
+  //    that is measured once per clip from the shoulders and taken back out
+  //    of the craft's yaw, so the villain faces exactly where fight.js says
+  //    while the clip supplies the footwork;
   //  - Venom's jump clips lift his feet off the ground in the clip itself; the
   //    model is lowered so his feet follow the arc fight.js moves him along;
   //  - on defeat the Goblin tumbles off and keeps falling, and his glider
@@ -22,7 +25,7 @@
 
   var T = root.THREE;
   var IDS = ['goblin', 'rhino', 'venom'];
-  var TURN_CLIPS = ['turn_l', 'turn_r'], CURVE_N = 24;
+  var CURVE_N = 16;
   var FLASH_MS = 180, BOB = .06;
   var GLIDER_OFF = { speed: 9, up: 2.5, drag: .4, life: 4 };   // the glider leaving after his defeat
   var FALL_G = 9.8, FALL_OUT = 40;                           // the goblin falling after it
@@ -64,31 +67,27 @@
       });
       var e = rig.entry, durs = {};
       rig.clipNames.forEach(function (n) { durs[n] = rig.machine.clips[n]; });
-      return { id: id, rig: rig, craft: craft, mats: mats, clips: durs, curves: e.hipLine ? curves(rig, e.hipLine) : {},
+      return { id: id, rig: rig, craft: craft, mats: mats, clips: durs, curves: e.shoulders ? curves(rig, e.shoulders) : {},
         air: e.airborne || null, kind: null, glider: null };
     }
 
-    // How far each turn clip turns the hips on its own, sampled through it.
-    function curves(rig, hip) {
-      var out = {}, inv = new T.Matrix4(), a = new T.Vector3(), b = new T.Vector3();
-      TURN_CLIPS.forEach(function (c) {
-        var act = rig.actions[c], d = rig.machine.clips[c];
-        if (!act || !d) return;
-        var samples = [];
+    // Which way each clip squares the chest, sampled through it (VillainAnim.curve).
+    function curves(rig, sh) {
+      var out = {}, inv = new T.Matrix4(), a = new T.Vector3(), b = new T.Vector3(), L = rig.bone(sh[0]), R = rig.bone(sh[1]);
+      if (!L || !R) return out;
+      rig.clipNames.forEach(function (c) {
+        var act = rig.actions[c], d = rig.machine.clips[c], samples = [];
         for (var i = 0; i < CURVE_N; i++) {
           rig.clipNames.forEach(function (n) { rig.actions[n].enabled = false; });
           Object.keys(rig.addActions).forEach(function (n) { rig.addActions[n].enabled = false; });
           act.enabled = true; act.weight = 1; act.time = d * i / (CURVE_N - 1);
           rig.mixer.update(0); rig.root.updateMatrixWorld(true); inv.copy(rig.root.matrixWorld).invert();
-          a.setFromMatrixPosition(rig.bone(hip[0]).matrixWorld).applyMatrix4(inv);
-          b.setFromMatrixPosition(rig.bone(hip[1]).matrixWorld).applyMatrix4(inv);
-          // The model faces +z with its left towards +x: the hip line's yaw.
+          a.setFromMatrixPosition(L.matrixWorld).applyMatrix4(inv);
+          b.setFromMatrixPosition(R.matrixWorld).applyMatrix4(inv);
+          // The model faces +z with its left towards +x: the shoulder line's yaw.
           samples.push(Math.atan2(-(a.z - b.z), a.x - b.x));
         }
-        // Unwrap, so a turn past 180 degrees stays continuous.
-        for (var k = 1; k < samples.length; k++) while (samples[k] - samples[k - 1] > Math.PI) samples[k] -= 2 * Math.PI;
-        for (k = 1; k < samples.length; k++) while (samples[k] - samples[k - 1] < -Math.PI) samples[k] += 2 * Math.PI;
-        out[c] = { duration: d, samples: samples };
+        out[c] = VillainAnim.curve(samples, d);
       });
       rig.apply();
       return out;
@@ -132,7 +131,7 @@
 
       var c = it.craft, pose = Rig.pose(it.rig.machine);
       c.position.set(f.at.x, f.at.y, f.at.z);
-      c.rotation.set(out.pitch || 0, f.face - VillainAnim.turnYaw(pose, it.curves), out.roll || 0);
+      c.rotation.set(out.pitch || 0, f.face - VillainAnim.bodyYaw(pose, it.curves), out.roll || 0);
       if (f.mode === 'won' && !defeat) beaten(it, f, now);
       if (it.glider) glide(it, f, dt, now);
       if (defeat && defeat.fall) falling(it, dt);
@@ -197,15 +196,8 @@
     }
 
     // Where a web should stick on the model as it is drawn now, and to which
-    // bone, for a hit on weak spot `name`, or on body capsule `i` `t` of the
-    // way along it: on the surface facing the shooter.
-    function stickSpot(f, name, from) {
-      var it = active, s = f && f.body && f.body.spots.filter(function (w) { return w.name === name; })[0];
-      if (!it || !s) return null;
-      var n = unit(from.x - s.x, from.y - s.y, from.z - s.z);
-      return { point: { x: s.x + n.x * s.r * .85, y: s.y + n.y * s.r * .85, z: s.z + n.z * s.r * .85 }, normal: n,
-        parent: it.rig.bone(s.bone), size: s.r * 2.6 };
-    }
+    // bone, for a shot that met body capsule `i` `t` of the way along it: on
+    // the surface facing the shooter.
     function stickBody(f, i, t, from) {
       var it = active, c = f && f.body && f.body.capsules[i];
       if (!it || !c) return null;
@@ -220,7 +212,7 @@
     return {
       preload: preload, ready: ready, state: state, update: update,
       flash: function (now) { flashAt = now; },
-      stickSpot: stickSpot, stickBody: stickBody,
+      stickBody: stickBody,
       shown: function () { return !!(active && active.craft.visible); },
       clear: function () { reset(null); },
       get items() { return items; }

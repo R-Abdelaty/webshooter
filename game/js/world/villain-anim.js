@@ -14,9 +14,11 @@
   //   out.roll, out.pitch: the goblin's bank and climb, in radians
   //
   // Two pure helpers the render side uses each frame, given Rig.pose():
-  //   turnYaw(pose, curves)  how far a turn clip has turned the body itself,
-  //                          so the root can take that back out and the
-  //                          villain turns exactly as fight.js says
+  //   bodyYaw(pose, curves)  which way the pose squares the chest, relative to
+  //                          the model's front, so the root can take it back
+  //                          out and the villain faces exactly where fight.js
+  //                          says (Venom's idle stands 53 degrees off, and the
+  //                          turn clips turn the body by themselves)
   //   lift(pose, clips, lowest, ankle)  how far to lower a model whose clip
   //                          lifts its feet (Venom's jumps), so they follow
   //                          the arc the fight moves him along
@@ -31,6 +33,7 @@
     TAKEOFF: .14, LEAP_SPEED: .6,
     LAND_LEAD: .12,                 // seconds before touching down that land starts (its impact frame)
     DROP_LEAD: .17,                 // ...and descent_end, for venom's entrance
+    TURNING: 1,                     // a clip whose chest swings more than this (radians) turns the body itself
     GRAVITY: 9.8
   };
 
@@ -132,17 +135,28 @@
   }
 
   // --- helpers for the render side -------------------------------------------------
-  // curves: { clip: [yaw at evenly spaced times through the clip] }, the way a
-  // clip turns the body (its hips) by itself. Returns the weighted turn the
-  // pose shows now, from each clip's first frame.
-  function turnYaw(pose, curves) {
+  // A clip's chest yaw (its shoulder line's, relative to the model's front),
+  // sampled at evenly spaced times through it: unwrapped so a turn past 180
+  // degrees stays continuous, with its average, and whether the clip turns the
+  // body by itself (it swings more than TURNING).
+  function curve(samples, duration) {
+    var s = samples.slice(), i, sx = 0, sz = 0;
+    for (i = 1; i < s.length; i++) s[i] = s[i - 1] + wrap(s[i] - s[i - 1]);
+    s.forEach(function (a) { sx += Math.sin(a); sz += Math.cos(a); });
+    var lo = Math.min.apply(null, s), hi = Math.max.apply(null, s);
+    return { duration: duration, samples: s, mean: Math.atan2(sx, sz), turning: hi - lo > K.TURNING };
+  }
+  // Which way the pose squares the chest: each clip in it counts with its
+  // weight - its average yaw, or for a clip that turns the body, where the
+  // turn has got to. Additive clips don't count.
+  function bodyYaw(pose, curves) {
     var y = 0;
     (pose || []).forEach(function (p) {
       var c = curves && curves[p.clip];
-      if (!c || !c.samples || c.samples.length < 2 || p.additive) return;
+      if (!c || p.additive) return;
+      if (!c.turning || c.samples.length < 2) { y += p.w * c.mean; return; }
       var u = Math.max(0, Math.min(1, p.t / (c.duration || 1))) * (c.samples.length - 1), i = Math.min(c.samples.length - 2, Math.floor(u));
-      var v = c.samples[i] + (c.samples[i + 1] - c.samples[i]) * (u - i);
-      y += p.w * wrap(v - c.samples[0]);
+      y += p.w * (c.samples[i] + (c.samples[i + 1] - c.samples[i]) * (u - i));
     });
     return y;
   }
@@ -157,7 +171,7 @@
   }
   function wrap(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 
-  var api = { create: create, step: step, turnYaw: turnYaw, lift: lift, constants: K };
+  var api = { create: create, step: step, curve: curve, bodyYaw: bodyYaw, lift: lift, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.VillainAnim = api;
 })(typeof window === 'undefined' ? globalThis : window);
