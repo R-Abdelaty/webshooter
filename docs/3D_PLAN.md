@@ -243,3 +243,49 @@ real-hardware tuning, and anything the next session must know._
     nothing in the 3D world yet (Session 2).
   - **Known noise.** Console errors for `ws://webshooter.local:81` retries appear when no shooter is on the
     network. A 404 for `assets/theme.mp3` is the optional drop-in music file.
+- 2026-09-26 — **Session 2 done in code; tuning on the real shooter is still to do.** 82 tests pass (73 old + 9 new in
+  `game/tests/look.test.cjs`).
+  - **What exists.** `game/js/world/look.js` (UMD, no Three.js) is the look model. `Look.step()` takes
+    `Controller.display()`, the mode, TURN SPEED and flags (`frozen` for a flick, `hold` for a pause, `rebase` after
+    **C**), and returns yaw/pitch deltas for `Player.look` plus the crosshair position. `Look.record/cameraAt` keep
+    about 1 s of cameras. `Look.ray` is the shot direction. `world/webs.js` pools web-splat decals (one draw call
+    each, 24 at most). `World3D` gained `raycast`, `project` and `setFov`. `world-game.js` wires it together and
+    exposes `WorldGame.fire(at, p)` and `WorldGame.look`. `menu.js` sends flicks to `WorldGame.fire` while the world
+    is active and unpaused. It also stores `lookMode` ('edge'/'direct'), `turnSpeed` (1) and `fov` (75, vertical) in
+    `ws.settings.v2`. The PAUSED card has a SETTINGS button. The only change to `controller.js` is that
+    `renderDelay` is now exported.
+  - **How the pre-flick camera works.** Each frame is recorded against the *device* time whose aim it displayed:
+    `now - clockOff - renderDelay`, the same clock `display()` uses. A shot looks up `p.ms - 80`, which is the
+    firmware's `flickOnsetMs - PRE_FLICK_MS`, the time `preYaw/prePitch` come from. So the crosshair and the camera
+    are the pair that was on screen together. A click uses the current camera and crosshair.
+  - **Decisions to know about.** (1) The controller maps 250° of wrist to one screen, which puts a 60% box edge
+    75° away and is too far for a wrist. EDGE TURN therefore multiplies the controller's offset from centre by
+    `EDGE_GAIN_X` 2 and `EDGE_GAIN_Y` 1.3. With those, the box edge is about 37° sideways and 26° up at
+    sensitivity 1. (2) DIRECT's camera is an absolute function of the controller position (yaw from the change in
+    x, pitch from y), so it cannot drift. Sensitivity scales both axes. At sensitivity 1, pitch is 1:1 with the
+    wrist. (3) A turn in progress is frozen while the device flags a flick, and it resumes when the flick ends.
+    The few unflagged packets before the device detects the flick can still nudge an EDGE turn, but the shot
+    ignores that because it uses the rewound camera. (4) Moving the mouse while pointer-locked takes the look,
+    puts the wrist's aim back in the middle, and resumes from there when the wrist moves. (5) FOV is vertical,
+    like Session 1's 75.
+  - **Verified in the browser** with synthetic 100 Hz angle packets fed to the real controller. The measured
+    turn rate matches the curve: 0 at 30° of wrist, 13°/s at 45°, 69°/s at 55°, 135°/s at 62° and 140°/s past
+    it. The turn stops on return. DIRECT gives 40° of view for 20° of wrist, 25° of pitch for 25° of wrist, and
+    clamps at −75°. Flagged flick packets moved nothing in either mode. A shot fired 200 ms into a fast turn used
+    the camera from before the flick. Splats land under the crosshair on roofs and on facades 400 m away. The
+    centre dialog covers the 3D view, and the wrist does nothing until it is confirmed. Settings persist. CLASSIC
+    still plays. The console shows only the known WebSocket and `theme.mp3` noise.
+  - **Not verified.** The real wrist shooter, over WiFi and over USB: only synthetic packets were fed in, so
+    the "done when" (a full 360°, precise window aim, and a splat exactly where the crosshair was) still needs
+    the user. The `shoot` event routing in `menu.js` is a one-line change that I haven't exercised through a
+    real link. Pointer-lock mouselook still can't be checked in the app's pane.
+  - **Constants to tune on the hardware.** In `look.js` (`Look.constants`): `BOX_X/BOX_Y` .3, `RAMP_X/RAMP_Y` .2,
+    `CURVE` 2, `MAX_YAW` 140, `MAX_PITCH` 90, `EDGE_GAIN_X` 2, `EDGE_GAIN_Y` 1.3, `DIRECT_GAIN` 2,
+    `DIRECT_PITCH_GAIN` 1 and `INSET` .02. In `webs.js`: `SIZE_PER_M` .04, `SIZE_MIN` .7, `SIZE_MAX` 14 and `LIFE`
+    6000. In `world-game.js`: `RANGE` 1500 and `STRAND_MS` 220. The user-facing settings are SENSITIVITY, TURN
+    SPEED and FOV.
+  - **For Session 3.** A city raycast costs about 3 ms on this PC because it walks every instance of the
+    instanced meshes. That's fine for one per shot. If enemies need several per frame, prefilter with
+    `City.query` or test boxes directly. Aim-assist and weak-spot hits should use `Look.ray` with the rewound
+    `cam` from `WorldGame.fire`, then test spheres before (or instead of) the city raycast. Splats use
+    `depthWrite:false` and `renderOrder` 2, and can wrap oddly over a box corner.
