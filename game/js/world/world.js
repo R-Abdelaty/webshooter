@@ -127,9 +127,44 @@
 
     function render() { renderer.render(scene, camera); }
 
+    // The field of view is vertical, in degrees (Settings -> FOV).
+    function setFov(deg) {
+      if (!(deg > 0) || camera.fov === deg) return;
+      camera.fov = deg; camera.updateProjectionMatrix();
+    }
+
+    // The first surface of the city along a ray: buildings, ground, props,
+    // trees, water. The sky and clouds are not in the city group, so a shot
+    // into the sky finds nothing. Returns { point, normal, distance }.
+    var caster = new T.Raycaster(), rayO = new T.Vector3(), rayD = new T.Vector3(), nm = new T.Matrix3(), im = new T.Matrix4();
+    function raycast(origin, dir, far) {
+      rayO.set(origin.x, origin.y, origin.z); rayD.set(dir.x, dir.y, dir.z).normalize();
+      caster.set(rayO, rayD); caster.near = .05; caster.far = far || 1500;
+      var h = caster.intersectObject(built.group, true)[0];
+      if (!h) return null;
+      var n = h.face ? h.face.normal.clone() : new T.Vector3(0, 1, 0);
+      // The face normal is in the geometry's own space: carry it through the
+      // instance's matrix, then the object's.
+      if (h.instanceId !== undefined && h.object.isInstancedMesh) {
+        h.object.getMatrixAt(h.instanceId, im);
+        n.applyMatrix3(nm.getNormalMatrix(im));
+      }
+      n.applyMatrix3(nm.getNormalMatrix(h.object.matrixWorld)).normalize();
+      if (n.dot(rayD) > 0) n.negate();          // a face seen from behind: face the shooter
+      return { point: h.point.clone(), normal: n, distance: h.distance, object: h.object.name || h.object.type };
+    }
+
+    // A world point on the view, as fractions 0..1 from the top left, and
+    // whether it is in front of the camera.
+    var pv = new T.Vector3();
+    function project(p) {
+      pv.set(p.x, p.y, p.z).project(camera);
+      return { x: (pv.x + 1) / 2, y: (1 - pv.y) / 2, front: pv.z < 1 };
+    }
+
     resize();
     return { renderer: renderer, scene: scene, camera: camera, sun: sun, update: update, resize: resize, render: render,
-      info: renderer.info };
+      setFov: setFov, raycast: raycast, project: project, info: renderer.info };
   }
 
   root.World3D = { create: create, SUN_DIR: SUN_DIR };

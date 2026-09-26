@@ -221,6 +221,33 @@
     return t;
   }
 
+  // A web splat, drawn like the 2D game's: spokes out to a ragged rim and
+  // threads that sag inward between them, on a transparent ground.
+  function web(seed) {
+    var S = 256, c = canvas(S, S), g = c.getContext('2d'), r = rng(seed), R = S * .44, mid = S / 2, i, j;
+    var spokes = 12, rings = 5, P = [];
+    for (i = 0; i < spokes; i++) P.push({ ang: i / spokes * Math.PI * 2 + (r() - .5) * .28, len: .76 + r() * .24 });
+    g.strokeStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round';
+    g.shadowColor = 'rgba(255,255,255,.6)'; g.shadowBlur = R * .12;
+    g.lineWidth = R * .045; g.beginPath();
+    P.forEach(function (p) { g.moveTo(mid, mid); g.lineTo(mid + Math.cos(p.ang) * R * p.len, mid + Math.sin(p.ang) * R * p.len); });
+    g.stroke();
+    g.lineWidth = R * .032;
+    for (j = 1; j <= rings; j++) {
+      var t = j / rings; g.beginPath();
+      for (i = 0; i < spokes; i++) {
+        var a = P[i], b = P[(i + 1) % spokes], bAng = b.ang < a.ang ? b.ang + Math.PI * 2 : b.ang;
+        var r1 = R * a.len * t, r2 = R * b.len * t, m = (a.ang + bAng) / 2, cr = (r1 + r2) / 2 * (1 - .16 * (bAng - a.ang) * spokes / 6);
+        if (i === 0) g.moveTo(mid + Math.cos(a.ang) * r1, mid + Math.sin(a.ang) * r1);
+        g.quadraticCurveTo(mid + Math.cos(m) * cr, mid + Math.sin(m) * cr, mid + Math.cos(bAng) * r2, mid + Math.sin(bAng) * r2);
+      }
+      g.closePath(); g.stroke();
+    }
+    g.shadowBlur = 0; g.fillStyle = '#fff'; g.beginPath(); g.arc(mid, mid, R * .075, 0, Math.PI * 2); g.fill();
+    var tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    return tex;
+  }
+
   root.WorldTextures = { facade: facade, shopfront: shopfront, asphalt: asphalt, dirt: dirt, paving: paving, grass: grass,
-    bricks: bricks, plywood: plywood, concrete: concrete, waterNormals: waterNormals, cloud: cloud };
+    bricks: bricks, plywood: plywood, concrete: concrete, waterNormals: waterNormals, cloud: cloud, web: web };
 })(window);
