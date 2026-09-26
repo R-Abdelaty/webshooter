@@ -59,6 +59,11 @@ test('encounters: the same city always gives the same places',()=>{
   assert.deepEqual(spots.fights.map(f=>f.id),['goblin','rhino','venom']);
   assert.deepEqual(spots.fights.map(f=>f.level),[0,1,2]);
 });
+test('encounters: no intro card talks about weak spots - a hit anywhere on him counts',()=>{
+  for(const enc of spots.fights.concat([venomWave])){
+    assert.doesNotMatch(enc.intro,/weak/i,enc.id);assert.match(enc.intro,/anywhere|thugs/i,enc.id);
+  }
+});
 test('encounters: every vantage is a clear place to stand, and every trigger is on the street',()=>{
   for(const s of spots.fights.concat([spots.training])){
     const v=s.vantage;

@@ -138,7 +138,7 @@
       id: 'goblin', index: 0, level: 0, villain: 0, kind: 'glider',
       vantage: { x: spot.x, y: spot.y, z: spot.z, yaw: yaw, pitch: .06 },
       trigger: footOf(city, tower),
-      intro: 'He is circling your roof on his glider. Turn with him and hit the weak spots - he will dodge.',
+      intro: 'He is circling your roof on his glider. Turn with him and hit him anywhere - he veers away when you shoot.',
       path: { cx: spot.x, cz: spot.z, y: t.y1, r0: G.R0, r1: G.R1, h0: G.H0, h1: G.H1, scale: G.SCALE,
         // He starts in front of you.
         start: Math.atan2(-Math.cos(yaw), -Math.sin(yaw)) }
@@ -179,7 +179,7 @@
       id: 'rhino', index: 1, level: 1, villain: 1, kind: 'charge',
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yawToward(eye, mid), pitch: round2(pitchToward(eye, mid) * .75) },
       trigger: { x: round2(s.edge + s.side * 2), z: round2(s.z), y: 0 },
-      intro: 'He is charging up and down the avenue below. Hit the weak spots - he swerves when you shoot.',
+      intro: 'He is charging up and down the avenue below. Hit him anywhere - he swerves when you shoot.',
       path: { x: s.ax, z0: round2(s.z0), z1: round2(s.z1), y: 0, lane: C.LANE, scale: C.SCALE }
     };
   }

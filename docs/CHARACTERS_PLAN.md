@@ -638,7 +638,9 @@ and anything the next session must know._
     CITY SAVED. With the switch flipped on in the page, the old intro, "THUGS · 6 LEFT"/WAVE and the six thugs
     came back; 9 hits cleared them and Venom dropped in. Console: only the known WebSocket noise.
   - **Not verified.** The real shooter, and `file://` in the user's Chrome (nothing loading-related changed).
-  - **For the next session.** The Goblin's and Rhino's intro cards (`encounters.js`) still say "hit the weak
-    spots", which C2 removed from the 3D fights; they were left alone as out of C3's scope. Reword them like
-    Venom's when convenient. Session H turns the switch on and restores the thug text (the old intro is still
+  - **Follow-up (same day, user request).** The Goblin's and Rhino's intro cards said "hit the weak spots", which
+    C2 removed from the 3D fights. They now say to hit him anywhere, and a test checks that no 3D intro mentions
+    weak spots. CLASSIC's INTRO card (`game.js`) and the menu tagline in `index.html` still mention weak spots:
+    the 2D game has them, and the menu is shared with CLASSIC. Ask the user before changing either.
+  - **For the next session.** Session H turns the switch on and restores the thug text (the old intro is still
     in `venom()`, used whenever there are thugs).
