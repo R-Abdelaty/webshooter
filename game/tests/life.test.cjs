@@ -94,6 +94,27 @@ test('traffic: near() gives the nearest, within range, at most max, only the den
   const kept=new Set(all.map(e=>e.item));assert.ok(half.every(e=>kept.has(e.item)&&e.item.rank<.5),'LOW is a subset of MED');
   assert.ok(Traffic.near(sim,'people',eye,{range:120,max:40},12,[])<=40);
 });
+test('traffic: a slot (what the GPU is given) moves on to exactly where the car or walker is',()=>{
+  const T=4321.7,frac=v=>v-Math.floor(v);
+  for(const car of sim.cars.slice(0,300)){
+    const sl=Traffic.slot(sim,'cars',car,T),L=sim.routes[car.route];
+    assert.ok(sl.s>=0&&sl.s<L.len,'under a lap');assert.equal(sl.back,0);assert.equal(sl.y,0);
+    for(const u of [0,.4,1.3]){
+      const a=Traffic.pointOn(L,sl.s+sl.speed*u,false),b=Traffic.carAt(sim,car,T+u);
+      assert.ok(Math.hypot(a.x-b.x,a.z-b.z)<1e-6&&Math.abs(Math.sin(a.yaw-b.yaw))<1e-9);
+    }
+  }
+  for(const w of sim.people.slice(0,600)){
+    const sl=Traffic.slot(sim,'people',w,T),L=sim.walks[w.walk];
+    assert.ok(sl.phase>=0&&sl.phase<K.STRIDE);assert.equal(sl.back,L.back?1:0);assert.equal(sl.y,L.y);
+    for(const u of [0,.7,2.9]){
+      const a=Traffic.pointOn(L,sl.s+sl.speed*u,!!sl.back),b=Traffic.personAt(sim,w,T+u);
+      assert.ok(Math.hypot(a.x-b.x,a.z-b.z)<1e-6);
+      const ph=frac((sl.phase+sl.speed*u)/K.STRIDE);
+      assert.ok(Math.min(Math.abs(ph-b.phase),1-Math.abs(ph-b.phase))<1e-6,'stride phase');
+    }
+  }
+});
 test('traffic: the Rhino\'s avenue empties for his fight; the Goblin\'s rooftop fight empties nothing',()=>{
   const out=[],eye={x:rhino.vantage.x,y:rhino.vantage.y,z:rhino.vantage.z};
   Traffic.clear(sim,Encounters.focus(goblin));

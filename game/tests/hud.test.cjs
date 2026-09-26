@@ -41,6 +41,11 @@ test('hud: the off-screen arrow sits on the edge on the villain\'s side',()=>{
   for(const v of [{x:3,y:2,z:0},{x:-7,y:-1,z:2},{x:.1,y:9,z:-3}]){
     const q=Hud.pointer(v,w,h,m);assert.ok(q.x>=m-1e-9&&q.x<=w-m+1e-9&&q.y>=m-1e-9&&q.y<=h-m+1e-9);
   }
+  // Wider margins top and bottom keep it off the HUD there.
+  const M={t:190,r:40,b:110,l:40};
+  a=Hud.pointer({x:1,y:1,z:-1},w,h,M);assert.ok(near(a.y,190)&&near(a.x,w/2+(h/2-190)),'up and right, under the top band');
+  a=Hud.pointer({x:0,y:-3,z:-1},w,h,M);assert.ok(near(a.y,h-110)&&near(a.x,w/2));
+  a=Hud.pointer({x:-9,y:.1,z:-1},w,h,M);assert.ok(near(a.x,40)&&a.y>190&&a.y<h-110);
   assert.ok(Hud.onScreen({x:.5,y:.5,front:true}));
   assert.ok(!Hud.onScreen({x:.5,y:.5,front:false})&&!Hud.onScreen({x:.99,y:.5,front:true})&&!Hud.onScreen(null));
 });

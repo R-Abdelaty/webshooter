@@ -307,47 +307,211 @@
     o.start(t); o.stop(t + .09);
   }
 
-  function thunk() {
+  function thunk(at) {
     if (!ctx) return;
-    var t = ctx.currentTime;
+    var t = ctx.currentTime, bus = place(at, 16);
     var o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'square';
     o.frequency.setValueAtTime(320, t);
     o.frequency.exponentialRampToValueAtTime(120, t + .12);
     g.gain.setValueAtTime(.13, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + .15);
-    o.connect(g).connect(sfxBus);
+    o.connect(g).connect(bus);
     o.start(t); o.stop(t + .16);
   }
 
-  // A clean centre-mass hit: short, bright, satisfying.
-  function crunch() {
+  // A clean centre-mass hit: short, bright, satisfying. `at`: where in the
+  // 3D world it landed (see "in the world" below), or nothing for the 2D game.
+  function crunch(at) {
     if (!ctx) return;
-    var t = ctx.currentTime;
-    noise(t, .1, 'bandpass', 900, .3, sfxBus);
+    var t = ctx.currentTime, bus = place(at, 24);
+    noise(t, .1, 'bandpass', 900, .3, bus);
     var o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'square';
     o.frequency.setValueAtTime(220, t);
     o.frequency.exponentialRampToValueAtTime(70, t + .1);
     g.gain.setValueAtTime(.2, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + .13);
-    o.connect(g).connect(sfxBus);
+    o.connect(g).connect(bus);
     o.start(t); o.stop(t + .14);
   }
 
   // He reached you. A body blow you feel in the low end.
-  function impact() {
+  function impact(at) {
     if (!ctx) return;
-    var t = ctx.currentTime;
+    var t = ctx.currentTime, bus = place(at, 16);
     var o = ctx.createOscillator(), g = ctx.createGain();
     o.type = 'sine';
     o.frequency.setValueAtTime(180, t);
     o.frequency.exponentialRampToValueAtTime(32, t + .35);
     g.gain.setValueAtTime(.7, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + .55);
-    o.connect(g).connect(sfxBus);
+    o.connect(g).connect(bus);
     o.start(t); o.stop(t + .56);
-    noise(t, .34, 'lowpass', 700, .34, sfxBus);
+    noise(t, .34, 'lowpass', 700, .34, bus);
+  }
+
+  // ------------------------------------------------------------ in the world
+  //
+  // The 3D game places sounds where they happen: each one goes through its
+  // own PannerNode at that point, and the listener is the camera, so a roar
+  // behind you comes from behind and a distant one is quieter. `ref` is the
+  // distance (metres) inside which a sound is at full volume; past it, it
+  // falls off with distance.
+
+  function setParam(p, v, t) { if (p && p.setValueAtTime) p.setValueAtTime(v, t); }
+  function pan(p, at) {
+    var t = ctx.currentTime;
+    if (p.positionX) { setParam(p.positionX, at.x, t); setParam(p.positionY, at.y, t); setParam(p.positionZ, at.z, t); }
+    else p.setPosition(at.x, at.y, at.z);
+  }
+  function place(at, ref) {
+    if (!at || !ctx || !Number.isFinite(at.x)) return sfxBus;
+    var p = ctx.createPanner();
+    p.panningModel = 'HRTF'; p.distanceModel = 'inverse';
+    p.refDistance = ref || 10; p.rolloffFactor = 1; p.maxDistance = 3000;
+    pan(p, at);
+    p.connect(sfxBus);
+    return p;
+  }
+  // The listener: at `eye`, facing yaw/pitch (yaw 0 faces -z and positive
+  // yaw turns left, as the 3D game's camera does).
+  function setListener(eye, yaw, pitch) {
+    if (!ctx) return;
+    var L = ctx.listener, t = ctx.currentTime, cp = Math.cos(pitch);
+    var fx = -Math.sin(yaw) * cp, fy = Math.sin(pitch), fz = -Math.cos(yaw) * cp;
+    var ux = Math.sin(yaw) * fy, uy = cp, uz = Math.cos(yaw) * fy;
+    if (L.positionX) {
+      setParam(L.positionX, eye.x, t); setParam(L.positionY, eye.y, t); setParam(L.positionZ, eye.z, t);
+      setParam(L.forwardX, fx, t); setParam(L.forwardY, fy, t); setParam(L.forwardZ, fz, t);
+      setParam(L.upX, ux, t); setParam(L.upY, uy, t); setParam(L.upZ, uz, t);
+    } else { L.setPosition(eye.x, eye.y, eye.z); L.setOrientation(fx, fy, fz, ux, uy, uz); }
+  }
+
+  // One voice: an oscillator through a filter, with a pitch sweep and an
+  // attack/decay, into `bus` at time t.
+  function voice(bus, t, type, f0, f1, dur, peak, filter, q) {
+    var o = ctx.createOscillator(), g = ctx.createGain(), flt = ctx.createBiquadFilter();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    flt.type = 'lowpass'; flt.frequency.value = filter || 1200; flt.Q.value = q || 1;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + Math.min(.05, dur * .2));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(flt).connect(g).connect(bus);
+    o.start(t); o.stop(t + dur + .02);
+    return o;
+  }
+  function wobble(o, t, dur, rate, depth) {
+    var l = ctx.createOscillator(), lg = ctx.createGain();
+    l.frequency.value = rate; lg.gain.value = depth;
+    l.connect(lg).connect(o.frequency);
+    l.start(t); l.stop(t + dur + .02);
+  }
+
+  // The villains' voices. who: 'glider' (the Goblin), 'charge' (the Rhino)
+  // or 'leap' (Venom).
+  function roar(at, who, gain, delay) {
+    if (!ctx) return;
+    var t = ctx.currentTime + (delay || 0), bus = place(at, 18), k = gain || 1;
+    if (who === 'glider') {
+      // A cackle: quick nasal bursts, climbing.
+      for (var i = 0; i < 6; i++) voice(bus, t + i * .11, 'square', 380 + i * 22, 300 + i * 20, .09, .12 * k, 1800, 5);
+    } else if (who === 'charge') {
+      var o = voice(bus, t, 'sawtooth', 95, 60, 1.1, .5 * k, 520, 3);
+      wobble(o, t, 1.1, 23, 9);
+      voice(bus, t, 'sawtooth', 190, 120, 1, .18 * k, 800, 2);
+      noise(t, .9, 'lowpass', 500, .25 * k, bus);
+    } else {
+      var v = voice(bus, t, 'sawtooth', 140, 75, 1.2, .35 * k, 900, 6);
+      wobble(v, t, 1.2, 31, 14);
+      noise(t, 1.1, 'bandpass', 2400, .3 * k, bus);
+    }
+  }
+  function grunt(at, who, gain) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 18), f = who === 'charge' ? 110 : who === 'glider' ? 260 : 150;
+    voice(bus, t, 'sawtooth', f, f * .7, .2, .3 * (gain || 1), 900, 4);
+  }
+  function groan(at, who) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 18), f = who === 'charge' ? 120 : who === 'glider' ? 330 : 160;
+    var o = voice(bus, t, 'sawtooth', f, f * .45, .9, .35, 800, 4);
+    wobble(o, t, .9, 7, f * .05);
+  }
+  function snort(at) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 18);
+    noise(t, .25, 'lowpass', 900, .5, bus);
+    voice(bus, t, 'sawtooth', 80, 55, .3, .3, 400, 2);
+  }
+  // Something heavy meets the ground: a landing, a drop-in.
+  function thud(at, gain, delay) {
+    if (!ctx) return;
+    var t = ctx.currentTime + (delay || 0), bus = place(at, 20), k = gain || 1;
+    voice(bus, t, 'sine', 120, 34, .45, .7 * k, 400);
+    noise(t, .3, 'lowpass', 420, .4 * k, bus);
+  }
+  function step(at, gain) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 14), k = gain || 1;
+    voice(bus, t, 'sine', 90, 42, .16, .45 * k, 300);
+    noise(t, .08, 'lowpass', 260, .2 * k, bus);
+  }
+  function whoosh(at, gain, delay) {
+    if (!ctx) return;
+    var t = ctx.currentTime + (delay || 0), bus = place(at, 14), s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; f.type = 'bandpass'; f.Q.value = 1.4;
+    f.frequency.setValueAtTime(450, t); f.frequency.exponentialRampToValueAtTime(2600, t + .32);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(.35 * (gain || 1), t + .12); g.gain.exponentialRampToValueAtTime(0.0001, t + .36);
+    s.connect(f).connect(g).connect(bus); s.start(t); s.stop(t + .4);
+  }
+  // Feet or armour scraping along the tarmac.
+  function skid(at) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 16);
+    noise(t, .7, 'bandpass', 1300, .35, bus);
+    noise(t, .5, 'lowpass', 300, .3, bus);
+  }
+  // A car horn somewhere in the street.
+  function horn(at) {
+    if (!ctx) return;
+    var t = ctx.currentTime, bus = place(at, 10), d = .25 + Math.random() * .35;
+    [392, 494].forEach(function (f) { voice(bus, t, 'square', f, f * .995, d, .07, 1400, 1); });
+  }
+
+  // Sounds that go on: the Goblin's glider engine (following him, pitched
+  // by his speed) and the street's rumble (louder down among the traffic).
+  var humNodes = null, ambNodes = null;
+  function hum(at, speed) {
+    if (!ctx) return;
+    if (!at) { if (humNodes) { humNodes.g.gain.setTargetAtTime(0, ctx.currentTime, .08); } return; }
+    if (!humNodes) {
+      var p = place(at, 12), g = ctx.createGain(), flt = ctx.createBiquadFilter(), a = ctx.createOscillator(), b = ctx.createOscillator();
+      a.type = 'sawtooth'; b.type = 'square'; flt.type = 'lowpass'; flt.frequency.value = 700; flt.Q.value = 2;
+      g.gain.value = 0;
+      a.connect(flt); b.connect(flt); flt.connect(g).connect(p);
+      a.start(); b.start();
+      humNodes = { p: p, g: g, a: a, b: b };
+    }
+    var t = ctx.currentTime, f = 62 + Math.min(40, (speed || 0) * 4);
+    pan(humNodes.p, at);
+    humNodes.a.frequency.setTargetAtTime(f, t, .1); humNodes.b.frequency.setTargetAtTime(f * 2.01, t, .1);
+    humNodes.g.gain.setTargetAtTime(.12, t, .15);
+  }
+  // level: 0..1 (Traffic.noise); 0 or null silences it, as on leaving the city.
+  function ambience(level) {
+    if (!ctx) return;
+    if (!ambNodes) {
+      if (!level) return;
+      var s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      s.buffer = noiseBuf; s.loop = true; f.type = 'lowpass'; f.frequency.value = 380; g.gain.value = 0;
+      s.connect(f).connect(g).connect(sfxBus); s.start();
+      ambNodes = { g: g };
+    }
+    var v = level > 0 ? .02 + .16 * Math.min(1, level) : 0;
+    ambNodes.g.gain.setTargetAtTime(v, ctx.currentTime, level > 0 ? .6 : .3);
   }
 
   // Level cleared: a rising three-note flourish over the beat.
@@ -399,6 +563,10 @@
     impact: impact,
     fanfare: fanfare,
     fail: fail,
+    // the 3D world's placed sounds (at: {x, y, z} in metres)
+    setListener: setListener,
+    roar: roar, grunt: grunt, groan: groan, snort: snort, thud: thud, step: step, whoosh: whoosh, skid: skid, horn: horn,
+    hum: hum, ambience: ambience,
     setMusicVolume: function (v) { musicVol = v; applyVolume(); },
     setSfxVolume:   function (v) { sfxVol = v; applyVolume(); },
     setMuted:       function (m) { muted = !!m; applyVolume(); },

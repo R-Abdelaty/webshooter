@@ -12,6 +12,12 @@
   // settings each frame it changes. A villain hit throws its particles and
   // flashes where it landed (fx.js) and freezes the fight for a few frames
   // (the hit-stop); every web that lands throws a puff of strands.
+  //
+  // The city lives: cars, cabs and walkers (Traffic, drawn by life.js) - the
+  // ones in a street-level fight's way are cleared for it. The HUD is
+  // hud-view.js's, from Hud.status. Sounds happen where they happen: the
+  // villain's voice, feet and glider (SoundCues), the webs' impacts, horns
+  // and the street's rumble, with the camera as the listener.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -27,8 +33,10 @@
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
   var mode = 'roam', fight = null, enc = null, range = null, shownEnd = null, endAt = 0, armed = false;
-  var shakeAt = -1e9, shakeAmp = 0, hud = {}, hooks = [], modelShown = false, going = false;
+  var shakeAt = -1e9, shakeAmp = 0, hooks = [], modelShown = false, going = false;
   var fx = null, tierName = null, stopUntil = 0;
+  var traffic = null, life = null, hudView = null, cues = null, nearCars = [];
+  var HORN_EVERY = 16;             // seconds between horns, on average, down among the traffic
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -50,6 +58,9 @@
     fx = WorldFx.create(world.scene);
     // A beaten villain dissolves as the web wraps him.
     villains.onWrap = function (caps) { fx.wrap(caps, Player.eye(player)); };
+    traffic = Traffic.create(city);
+    life = WorldLife.create(world.scene, traffic);
+    hudView = WorldHud.create(city, spots);
     applyTier();
     window.addEventListener('resize', function () { if (running) layout(); });
   }
@@ -67,6 +78,7 @@
     tierName = t.name;
     world.setTier(t);
     villains.setCast(t.cast);
+    life.setCast(t.cast);
     fx.setScale(t.particles);
     if (mode === 'fight' && enc) lightFight();
   }
@@ -76,7 +88,7 @@
     var f = Encounters.focus(enc);
     world.setShadowFocus(f);
     world.update(0, Player.eye(player), player.yaw, player.pitch);
-    villains.setEnvironment(world.environment(f, world.tier.env, [villains.group, fx.group]));
+    villains.setEnvironment(world.environment(f, world.tier.env, [villains.group, fx.group, life.group]));
   }
 
   function lock() {
@@ -122,6 +134,7 @@
     if (!running) return;
     leaving = true; running = false; paused = false;
     unlock();
+    WSAudio.hum && WSAudio.hum(null); WSAudio.ambience && WSAudio.ambience(0);
     show($('world-card'), false); show($('world'), false); show($('menu'), true);
     document.dispatchEvent(new CustomEvent('webshooter:quit'));
   }
@@ -133,8 +146,9 @@
     look = Look.create(); strands = []; webs.clear(); fx.clear(); stopUntil = 0;
   }
   function enterRoam(fromSpawn) {
-    mode = 'roam'; fight = null; enc = null; range = null;
+    mode = 'roam'; fight = null; enc = null; range = null; cues = null;
     world.setShadowFocus(null);
+    Traffic.clear(traffic, null);
     if (fromSpawn || !player) { place(city.spawn); player.pitch = -.22; }  // out and down over the city
     // Standing in a fight's trigger (a fight you just left, say) doesn't
     // start it again until you have stepped out.
@@ -145,17 +159,21 @@
     mode = 'fight'; range = null; shownEnd = null;
     enc = spots.fights[i];
     fight = Fight.start(enc, LEVELS);
+    cues = SoundCues.create(enc.kind);
     place(enc.vantage);
+    // The traffic and walkers in the way of a fight at street level go.
+    Traffic.clear(traffic, Encounters.focus(enc));
     lightFight();
     save(i);
     var v = VILLAINS[enc.villain];
     card('intro', 'ENCOUNTER ' + (i + 1), v.name + '. ' + enc.intro, [['GO', 'go'], ['FREE ROAM', 'roam'], ['MENU', 'menu']]);
   }
   function enterTraining() {
-    mode = 'train'; fight = null; enc = null;
+    mode = 'train'; fight = null; enc = null; cues = null;
     range = Training3D.start(spots.training, Date.now() & 0x7fffffff);
     place(spots.training.vantage);
     world.setShadowFocus(null);
+    Traffic.clear(traffic, null);
     closeCard();
   }
   function save(i) {
@@ -272,6 +290,7 @@
     // the fight now, before the camera below records what this frame shows.
     var animDt = !paused || (fight && (fight.mode === 'won' || fight.mode === 'lost')) ? fdt : 0;
     modelShown = villains.update(fight, animDt, eye, now);
+    villainSounds(animDt);
     // LOW: a blob under his feet instead of the shadow he doesn't cast.
     var blobbed = world.tier.blob && fight && modelShown && villains.shown();
     fx.setBlob(blobbed ? fight.at : null, blobbed ? Fight.ground(fight) : null, fight ? VILLAINS[fight.villain].height : 0);
@@ -289,10 +308,13 @@
     cross.classList.toggle('is-turning', r.turning);
     webs.update(now);
     fx.update(paused && !(fight && (fight.mode === 'won' || fight.mode === 'lost')) ? 0 : fdt, now, world.camera, canvas.height);
+    // The traffic and walkers near you, moving on while nothing is paused.
+    nearCars = life.update(paused ? 0 : dt, eye, world.tier);
+    street(eye, paused ? 0 : dt);
     world.render();
     drawStrands(now);
-    drawPointer();
-    drawHud();
+    hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, goal(), eye);
+    drawHud(now, eye);
     if (perf) readout(now, c, S);
     requestAnimationFrame(frame);
   }
@@ -374,27 +396,28 @@
           stopUntil = HitFx.stopUntil(now, stopUntil);
         }
         actors.flash(now); villains.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
-        WSAudio.crunch();
+        // Heard where it landed on him.
+        WSAudio.crunch(st ? st.point : fight.at);
       } else if (r.hit) {
         webs.add(r.point, back(dir), dist(cam.eye, r.point), now, actors.thugAnchor(r.thug), .9);
         fx.web(r.point, back(dir));
         end = r.point; flash(.2); shakeAt = now; shakeAmp = SHAKE * (r.down ? .9 : .5);
-        WSAudio.crunch(); if (r.down && WSAudio.impact) WSAudio.impact();
+        WSAudio.crunch(r.point); if (r.down && WSAudio.impact) WSAudio.impact(r.point);
       } else {
         // A miss - or a shot during his entrance, which still sticks to him.
         var on = stickToVillain(r.body, cam.eye, now);
         if (on) { end = on.point; fx.web(on.point, on.normal); }
         else if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
-        WSAudio.thunk();
+        WSAudio.thunk(on ? on.point : hit && hit.point);
       }
     } else if (range) {
       var t = Training3D.fire(range, shot);
       out.hit = t.hit;
       // The web sticks to the wall or roof behind the target.
       if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
-      if (t.hit) { flash(.18); shakeAt = now; shakeAmp = SHAKE * .5; WSAudio.crunch(); end = t.point; } else WSAudio.thunk();
+      if (t.hit) { flash(.18); shakeAt = now; shakeAmp = SHAKE * .5; WSAudio.crunch(t.point); end = t.point; } else WSAudio.thunk(hit && hit.point);
     } else {
-      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); WSAudio.thunk(); }
+      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); WSAudio.thunk(hit.point); }
     }
     strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now });
     return out;
@@ -437,10 +460,37 @@
     });
   }
 
+  // --- sounds in the world -----------------------------------------------------
+  // The villain's: what his model was told to play this frame, and his feet
+  // and glider, each placed where he is (SoundCues -> WSAudio).
+  function villainSounds(dt) {
+    var o = cues && fight && modelShown ? SoundCues.step(cues, fight, villains.heard().play, villains.heard().speed, dt) : null;
+    if (WSAudio.hum) WSAudio.hum(o && o.hum && !paused ? o.hum.at : null, o && o.hum ? o.hum.speed : 0);
+    if (!o || !WSAudio.roar) return;
+    o.cues.forEach(function (q) {
+      if (q.name === 'roar') WSAudio.roar(q.at, q.voice, q.gain, q.delay);
+      else if (q.name === 'thud') WSAudio.thud(q.at, q.gain, q.delay);
+      else if (q.name === 'whoosh') WSAudio.whoosh(q.at, q.gain, q.delay);
+      else if (q.name === 'step') WSAudio.step(q.at, q.gain);
+      else if (q.name === 'grunt') WSAudio.grunt(q.at, q.voice, q.gain);
+      else if (q.name === 'groan') WSAudio.groan(q.at, q.voice);
+      else if (WSAudio[q.name]) WSAudio[q.name](q.at);
+    });
+  }
+  // The street: you hear from where the camera is, the traffic rumbles
+  // louder the closer and busier it is, and now and then a car near you
+  // sounds its horn.
+  function street(eye, dt) {
+    if (!WSAudio.setListener) return;
+    WSAudio.setListener(eye, player.yaw, player.pitch);
+    WSAudio.ambience(Math.max(.001, Traffic.noise(nearCars, eye)));
+    var n = 0;
+    while (n < nearCars.length && nearCars[n].d < 70) n++;
+    if (n && dt > 0 && Math.random() < dt / HORN_EVERY) { var car = life.carNow(Math.floor(Math.random() * n)); if (car) WSAudio.horn({ x: car.x, y: 1, z: car.z }); }
+  }
+
   // What you are meant to be shooting at, when it is off the view: an arrow
-  // at the edge of the screen pointing the way to turn. (Session 4 restyles
-  // this with the rest of the HUD.)
-  var camPos = new THREE.Vector3();
+  // at the edge of the screen pointing the way to turn (hud-view.js).
   function goal() {
     if (fight && fight.mode === 'playing') {
       if (fight.phase !== 'thugs') return fight.at && { x: fight.at.x, y: fight.at.y + VILLAINS[enc.villain].height / 2, z: fight.at.z };
@@ -450,64 +500,18 @@
     }
     return range && !paused ? range.target3 : null;
   }
-  function drawPointer() {
-    var g = goal();
-    if (!g) return;
-    var e = world.project(g);
-    if (e.front && e.x > .03 && e.x < .97 && e.y > .03 && e.y < .97) return;
-    camPos.set(g.x, g.y, g.z).applyMatrix4(world.camera.matrixWorldInverse);
-    var w = overlay.clientWidth, h = overlay.clientHeight, ang = Math.atan2(-camPos.y, camPos.x);
-    if (Math.abs(camPos.x) < 1e-6 && Math.abs(camPos.y) < 1e-6) ang = 0;
-    var dx = Math.cos(ang), dy = Math.sin(ang), m = 34;
-    var k = Math.min((w / 2 - m) / Math.max(1e-6, Math.abs(dx)), (h / 2 - m) / Math.max(1e-6, Math.abs(dy)));
-    var x = w / 2 + dx * k, y = h / 2 + dy * k;
-    fxc.save(); fxc.translate(x, y); fxc.rotate(ang);
-    fxc.fillStyle = '#ff4b4b'; fxc.strokeStyle = '#fff'; fxc.lineWidth = 2.5;
-    fxc.shadowColor = 'rgba(0,0,0,.5)'; fxc.shadowBlur = 4;
-    fxc.beginPath(); fxc.moveTo(16, 0); fxc.lineTo(-10, -13); fxc.lineTo(-4, 0); fxc.lineTo(-10, 13); fxc.closePath();
-    fxc.fill(); fxc.stroke(); fxc.restore();
-  }
-
   // --- the HUD -----------------------------------------------------------------
-  // Only what changed is written, so the page does no layout work per frame.
-  function put(id, text) { if (hud[id] !== text) { hud[id] = text; $(id).textContent = text; } }
-  function bar(frac, on) {
-    var w = Math.round(Math.max(0, Math.min(1, frac)) * 1000) / 10 + '%';
-    if (hud.bar !== w) { hud.bar = w; $('world-barfill').style.width = w; }
-    if (hud.barOn !== on) { hud.barOn = on; show($('world-bar'), on); }
-  }
-  function timerLow(low) { if (hud.low !== low) { hud.low = low; $('world-timer').classList.toggle('is-low', low); } }
-  function drawHud() {
-    if (mode === 'fight' && fight) {
-      var v = VILLAINS[enc.villain];
-      put('world-tag', 'ENCOUNTER ' + (enc.index + 1) + ' · ' + v.name);
-      if (fight.phase === 'thugs') {
-        var left = Fight.standing(fight);
-        put('world-info', 'THUGS · ' + left + ' LEFT');
-        bar(left / fight.thugs.length, true);
-        put('world-timer', 'WAVE'); timerLow(false);
-      } else if (fight.phase === 'arrive') {
-        put('world-info', fight.health + ' / ' + fight.maxHealth + '  ·  GET READY');
-        bar(1, true);
-        put('world-timer', fight.timeLimit.toFixed(1) + 's'); timerLow(false);
-      } else {
-        var rem = Math.max(0, fight.timeLimit - fight.elapsed);
-        put('world-info', fight.health + ' / ' + fight.maxHealth);
-        bar(fight.health / fight.maxHealth, true);
-        put('world-timer', rem.toFixed(1) + 's'); timerLow(rem <= 10);
-      }
-    } else if (mode === 'train' && range) {
-      var acc = Math.round(Training3D.accuracy(range) * 100);
-      put('world-tag', 'TRAINING');
-      put('world-info', range.hits + ' hit / ' + range.shots + ' shot  ·  ' + acc + '%  ·  BEST ' + range.best);
-      bar(acc / 100, true);
-      put('world-timer', 'STREAK ' + range.streak); timerLow(false);
-    } else {
-      put('world-tag', 'FREE ROAM');
-      put('world-info', 'Walk into a light column to start a fight · Esc to pick one');
-      bar(0, false);
-      put('world-timer', ''); timerLow(false);
-    }
+  // What each part says (Hud.status), and the minimap: you, and the fights'
+  // light columns while roaming, the villain in a fight, the target in
+  // training. hud-view.js writes only what changed.
+  function drawHud(now, eye) {
+    hudView.update(Hud.status({ mode: mode, fight: fight, enc: enc, range: range, villain: fight ? VILLAINS[fight.villain] : null,
+      damage: Combat.DAMAGE || 20, accuracy: range ? Training3D.accuracy(range) : 0 }));
+    var marks = [], C = WorldActors.BEACON_COLORS;
+    if (mode === 'roam') allSpots().forEach(function (s) { if (s.trigger) marks.push({ x: s.trigger.x, z: s.trigger.z, color: C[s.id] || '#5fe3ff', kind: 'fight' }); });
+    else if (fight && fight.at && fight.mode !== 'won') marks.push({ x: fight.at.x, z: fight.at.z, color: C[VILLAINS[fight.villain].id] || '#ff6a6a', kind: 'villain' });
+    else if (range && range.target3) marks.push({ x: range.target3.x, z: range.target3.z, color: '#5fe3ff', kind: 'target' });
+    hudView.drawMap(eye, player.yaw, marks, now);
   }
 
   // P shows frame rate, draw calls and where you are - the numbers the
@@ -522,6 +526,7 @@
     var turn = lastLook && dt > 0 ? '  ·  turn ' + (lastLook.dyaw / dt * 180 / Math.PI).toFixed(0) + ' / ' + (lastLook.dpitch / dt * 180 / Math.PI).toFixed(0) + ' °/s' : '';
     $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + world.tier.name.toUpperCase() + '  ·  ' + r.calls + ' draw calls  ·  ' +
       (r.triangles / 1000).toFixed(0) + 'k tris  ·  x ' + player.x.toFixed(0) + ' y ' + player.y.toFixed(1) + ' z ' + player.z.toFixed(0) +
+      '  ·  ' + (function (n) { return n.cars + n.cabs + ' cars, ' + n.people + ' walkers'; })(life.counts()) +
       '\nlook ' + (Look.mode(S.lookMode) === 'direct' ? 'DIRECT' : 'EDGE TURN') + ' (' + src + ')  ·  crosshair ' +
       look.crosshair.x.toFixed(2) + ', ' + look.crosshair.y.toFixed(2) + turn +
       '  ·  yaw ' + (player.yaw * 180 / Math.PI).toFixed(0) + '° pitch ' + (player.pitch * 180 / Math.PI).toFixed(0) + '°  ·  fov ' + fov();
@@ -575,6 +580,6 @@
     saved: function () { try { var s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.chapter ? s.chapter : 0; } catch (_) { return 0; } },
     get mode() { return mode; }, get fight() { return fight; }, get range() { return range; }, get spots() { return spots; },
     get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
-    get villains() { return villains; }, get fx() { return fx; }
+    get villains() { return villains; }, get fx() { return fx; }, get life() { return life; }, get hud() { return hudView; }, get traffic() { return traffic; }
   };
 })();

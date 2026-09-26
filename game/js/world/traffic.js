@@ -203,6 +203,25 @@
     return out;
   }
 
+  // What the GPU needs to move a car or walker on from time T by itself
+  // (life.js does it in the vertex shader, so nothing is uploaded per
+  // frame): its loop, how far round it is at T (kept under one lap, so the
+  // numbers stay small), its speed, which way round, the height it moves at,
+  // and for a walker where in the stride it is at T, in metres of STRIDE.
+  // At T + u it is at pointOn(loop, s + speed * u, back), stride phase
+  // fract((phase + speed * u) / STRIDE).
+  function slot(sim, kind, it, T, out) {
+    out = out || {};
+    var cars = kind === 'cars', L = cars ? sim.routes[it.route] : sim.walks[it.walk], speed = cars ? L.speed : it.speed;
+    var s = it.s0 + speed * T;
+    out.x0 = L.x0; out.x1 = L.x1; out.z0 = L.z0; out.z1 = L.z1; out.r = L.r;
+    out.s = ((s % L.len) + L.len) % L.len; out.speed = speed; out.back = !cars && L.back ? 1 : 0;
+    out.y = cars ? 0 : L.y;
+    var ph = cars ? 0 : (s + it.phase) % K.STRIDE;
+    out.phase = ph < 0 ? ph + K.STRIDE : ph;
+    return out;
+  }
+
   // The nearest cars (kind 'cars') or walkers ('people') to `eye`, within
   // opts.range metres and at most opts.max of them, keeping only those whose
   // rank is under opts.density, nearest first. Fills `out` (reusing its
@@ -253,7 +272,7 @@
     return Math.min(1, sum / 4) / (1 + height / 40);
   }
 
-  var api = { create: create, carAt: carAt, personAt: personAt, near: near, clear: clear, noise: noise,
+  var api = { create: create, carAt: carAt, personAt: personAt, slot: slot, near: near, clear: clear, noise: noise,
     loop: loop, pointOn: pointOn, tiles: tiles, distToLoop: distToLoop, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Traffic = api;

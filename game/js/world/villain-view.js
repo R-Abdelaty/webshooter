@@ -89,6 +89,9 @@
     var group = new T.Group(); group.name = 'villains'; scene.add(group);
     var items = {}, loading = null, fightRef = null, active = null;
     var flashAt = -1e9, defeat = null, env = null, cast = true, onWrap = null;
+    // What the villain was told to play this frame (VillainAnim.step's out),
+    // for the sounds he makes (SoundCues).
+    var heard = { play: [], speed: null }, NONE = { play: [], speed: null };
     var v3 = new T.Vector3(), v3b = new T.Vector3();
 
     function preload() {
@@ -200,13 +203,14 @@
     function update(f, dt, eye, now) {
       if (f !== fightRef || (f && !active && items[VILLAINS[f.villain].id])) reset(f);
       var it = active;
+      heard = NONE;
       if (!f || !it) { if (f) f.body = null; return false; }
       // The rhino drops in as his entrance starts: nothing to see before GO.
       var show = !!f.at && f.phase !== 'thugs' && !(f.kind === 'charge' && f.mode === 'intro');
       it.craft.visible = show;
       if (!show) { f.body = null; return true; }
 
-      var out = VillainAnim.step(it.anim, f, dt);
+      var out = heard = VillainAnim.step(it.anim, f, dt);
       out.play.forEach(function (p) { it.rig.play(p[0], p[1]); });
       if (out.speed !== null) it.rig.setSpeed(out.speed);
       var d = Math.hypot(eye.x - f.at.x, eye.y - f.at.y, eye.z - f.at.z), onScreen = world.project(f.at).front;
@@ -325,6 +329,7 @@
       preload: preload, ready: ready, state: state, update: update, setEnvironment: setEnvironment, setCast: setCast,
       set onWrap(fn) { onWrap = fn; }, get group() { return group; },
       flash: function (now) { flashAt = now; },
+      heard: function () { return heard; },
       stickBody: stickBody,
       shown: function () { return !!(active && active.craft.visible); },
       clear: function () { reset(null); },

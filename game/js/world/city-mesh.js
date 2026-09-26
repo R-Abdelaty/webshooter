@@ -257,10 +257,23 @@
     } }));
 
     // Shared water: a phong surface whose normal map scrolls, so the sun glints move.
-    var normals = TX.waterNormals();
+    // A second, finer copy of the waves drifts across the first the other way,
+    // so the glints shimmer - break up and re-form - instead of sliding by.
+    var normals = TX.waterNormals(), waterTime = { value: 0 };
     normals.repeat.set(1 / 28, 1 / 28);
     var water = new T.MeshPhongMaterial({ color: 0x2b4c66, specular: 0xb8c8d8, shininess: 90, normalMap: normals,
       normalScale: new T.Vector2(.55, .55) });
+    water.onBeforeCompile = function (sh) {
+      sh.uniforms.waterTime = waterTime;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float waterTime;')
+        .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;', [
+          'vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;',
+          'vec3 mapN2 = texture2D( normalMap, vNormalMapUv * 1.83 + vec2( -waterTime * .019, waterTime * .013 ) ).xyz * 2.0 - 1.0;',
+          'mapN = vec3( mapN.xy + mapN2.xy * .8, mapN.z * mapN2.z );'
+        ].join('\n'));
+    };
+    water.customProgramCacheKey = function () { return 'water-shimmer'; };
     // A plane's UVs span it once; the normal map should repeat every ~28 m, so
     // scale UVs to metres here and let the repeat bring them back down.
     function waterPlane(w, d) {
@@ -321,7 +334,7 @@
       }));
     });
 
-    return { group: group, water: normals, materials: materials };
+    return { group: group, water: normals, waterTime: waterTime, materials: materials };
   }
 
   root.CityMesh = { build: build, facadeMaterial: facadeMaterial, worldMapped: worldMapped };

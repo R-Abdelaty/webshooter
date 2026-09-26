@@ -27,9 +27,37 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 #world{position:fixed;inset:0;z-index:2;background:#b9cad8}
 #world-canvas{width:100%;height:100%;display:block}
 #world-fx{position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none}
-.world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:15px 4vw;pointer-events:none}
-.world-hud .hud-quit{pointer-events:auto}
-.world-tag{padding:4px 10px;border:1px solid #5fe3ff;background:#04121acc;color:#9ff0ff;font:800 12px Arial,sans-serif;letter-spacing:.14em}
+/* The HUD, in the first clip's style: thin, cyan, glowing. Who you're up
+   against top left, the objective and clock top right, the minimap bottom
+   left. hud-view.js fills it in. */
+.world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:16px 3vw;pointer-events:none;
+  --hud:#5fe3ff;--hud-hi:#9ff0ff;--hud-ink:#e8fbff;--hud-bg:#04121ab3;--hud-glow:0 0 6px #5fe3ffaa;font-family:Arial,sans-serif}
+.world-hud .hud-quit{pointer-events:auto;align-self:flex-end;padding:4px 10px;font-size:11px;border-width:1px;border-color:#5fe3ff99;background:#04121a99;color:#9ff0ff}
+.world-hud .hud-quit:hover{background:#5fe3ff;border-color:#5fe3ff;color:#04121a}
+.hud-who{display:flex;gap:10px;align-items:flex-start;min-width:0}
+.hud-emblem{flex:none;width:26px;height:26px;margin-top:6px;transform:rotate(45deg);border:2px solid var(--hud);background:linear-gradient(135deg,#5fe3ff55,#04121acc 70%);box-shadow:var(--hud-glow)}
+.hud-who-text{display:grid;gap:3px;min-width:0}
+.hud-sub,.hud-objtitle{color:var(--hud-hi);font-size:10px;font-weight:800;letter-spacing:.22em;text-shadow:0 1px 2px #000c}
+.hud-title{color:var(--hud-ink);font-size:17px;font-weight:900;letter-spacing:.1em;text-shadow:0 0 8px #5fe3ff66,0 1px 3px #000c;white-space:nowrap}
+.hud-health{display:flex;align-items:center;gap:8px;margin-top:2px}
+.hud-segs{display:flex;gap:3px;height:13px;box-sizing:border-box;width:min(300px,38vw);padding:2px;border:1px solid #5fe3ff88;background:var(--hud-bg);transform:skewX(-20deg)}
+.hud-segs i{flex:1;background:#5fe3ff22;transition:background .2s,box-shadow .2s}
+.hud-segs i.is-lit{background:var(--hud);box-shadow:var(--hud-glow)}
+.hud-hp{color:var(--hud-hi);font:800 12px Arial,sans-serif;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px #000c}
+.hud-goal{display:flex;flex-direction:column;align-items:flex-end;gap:5px;max-width:min(420px,52vw)}
+.hud-objective{display:grid;justify-items:end;gap:3px;text-align:right}
+.hud-objtext{color:var(--hud-ink);font-size:12px;font-weight:700;letter-spacing:.05em;text-shadow:0 1px 2px #000c}
+.hud-clockbar{width:min(220px,40vw);height:4px;border:1px solid #5fe3ff66;background:var(--hud-bg);transform:skewX(20deg)}
+.hud-clockbar i{display:block;height:100%;width:100%;margin-left:auto;background:var(--hud);box-shadow:var(--hud-glow);transition:width .15s}
+.hud-clockbar.is-low i{background:#ff6a6a;box-shadow:0 0 6px #ff6a6a}
+/* The minimap: square, cyan-framed, tilted back a little like the clip's. */
+.hud-map{position:absolute;z-index:2;left:3vw;bottom:62px;width:180px;height:180px;pointer-events:none;border:1px solid #5fe3ffcc;background:#04121acc;
+  box-shadow:0 0 10px #5fe3ff55,inset 0 0 18px #5fe3ff33;transform:perspective(520px) rotateX(18deg);transform-origin:50% 100%}
+.hud-map canvas{display:block;width:100%;height:100%}
+.hud-map::before,.hud-map::after{content:'';position:absolute;width:14px;height:14px;border:2px solid #9ff0ff;pointer-events:none}
+.hud-map::before{left:-4px;top:-4px;border-right:0;border-bottom:0}
+.hud-map::after{right:-4px;bottom:-4px;border-left:0;border-top:0}
+@media(max-width:640px){.hud-map{width:120px;height:120px;bottom:70px}.hud-title{font-size:14px}.hud-objtext{font-size:11px}}
 /* The crosshair: dead centre for the mouse and DIRECT look, following the
    wrist in EDGE TURN, where it goes cyan while the view is turning. */
 .crosshair{position:absolute;z-index:2;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;pointer-events:none}
@@ -38,14 +66,7 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 .crosshair::after{top:12px;left:0;width:26px;height:2px}
 .crosshair.is-turning::before,.crosshair.is-turning::after{background:#5fe3ff;box-shadow:0 0 4px #5fe3ff}
 .world-hint{pointer-events:none;font-size:13px}
-/* The fight HUD: what you're fighting, its health (or the thugs left, or your
-   training stats) and the clock. Session 4 restyles it with the minimap. */
-.world-status{display:grid;gap:6px;min-width:0;max-width:min(460px,60vw)}
-.world-status .world-tag{justify-self:start}
-.world-bar{height:6px;background:#04121acc;border:1px solid #5fe3ff66}
-.world-bar i{display:block;height:100%;width:0;background:#5fe3ff;box-shadow:0 0 6px #5fe3ff;transition:width .15s}
-.world-info{color:#e8fbff;font:800 12px Arial,sans-serif;letter-spacing:.08em;text-shadow:0 1px 2px #000c}
-.world-timer{margin-left:auto;padding:4px 10px;color:#9ff0ff;font:900 20px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.06em;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #000c}
+.world-timer{color:#e8fbff;font:900 26px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.06em;font-variant-numeric:tabular-nums;text-shadow:0 0 10px #5fe3ff88,0 1px 3px #000c}
 .world-timer:empty{display:none}
 .world-timer.is-low{color:#ff6a6a}
 /* A hit flashes the view; world-game.js sets the opacity and lets it fade. */
@@ -58,6 +79,6 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 #world-card .card-actions button:last-child{background:#fff}
 @media(max-width:570px){#world-card .card-actions,#world-card .card-actions[data-count="4"]{grid-template-columns:1fr 1fr}}
 body.world-locked .world-hint{opacity:.55}
-.world-perf{position:absolute;z-index:3;left:4vw;top:56px;max-width:92vw;white-space:pre-wrap;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
+.world-perf{position:absolute;z-index:3;left:3vw;top:96px;max-width:92vw;white-space:pre-wrap;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
 .world-loading{position:absolute;z-index:3;inset:0;display:grid;place-items:center;margin:0;background:#0b1016;color:#9ff0ff;font:900 28px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.1em}
 .model-viewer{top:auto;bottom:56px;font-size:12px;max-height:40%;overflow:hidden}

@@ -48,14 +48,19 @@
 
   // --- the off-screen arrow -------------------------------------------------------
   // v: the point in camera space (x right, y up, z toward you, so in front
-  // is z < 0). Returns where on a w x h screen the arrow sits, `margin` in
-  // from its edge, and the angle it points (radians, 0 = right, clockwise
-  // with y down).
+  // is z < 0). Returns where on a w x h screen the arrow sits and the angle
+  // it points (radians, 0 = right, clockwise with y down): on the line from
+  // the middle of the screen toward the point, where it meets a box `margin`
+  // in from the edges - a number, or { t, r, b, l } to keep clear of the HUD
+  // along the top and bottom.
   function pointer(v, w, h, margin) {
+    var m = typeof margin === 'number' ? { t: margin, r: margin, b: margin, l: margin } : margin;
     var ang = Math.atan2(-v.y, v.x);
     if (Math.abs(v.x) < 1e-6 && Math.abs(v.y) < 1e-6) ang = v.z > 0 ? Math.PI / 2 : 0;
-    var dx = Math.cos(ang), dy = Math.sin(ang);
-    var k = Math.min((w / 2 - margin) / Math.max(1e-6, Math.abs(dx)), (h / 2 - margin) / Math.max(1e-6, Math.abs(dy)));
+    var dx = Math.cos(ang), dy = Math.sin(ang), E = 1e-6;
+    var kx = dx > E ? (w / 2 - m.r) / dx : dx < -E ? (w / 2 - m.l) / -dx : Infinity;
+    var ky = dy > E ? (h / 2 - m.b) / dy : dy < -E ? (h / 2 - m.t) / -dy : Infinity;
+    var k = Math.max(0, Math.min(kx, ky));
     return { x: w / 2 + dx * k, y: h / 2 + dy * k, angle: ang };
   }
   // Is a projected point (fractions of the view, and whether it is in

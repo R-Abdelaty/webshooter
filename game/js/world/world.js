@@ -87,17 +87,35 @@
     return mesh;
   }
 
+  // Cumulus sprites in a field round you that each drift on the wind at
+  // their own speed, wrapping round the field and fading in and out at its
+  // edge (and away from right overhead, where a sprite would look flat).
+  // They keep 90% of your movement, so they read as far off.
+  var CLOUDS = { N: 34, R0: 520, R1: 2900, H0: 420, H1: 800, WIND: [2, 5.5], DRIFT_Z: 1.2 };
   function clouds(seed) {
     var group = new T.Group(), rnd = City.mulberry32(seed), textures = [0, 1, 2].map(function (k) { return WorldTextures.cloud(seed + k * 7); });
-    for (var i = 0; i < 26; i++) {
-      var mat = new T.SpriteMaterial({ map: textures[i % 3], fog: false, depthWrite: false, transparent: true,
-        opacity: .75 + rnd() * .25 });
-      var s = new T.Sprite(mat), ang = rnd() * Math.PI * 2, dist = 700 + rnd() * 2200, w = 500 + rnd() * 700;
-      s.position.set(Math.cos(ang) * dist, 420 + rnd() * 380, Math.sin(ang) * dist);
-      s.scale.set(w, w * .5, 1);
+    for (var i = 0; i < CLOUDS.N; i++) {
+      var mat = new T.SpriteMaterial({ map: textures[i % 3], fog: false, depthWrite: false, transparent: true, opacity: 0 });
+      var s = new T.Sprite(mat), w = 500 + rnd() * 700;
+      s.userData = { x: (rnd() * 2 - 1) * CLOUDS.R1, z: (rnd() * 2 - 1) * CLOUDS.R1, y: CLOUDS.H0 + rnd() * (CLOUDS.H1 - CLOUDS.H0),
+        w: w, vx: CLOUDS.WIND[0] + rnd() * (CLOUDS.WIND[1] - CLOUDS.WIND[0]), vz: (rnd() - .5) * CLOUDS.DRIFT_Z, op: .75 + rnd() * .25 };
       group.add(s);
     }
     return group;
+  }
+  function wrap(v, half) { return ((v + half) % (2 * half) + 2 * half) % (2 * half) - half; }
+  function smooth(e0, e1, x) { var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
+  // scale: less than 1 when the far plane is nearer (LOW), so the clouds
+  // come in with it and look the same size.
+  function driftClouds(group, cam, time, scale) {
+    group.position.set(cam.x * .9, 0, cam.z * .9);
+    group.children.forEach(function (s) {
+      var u = s.userData, x = wrap(u.x + u.vx * time, CLOUDS.R1), z = wrap(u.z + u.vz * time, CLOUDS.R1), d = Math.hypot(x, z);
+      s.position.set(x * scale, u.y * scale, z * scale);
+      s.scale.set(u.w * scale, u.w * .5 * scale, 1);
+      s.material.opacity = u.op * smooth(CLOUDS.R1, CLOUDS.R1 * .82, d) * smooth(CLOUDS.R0 * .7, CLOUDS.R0, d);
+      s.visible = s.material.opacity > .01;
+    });
   }
 
   function create(canvas, city) {
@@ -159,14 +177,15 @@
     }
     function setShadowFocus(f) { shadowFocus = f || null; }
 
-    var time = 0;
+    var time = 0, cloudScale = 1;
     function update(dt, eye, yaw, pitch) {
       time += dt;
       camera.position.set(eye.x, eye.y, eye.z);
       camera.rotation.set(pitch, yaw, 0);
       skyMesh.position.copy(camera.position);
-      cloudGroup.position.set(camera.position.x * .9 + time * 2.5, 0, camera.position.z * .9);
+      driftClouds(cloudGroup, camera.position, time, cloudScale);
       built.water.offset.set(time * .012, time * .007);
+      built.waterTime.value = time;
       followShadow(eye);
     }
 
@@ -180,10 +199,15 @@
       camera.aspect = w / h; camera.updateProjectionMatrix();
     }
 
-    // A graphics tier (Gfx.tier): the shadow map and the pixel count.
-    // Villains' shadows, blobs and particles are world-game's.
+    // A graphics tier (Gfx.tier): the shadow map, the pixel count, and how
+    // far you see - the far plane and the haze that hides it, with the
+    // clouds brought in to match. Villains' shadows, blobs, particles and
+    // the traffic are world-game's.
     function setTier(t) {
       tier = t;
+      if (camera.far !== t.far) { camera.far = t.far; camera.updateProjectionMatrix(); }
+      scene.fog.density = t.fog;
+      cloudScale = Math.min(1, t.far / 3200);
       if (sun.shadow.mapSize.x !== t.shadow) {
         sun.shadow.mapSize.set(t.shadow, t.shadow);
         if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }

@@ -30,7 +30,7 @@
       cars: { density: .5, range: 260, max: 110 }, people: { density: .5, range: 110, max: 70 } },
     med: { name: 'med', pixels: 1920, shadow: 2048, grade: true, cast: true, blob: false, env: 128, particles: 1,
       far: 3200, fog: .00068,
-      cars: { density: 1, range: 450, max: 300 }, people: { density: 1, range: 190, max: 200 } }
+      cars: { density: 1, range: 380, max: 240 }, people: { density: 1, range: 170, max: 170 } }
   };
   var DEFAULT = 'med';
   var MIN_RATIO = .5;          // never render at less than half the CSS pixels
