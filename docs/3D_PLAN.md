@@ -57,8 +57,8 @@ videos.
    shadow-casting light with a small shadow frustum that follows the player, and let fog hide the far
    plane. Add a graphics setting once there is something to scale (C4 added LOW/MED; the user removed
    HIGH as too slow).
-7. **Keep the classic 2D game reachable** as **CLASSIC** in the menu until Session 4 decides with the
-   user whether to remove it.
+7. **Keep the classic 2D game reachable** as **CLASSIC** in the menu. Session 4 asked, and the user
+   chose to keep it (2026-09-27).
 8. **Work style:** small commits with clear messages. Run the tests before every commit. Open the page in
    the built-in browser to check it renders and has no console errors. Update `game/README.md` for
    anything the player can see.
@@ -363,3 +363,90 @@ real-hardware tuning, and anything the next session must know._
     encounter markers from `spots.fights[i].trigger` and `.vantage`, and beacon colours from
     `WorldActors.BEACON_COLORS`. The Venom fight's thugs add 3 draw calls (plus 3 for shadows). The goblin
     PNG includes a wooden display base, which reads as his glider disc.
+- 2026-09-27 — **Session 4 done in code: the cyan HUD and minimap, traffic and pedestrians, drifting clouds,
+  shimmering water, positional sound, and LOW/MED draw distance and traffic.** 175 tests pass (154 old + 14 in
+  `game/tests/life.test.cjs` + 7 in `game/tests/hud.test.cjs`). **The user chose to keep CLASSIC** (fixed
+  decision 7), so the 2D game, its weak spots and its training are untouched. The READMEs describe the 3D game.
+  - **Bug fixed from C4.** `world-game.js` declared `var fx` twice (the overlay canvas and C4's `WorldFx`), so
+    the overlay was never sized or cleared: the web strand from the wrist and the off-screen arrow drew nowhere
+    after C4. The canvas is `overlay` now (`9fe0437`).
+  - **What exists.** Logic (UMD, tested, no Three.js): `world/traffic.js` (`Traffic`: car loops, walker loops,
+    `carAt`/`personAt`, `slot`, `near`, `clear`, `noise`), `world/hud.js` (`Hud`: the heading-up minimap sums,
+    `edge`, `pointer`, `segments`, `status`), `world/sound-cues.js` (`SoundCues`: villain clips and footfalls
+    to placed sounds, the glider's hum). Render: `world/life.js` (`WorldLife`), `world/hud-view.js`
+    (`WorldHud`), and changes to `world.js` (clouds, the tier's far plane and fog), `city-mesh.js` (water),
+    `audio.js` (placed sounds), `villain-view.js` (`heard()`: the clips the villain was told to play this
+    frame) and `world-game.js`. `WorldGame` also exposes `life`, `hud` and `traffic`.
+  - **Traffic.** Cars drive clockwise loops round rectangles of blocks: right turns only, keeping to the lanes
+    on the loop's inside, which is right-hand traffic. The rectangles tile the grid (the park is one), so no two
+    loops share a lane going the same way, and every car on a loop has the loop's speed: cars never touch
+    outside a junction (tested). There are two tilings: 2×2 blocks in the inner lanes, and 2×3 offset by a
+    block in the outer lanes. That gives 87 loops and 1,762 cars, 35% of them cabs. Walkers loop every
+    pavement, the park's and the promenade, both ways, on separate lines: 5,903 in all. Every one has a
+    `rank`; a tier's `density` keeps those under it, so LOW's half is a subset of MED's. **No traffic
+    lights:** cars cross through each other at junctions. Nothing collides with the player, and
+    `world.raycast` ignores the traffic (it isn't in the city group), so webs pass through cars and people.
+    Entering a fight calls `Traffic.clear(sim, Encounters.focus(enc))`. At street level (focus y − r < 5 m)
+    that hides every loop within r + 15 m: 4 car loops and 12 walker loops for the Rhino, 2 walker loops for
+    Venom, and nothing for the Goblin up on his roof. Roaming and training bring them back.
+  - **Traffic is moved on the GPU.** The first version rewrote the instance matrices every frame, and on this
+    laptop's Intel UHD that cost about 2 ms (80 → 66 fps at the spawn view), almost all of it the buffer
+    uploads. Positions are pure functions of time, so now `life.js`'s vertex shader moves each instance round
+    its loop from a clock uniform (`lifeAt` is `Traffic.pointOn` in GLSL). The CPU re-picks the nearest every
+    `RESELECT` 1.2 s, or after 25 m of movement, and writes them with `Traffic.slot`, which re-bases to the pick
+    time so the floats stay small. A test checks that a slot moved on matches `carAt`/`personAt`. Each mesh has
+    a `customDepthMaterial` with the same patch, so shadows move too. Walkers' legs and arms swing in the shader
+    from the stride phase. That leaves three draw calls, plus three shadow calls on MED.
+  - **HUD.** Top left: the encounter, the villain's name and a skewed bar with a segment per hit (`Hud.segments`).
+    Top right: the objective, the clock (red under 10 s) and a bar of the time left. Bottom left: a 180 px square
+    minimap tilted back 18° in CSS. It turns with you (heading up), is cut from a picture of the city drawn once
+    at 1.2 px/m, and shows 160 m to its edge, 220 m from high roofs. Its marks are the light columns while roaming,
+    the villain in a fight and the target in training, held to the edge when off it. **There is no player health
+    bar:** nothing attacks the player yet, so the top-left bar is the villain's. The off-screen arrow is a cyan
+    chevron with the distance. Its margins (`t` 22% of the height, up to 200 px; `b` 14%, up to 120 px) keep it
+    clear of the top HUD and the hint line. The new elements' ids start `wh-`, because the 2D HUD already has
+    `#hud-health`. The thug phase is still handled in `Hud.status` for Session H.
+  - **Sound.** `WSAudio.setListener` follows the camera each frame. `place(at, ref)` puts a sound through its own
+    HRTF PannerNode (inverse distance, full volume inside `ref` metres). Villain cues come from the clips
+    VillainAnim asks for: `roar` (per villain: the Goblin cackles, the Rhino bellows, Venom growls), `thud`
+    (entrance, drop-in, landing), `whoosh` (dodges, leap take-off), `skid`, `snort` (wind-up), `grunt` (hits)
+    and `groan` (defeat). The Rhino's footfalls come every `STRIDE` 2.7 m of his speed. The glider hum follows
+    the Goblin, pitched by his speed, and stops when he's beaten or the game pauses. Web impacts (`crunch`,
+    `thunk`, `impact`) play at the hit point, and the thwip stays at the wrist. There's a street rumble from
+    `Traffic.noise` (the nearby cars, quieter higher up) and a horn from a car within 70 m about every 16 s.
+    The 2D game calls the same functions with no position and hears them as before. **All of this only ran
+    headless without errors; nobody has listened to it yet.**
+  - **World.** 34 clouds drift on the wind at 2–5.5 m/s each, wrapping round a ±2.9 km field and fading at its
+    rim and away from overhead. They used to all drift off together at 2.5 m/s. The water samples its wave map
+    a second time, finer and drifting the other way, so the glints break up and re-form.
+  - **Graphics tiers** (`Gfx.TIERS`). MED: far plane 3200 m, fog .00068 (unchanged), cars up to 240 within
+    380 m, walkers up to 170 within 170 m, and the traffic casts shadows. LOW: far plane 1500 m with fog
+    .00125, so the far plane is 97% hazed (`Gfx.clarity`, tested); the clouds scale in with the far plane; half
+    the traffic, 110 cars within 260 m and 70 walkers within 110 m; no traffic shadows. `tier()` now returns deep
+    copies.
+  - **Measured** in headless Chrome on the **Intel UHD at 1920×1080** (1280×720 CSS at DPR 1.5), over http. Each
+    view was measured for 3 × 1.5 s with the camera fixed on the fight's focus, alternating the pre-session build
+    (`2defc4c`, served from a scratch copy) with this one. MED before → after: spawn roof 72–78 → 64–75, Goblin
+    118 → 91–101, Rhino 76–90 → 57–75, Venom 83–91 → 75–82. LOW: 136/205/155/153 → 129/169/139/138. Runs swing
+    ±15%: this GPU dropped to half speed for minutes at a time, partly because the desktop app's browser pane
+    was running the city in another tab (stop it before measuring). The one clear new cost is the traffic,
+    0.6–1.1 ms. The minimap (~0.25 ms), clouds and water are within the noise. Draw calls, shadow pass
+    included: roaming 82, fights 41–90 on MED, 610–860k triangles.
+  - **Verified** headless (the app's pane wouldn't animate). The Rhino fight was won through the real
+    `WorldGame.fire` (7 hits, segments 7 → 0, VICTORY) with WebAudio on and no console errors. Training hits
+    and HUD. Pause holds the traffic. The traffic empties from the Rhino's avenue. Street level (cars, cabs,
+    walkers swinging their limbs), the minimap turning, the arrow toward the Goblin behind you, LOW's haze, and
+    the Venom fight **from `file://`**. Shots are in `docs/reference/s4_roof_hud.png`, `s4_street.png` and
+    `s4_fight_hud.png`.
+  - **Not verified.** The "done when" (60 fps on MED on the user's laptop, in a real Chrome window with vsync):
+    steady headless runs held 60 in every view, but the Rhino's dipped to 57 once. Ask the user to press P in
+    each fight full-screen. If MED misses, lower `Gfx.TIERS.med.cars/people` first. Also unchecked: the sound,
+    by ear, with headphones (the levels are guesses); the real shooter; pointer lock.
+  - **Constants to tune.** `Traffic.constants` (`CAR_GAP` 34, `CAR_SPEED` 7.5–11.5, `CAB`, `WALK_GAP` 16,
+    `WALK_SPEED`, `STRIDE`, `CLEAR_PAD`), `Gfx.TIERS` (`far`, `fog`, `cars`, `people`), life.js `RESELECT`,
+    `MOVED` and `LEG`, `Hud.constants` (`MAP_RANGE`, `MAP_ROOF`), `SoundCues.constants` (`STRIDE`,
+    `ENTRANCE_THUD`, `DROP_THUD`), the `ref` distances in audio.js's sound functions, `HORN_EVERY` in
+    world-game.js, and `CLOUDS` in world.js.
+  - **For Session 5.** Web-zips should aim at `world.raycast`, which already ignores the traffic. A zip that
+    lands on the street will land among cars that pass through the player. The minimap and arrow need nothing
+    new for zipping.
