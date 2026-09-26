@@ -1,0 +1,4 @@
+# Large character sources (see docs/CHARACTERS_PLAN.md)
+game/assets-src/**/*.glb filter=lfs diff=lfs merge=lfs -text
+game/assets-src/**/*.fbx filter=lfs diff=lfs merge=lfs -text
+game/assets-src/**/*.png filter=lfs diff=lfs merge=lfs -text
