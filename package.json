@@ -1,0 +1,18 @@
+{
+  "name": "webshooter",
+  "private": true,
+  "description": "Web Shooter. The game runs from game/index.html with no build step; these dev dependencies only build the vendored Three.js addons and the character models.",
+  "scripts": {
+    "test": "node --test \"game/tests/*.test.cjs\"",
+    "build:addons": "node game/tools/build-addons.cjs",
+    "build:models": "node game/tools/build-models.cjs"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "4.5.0",
+    "@gltf-transform/extensions": "4.5.0",
+    "@gltf-transform/functions": "4.5.0",
+    "esbuild": "0.28.2",
+    "meshoptimizer": "1.3.0",
+    "three": "0.159.0"
+  }
+}

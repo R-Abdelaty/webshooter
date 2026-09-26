@@ -16,3 +16,6 @@ web_shooter/secrets.h
 
 # Python bytecode from the Blender build scripts
 __pycache__/
+
+# Dev dependencies (package.json): only for building vendor/three-addons.js and the models
+node_modules/
