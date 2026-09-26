@@ -178,7 +178,8 @@ This gives the hardware-only player a way to move before the analog stick exists
 building surface or roof edge within about 120 m and no enemy is in the aim cone, a flick **web-zips** the
 player along an arc to that point (roughly 0.6–1.2 s) and perches them on the ledge or roof. Add a strand
 visual, motion blur or FOV kick, and the landing sound. Fighting still takes priority: a flick with an
-enemy in the aim cone is always a shot. Add a setting to disable zipping. Tests: zip only on valid
+enemy in the aim cone (the aim-assist cone around any villain or thug body capsule, since C2 hits count
+anywhere on the body) is always a shot. Add a setting to disable zipping. Tests: zip only on valid
 surfaces within range, enemy-in-cone always shoots, and the landing is never inside geometry.
 
 ## Analog session (only after the stick is wired to the hardware)

@@ -72,19 +72,23 @@ your part; everything after the downloaded files is the sessions' part.
    WebP. Each thug has 10–15k triangles and a 1024² set, all thugs share one skeleton and one set of clips,
    and variants change only material tint or mask texture. Fights must stay at 60 fps on MED
    (3D_PLAN decision 6). Update far or offscreen characters' mixers at a lower rate.
-6. **Weak spots and hit volumes follow bones, not the sprite.** Each weak spot (CHEST, HEAD, SHOULDER) is a
-   sphere attached to a bone (for example `mixamorig:Spine2`, `mixamorig:Head`, `mixamorig:RightArm`),
-   with an offset and radius from the manifest. The body is a handful of bone-attached capsules. The
+6. **Hits land anywhere on the body (user decision in C2).** There are **no weak-spot targets**: a shot
+   counts if it meets any of the character's bone-attached body capsules, or passes within the aim-assist
+   cone of one. There are no target rings and no "HIT THE ..." prompt. The manifest's `weakSpots` are
+   unused by the game; don't bring them back unless the user asks (a head-shot bonus, for example). The
    logic modules stay free of Three.js: the render side samples bone world positions into plain arrays
    each frame, and `Fight.snapshot` stores those. **Lag compensation keeps working**, so a flick is still
-   judged against the pose that was on screen when you aimed.
+   judged against the pose that was on screen when you aimed. **Thugs work the same way:** their hits
+   count anywhere on the body. CLASSIC (2D) still has its weak spots; ask before changing it.
 7. **Keep a fallback.** If a character's model is missing, the game still runs with the current
    billboard or primitive and logs one warning. This lets the sessions ship before every model exists.
 
 ## Your part: making the models
 
 **The three villains are done**: the models and animations are built and checked (see Status). The rest
-of this section is kept for the **thugs**, and for replacing a villain later.
+of this section is kept for the **thugs** (postponed to Session H; its prerequisites list the free
+routes) and for replacing a villain later. Meshy and Tripo charge to export models; TRELLIS and
+Hunyuan3D on Hugging Face are free.
 
 **Shortcut: a model that is already rigged and animated.** A downloaded GLB that has a skeleton, its own
 animations and embedded textures (as many Sketchfab game-character uploads do) skips steps 1–4 below
@@ -315,10 +319,52 @@ The Blender side is already done: `game/tools/blender/{goblin,rhino,venom}.py` b
 - **Done when:** all three fights play start to finish with real models, with the wrist, at 60 fps on MED.
   Ask the user to play them and report anything that looks wrong.
 
-## Session C3 — The thug gang
+## Session C3 — Villains only: switch the thug wave off
 
-- Run the pipeline on `thug` (and `thug2` if present). Make at least 4 visual variants from material tint,
-  mask colour or pattern, height ±6% and shoulder width. Share clips across all of them.
+**User decision (2026-09-26): for now the game is the three villain fights only. The masked hitmen come
+later, in Session H.** Today the Venom fight opens with Session 3's wave of six primitive box thugs that
+must be cleared before Venom drops in (`encounters.js` `THUGS`, `fight.js` phase `'thugs'`, `actors.js`
+`drawThugs`).
+
+- Add **one switch** that turns the wave off, for example `Encounters.constants.THUGS.ENABLED = false`.
+  With it off, the Venom fight goes straight to his entrance (`arrive`). **Keep the thug code**: the
+  logic, rendering, encounter placement and hit handling all stay, behind the switch, because Session H
+  turns it back on with real models.
+- With the switch off, nothing of the thugs shows or runs:
+  - no thug meshes drawn, and their draw calls skipped;
+  - no "thugs left" in the HUD;
+  - no thug targets for the off-screen pointer or the aim-assist cone.
+  - Rewrite the Venom intro text (currently "Clear the masked thugs first…") for a straight Venom fight.
+- Tests: keep the thug tests, but run them with the switch **on** (for example with a test-only
+  override), so the code Session H needs stays tested. Add tests that with it **off**, Venom's fight
+  starts in `arrive` and has no thugs.
+- Update `game/README.md` (the Venom paragraph and the HUD line) so it no longer mentions thugs.
+- **Done when:** all three fights are villain-only and play start to finish, the tests pass, and flipping
+  the switch on brings the old wave back unchanged.
+
+## Session H — The masked hitmen (future; not until the user has a model)
+
+Do this session only when the user says the hitmen model is ready. Until then the thug wave stays
+switched off (C3).
+
+**Prerequisites (the user's part):**
+- A rigged man in a black suit, white shirt and black tie in `game/assets-src/characters/thug/`. The white
+  mask can be modelled in Blender and parented to the head bone if the model has none. Free routes:
+  - generate one from a T-pose reference image with **TRELLIS** or **Hunyuan3D** on Hugging Face (free
+    GLB download; Meshy and Tripo charge for export);
+  - or download a free rigged suit model from Sketchfab (for example Renderpeople's "Eric Rigged 001").
+  A GLB needs converting to FBX in Blender for Mixamo.
+- Mixamo animations (FBX, Without Skin, In Place): idle, walk, run, punch, pistol aim, hit, knockdown,
+  getup, defeat. Without Mixamo, the poses can be scripted like the Goblin's, but walk and run will look
+  stiff.
+
+**The session:**
+- Write `game/tools/blender/thug.py` in the style of the villain scripts: clean up and scale, add or fix
+  the white mask, relink textures, bring in the Mixamo clips, and export `game/assets/models/thug.glb`.
+  Add a `thugs` entry to `characters.json` with body capsules; hits land anywhere on the body
+  (decision 6). Render its contact sheet.
+- Make at least 4 visual variants from material tint, mask colour or pattern, height ±6% and shoulder
+  width. Share clips across all of them.
 - Behaviour (a UMD logic module with tests; the render side only plays clips):
   - idle or patrol in small groups until the fight starts, then turn toward the player;
   - pistol thugs `aim` and fake-fire (a muzzle flash and a miss tracer, no damage to the player yet);
@@ -328,7 +374,9 @@ The Blender side is already done: `game/tools/blender/{goblin,rhino,venom}.py` b
   - downed thugs get webbed to the ground: a splat on the body (reuse `webs.js`).
 - Performance: mixers of thugs far away or off camera update at a lower rate. Measure draw calls in the
   Venom fight and keep them within the budget.
-- Replace the primitive thugs; keep the logged fallback.
+- Replace the primitive thugs with the models, keeping the logged fallback, and turn C3's switch **on**.
+  Restore the Venom intro text, the HUD's "thugs left" and the README paragraph.
+- Apply C4's look to them: shadows, rim light, and the hit effects.
 - **Done when:** the Venom fight's thug wave looks like the masked-gang scene in video 1, and the frame
   rate holds.
 
@@ -337,24 +385,26 @@ The Blender side is already done: `game/tools/blender/{goblin,rhino,venom}.py` b
 - Colour pipeline: sRGB output, ACES (or AgX if it looks better), correct texture colour spaces, and
   PMREM **environment lighting** from the sky so metal and armour reflect the city. Add per-villain rim
   light so characters separate from busy backgrounds.
-- A post chain from the bundled addons: SMAA or FXAA, subtle bloom for glowing eyes and weak spots, SSAO
+- A post chain from the bundled addons: SMAA or FXAA, subtle bloom for glowing eyes and impacts, SSAO
   or GTAO on HIGH only, and a mild colour grade toward video 1's warm sun with cool shadows. Add a
   LOW/MED/HIGH setting (or extend the existing one) that switches these.
-- Character shadows: make sure villains and thugs cast into the following shadow map at a usable
-  resolution, and add blob contact shadows on LOW.
+- Character shadows: make sure the villains cast into the following shadow map at a usable resolution,
+  and add blob contact shadows on LOW. The thugs are switched off (C3), so leave them alone; Session H
+  applies this look to them later.
 - Hit effects:
   - web-impact particles;
   - sparks on the Rhino's armour;
   - black symbiote splashes on Venom;
-  - a hit-stop of a few frames on a weak-spot hit;
-  - a weak-spot marker that pulses rather than a flat circle;
+  - a hit-stop of a few frames on every villain hit, and an impact flash at the exact point the shot met
+    the body (the capsule hit point), so a hit anywhere reads clearly without a target marker;
   - a stylised dissolve or web-wrap on defeat.
+  - Do not add weak-spot markers or targets on villains (decision 6).
 - Screenshot each fight from the vantage in the browser pane, compare against `docs/reference/`, and
   iterate. Report fps with and without the post chain.
 - **Done when:** the side-by-side screenshots read as one coherent, lit game, and MED holds 60 fps.
 
 After C4, return to `docs/3D_PLAN.md` Session 4 (HUD, world life) and Session 5. The LOW/MED/HIGH tiers
-from C4 are the ones Session 4 extends.
+from C4 are the ones Session 4 extends. Session H (hitmen) waits until the user has a model.
 
 ## Status
 
