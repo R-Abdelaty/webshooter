@@ -19,6 +19,7 @@ You start on the roof of a 196 m tower by the river, looking north-east over a M
 | Esc | Pause - see the cards below |
 | Enter | Press the first button on a card (GO, RESUME, RETRY...) |
 | P | Frame rate, draw calls, position, and what the look is doing |
+| M | Model viewer (a debug tool): see *Character models* below |
 
 You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villain pictures are the PNGs in `assets/villains/`, copied into `js/world/villain-sprites.js` as data URIs because WebGL refuses images loaded from a `file://` page; after changing a PNG, run `node game/tools/embed-sprites.cjs`.
 
@@ -50,6 +51,32 @@ As in the classic game, a flicked shot is judged where you aimed just before the
 The HUD shows the encounter, the villain's health (or the thugs left), the weak spot to hit and the clock, which turns red for the last ten seconds. **Esc** pauses: RESUME, SETTINGS, FREE ROAM or MENU. Running out of time shows **DEFEAT** (RETRY); beating a villain shows **VICTORY** (NEXT ENCOUNTER), and beating Venom **CITY SAVED** (REPLAY). Every card can be pressed with a flick at the reticle, as on the menu.
 
 **Free roam.** A coloured light column on the street marks where each fight starts: green at the foot of your starting tower (the Goblin), orange by the Rhino's building, purple at the construction site gate (Venom), and cyan at the training roof. Walk into one and its fight begins, taking you up to its spot. Esc in free roam also lists the fights to jump straight to.
+
+## Character models
+
+The villains are moving from flat pictures to rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). The fights still use the pictures for now. You can already look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino and Venom stand in a row in front of you at their real size, facing you. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
+
+| Key | Does |
+| --- | --- |
+| [ ] | Pick the previous / next model |
+| , . | Play its previous / next clip (one-shots repeat) |
+| H | A hit, layered on whatever it is doing |
+| L | Walk and run by speed: stopped, walk, between, run, faster |
+| O | Weak spots (coloured spheres) and body capsules (green), then weak spots only, then neither |
+| / | Freeze the clips |
+| M | Close (it forms again in front of you next time) |
+
+A model loads only when it is first needed. One that can't load is reported once in the console and left out. The models are game rips kept for personal use only; don't publish them.
+
+**Rebuilding the models** (for developers). The source files are in `assets-src/characters/` (Git LFS). `tools/blender/<id>.py` turns each one into `assets/models/<id>.glb`, and `assets/models/characters.json` says how the game uses them. One command compresses those and writes the scripts the page loads, `js/world/models/*.js`. These hold the models as base64, because a page opened from disk can't load files.
+
+    npm install                                     (once, in the repo root)
+    node game/tools/build-models.cjs                compress and embed
+    node game/tools/build-models.cjs --blender      first rebuild the GLBs in Blender
+    node game/tools/build-models.cjs --sheets       also re-render docs/reference/clips/
+    node game/tools/build-models.cjs --only venom   one character
+
+Blender is found through `BLENDER_PATH`, then `PATH`, then `C:\Program Files\Blender Foundation\`. After editing only `characters.json`, run `node game/tools/embed-models.cjs`. The Three.js loaders come from `vendor/three-addons.js` (see `vendor/README.md`).
 
 ## Training (3D)
 
