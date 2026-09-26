@@ -29,8 +29,9 @@
     // Rhino: roof height for the vantage, how far each way along the avenue
     // he charges, and how far either side of its centre line he swerves.
     CHARGE: { ROOF_MIN: 12, ROOF_MAX: 30, HALF: 32, LANE: 7, SCALE: 64 },
-    // Venom: how far away a beam may be to leap to, and the thugs.
-    LEAP: { RANGE: 28, HOP_MIN: 3, HOP_MAX: 13, SCALE: 50 },
+    // Venom: how far away a beam may be to leap to, how much beam his
+    // sideways dodge needs and how far along one to look, and the thugs.
+    LEAP: { RANGE: 28, HOP_MIN: 3, HOP_MAX: 13, SCALE: 50, DASH_ROOM: 2.5, BEAM_MAX: 4 },
     THUGS: { COUNT: 6, MIN: 6, MAX: 30, SPACING: 2.5, SPREAD: 70 },
     // Training: roof heights to stand on, and target distances.
     RANGE: { ROOF_MIN: 28, ROOF_MAX: 60, NEAR: 12, FAR: 75, MAX_TARGETS: 60, SPACING: 6 }
@@ -180,6 +181,21 @@
   }
 
   // --- Venom and the thugs ------------------------------------------------------
+  // The beams leading off a perch, along x and z: which way, and how far there
+  // is something to stand on at the perch's height (Venom dodges sideways
+  // along one). Only those at least DASH_ROOM long.
+  function beamsFrom(city, x, y, z) {
+    var out = [];
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+      var len = 0;
+      for (var k = .5; k <= K.LEAP.BEAM_MAX + 1e-9; k += .5) {
+        if (groundAt(city, x + d[0] * k, z + d[1] * k, y + .3) < y - .01) break;
+        len = k;
+      }
+      if (len >= K.LEAP.DASH_ROOM) out.push({ x: d[0], z: d[1], len: len });
+    });
+    return out;
+  }
   function venom(city) {
     var site = city.site, f = site.frame, look = site.lookout, L = K.LEAP, T = K.THUGS;
     var v = { x: look.x, y: look.y, z: look.z }, eye = { x: v.x, y: v.y + K.EYE, z: v.z };
@@ -196,7 +212,7 @@
         return c.y0 > y + .05 && c.y0 < y + 2.6 && x >= c.x0 - .3 && x <= c.x1 + .3 && z >= c.z0 - .3 && z <= c.z1 + .3;
       });
       if (head || !sightClear(city, eye, chest, 1.2)) continue;
-      perches.push({ x: round2(x), y: round2(y), z: round2(z) });
+      perches.push({ x: round2(x), y: round2(y), z: round2(z), beams: beamsFrom(city, x, y, z) });
     }
     // The thugs stand in the gap between you and the frame, on its ground
     // floor between the columns, and a couple on the first floor's edge.
