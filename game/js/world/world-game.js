@@ -7,6 +7,11 @@
   // flick or a click shoots a web. The cards (INTRO, PAUSED, DEFEAT, VICTORY)
   // hold everything still while they are up. The 2D game is untouched and
   // still reachable as CLASSIC.
+  //
+  // The graphics setting (Gfx: LOW / MED / HIGH) is applied from the
+  // settings each frame it changes. A villain hit throws its particles and
+  // flashes where it landed (fx.js) and freezes the fight for a few frames
+  // (the hit-stop); every web that lands throws a puff of strands.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -23,6 +28,7 @@
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
   var mode = 'roam', fight = null, enc = null, range = null, shownEnd = null, endAt = 0, armed = false;
   var shakeAt = -1e9, shakeAmp = 0, hud = {}, hooks = [], modelShown = false, going = false;
+  var fx = null, tierName = null, stopUntil = 0;
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -41,6 +47,10 @@
     // The villains' models, loaded now so each fight's is ready by its GO.
     villains = WorldVillains.create(world.scene, world);
     villains.preload();
+    fx = WorldFx.create(world.scene);
+    // A beaten villain dissolves as the web wraps him.
+    villains.onWrap = function (caps) { fx.wrap(caps, Player.eye(player)); };
+    applyTier();
     window.addEventListener('resize', function () { if (running) layout(); });
   }
   function layout() {
@@ -48,6 +58,25 @@
     var r = window.devicePixelRatio || 1;
     fx.width = Math.round(fx.clientWidth * r); fx.height = Math.round(fx.clientHeight * r);
     fxc.setTransform(r, 0, 0, r, 0, 0);
+  }
+
+  // The graphics setting, when it changes (and once at the start).
+  function applyTier() {
+    var t = Gfx.tier(settings().graphics);
+    if (t.name === tierName) return;
+    tierName = t.name;
+    world.setTier(t);
+    villains.setCast(t.cast);
+    fx.setScale(t.particles);
+    if (mode === 'fight' && enc) lightFight();
+  }
+  // A fight's light: the following shadow sits on the villain's stretch of
+  // the city, and the villains reflect the city as seen from there.
+  function lightFight() {
+    var f = Encounters.focus(enc);
+    world.setShadowFocus(f);
+    world.update(0, Player.eye(player), player.yaw, player.pitch);
+    villains.setEnvironment(world.environment(f, world.tier.env, [villains.group, fx.group]));
   }
 
   function lock() {
@@ -101,10 +130,11 @@
   function place(v) {
     player = Player.create(v);
     player.pitch = v.pitch || 0;
-    look = Look.create(); strands = []; webs.clear();
+    look = Look.create(); strands = []; webs.clear(); fx.clear(); stopUntil = 0;
   }
   function enterRoam(fromSpawn) {
     mode = 'roam'; fight = null; enc = null; range = null;
+    world.setShadowFocus(null);
     if (fromSpawn || !player) { place(city.spawn); player.pitch = -.22; }  // out and down over the city
     // Standing in a fight's trigger (a fight you just left, say) doesn't
     // start it again until you have stepped out.
@@ -116,6 +146,7 @@
     enc = spots.fights[i];
     fight = Fight.start(enc, LEVELS);
     place(enc.vantage);
+    lightFight();
     save(i);
     var v = VILLAINS[enc.villain];
     card('intro', 'ENCOUNTER ' + (i + 1), v.name + '. ' + enc.intro, [['GO', 'go'], ['FREE ROAM', 'roam'], ['MENU', 'menu']]);
@@ -124,6 +155,7 @@
     mode = 'train'; fight = null; enc = null;
     range = Training3D.start(spots.training, Date.now() & 0x7fffffff);
     place(spots.training.vantage);
+    world.setShadowFocus(null);
     closeCard();
   }
   function save(i) {
@@ -216,6 +248,10 @@
     if (!running || !world) { looping = false; return; }
     var dt = Math.min(.1, Math.max(0, (now - last) / 1000)); last = now;
     var c = ctl(), S = settings(), wrist = wristLooks(c);
+    applyTier();
+    // The hit-stop: for a few frames after a hit the fight and the villain
+    // hold still; the view doesn't, so turning never stutters.
+    var held = HitFx.stopped(now, stopUntil), fdt = held ? 0 : dt;
     var r = Look.step(look, {
       pos: c ? Controller.display(c, now) : null, wrist: wrist, mode: S.lookMode, speed: S.turnSpeed, pitch: player.pitch,
       // The flick is shooting, not looking: the camera holds still through it.
@@ -226,7 +262,7 @@
     if (!paused) {
       Player.look(player, r.dyaw, r.dpitch);
       Player.step(player, { move: Move.vector(), buttons: Move.buttons() }, dt, city);
-      if (fight) Fight.tick(fight, dt);
+      if (fight) Fight.tick(fight, fdt);
       if (range) Training3D.tick(range, dt);
       if (mode === 'roam') triggers();
     }
@@ -234,8 +270,11 @@
     // The villain's model: its clips move on while the fight is played, and
     // through its defeat even once the card is up. Its bones are sampled into
     // the fight now, before the camera below records what this frame shows.
-    var animDt = !paused || (fight && (fight.mode === 'won' || fight.mode === 'lost')) ? dt : 0;
+    var animDt = !paused || (fight && (fight.mode === 'won' || fight.mode === 'lost')) ? fdt : 0;
     modelShown = villains.update(fight, animDt, eye, now);
+    // LOW: a blob under his feet instead of the shadow he doesn't cast.
+    var blobbed = world.tier.blob && fight && modelShown && villains.shown();
+    fx.setBlob(blobbed ? fight.at : null, blobbed ? Fight.ground(fight) : null, fight ? VILLAINS[fight.villain].height : 0);
     ending(now);
     world.setFov(fov());
     world.update(dt, eye, player.yaw, player.pitch);
@@ -249,6 +288,7 @@
     cross.style.left = r.crosshair.x * 100 + '%'; cross.style.top = r.crosshair.y * 100 + '%';
     cross.classList.toggle('is-turning', r.turning);
     webs.update(now);
+    fx.update(paused && !(fight && (fight.mode === 'won' || fight.mode === 'lost')) ? 0 : fdt, now, world.camera, canvas.height);
     world.render();
     drawStrands(now);
     drawPointer();
@@ -326,27 +366,35 @@
       var r = Fight.fire(fight, VILLAINS, shot, cam.seen);
       out.hit = r.hit; out.kind = r.kind;
       if (r.hit && r.kind === 'villain') {
-        end = stickToVillain(r.body, cam.eye, now) || end;
+        var st = stickToVillain(r.body, cam.eye, now);
+        if (st) {
+          end = st.point;
+          // Particles and a flash where it met him, and the hit-stop.
+          fx.hit(VILLAINS[fight.villain].id, st.point, st.normal, now);
+          stopUntil = HitFx.stopUntil(now, stopUntil);
+        }
         actors.flash(now); villains.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
         WSAudio.crunch();
       } else if (r.hit) {
         webs.add(r.point, back(dir), dist(cam.eye, r.point), now, actors.thugAnchor(r.thug), .9);
+        fx.web(r.point, back(dir));
         end = r.point; flash(.2); shakeAt = now; shakeAmp = SHAKE * (r.down ? .9 : .5);
         WSAudio.crunch(); if (r.down && WSAudio.impact) WSAudio.impact();
       } else {
         // A miss - or a shot during his entrance, which still sticks to him.
         var on = stickToVillain(r.body, cam.eye, now);
-        if (on) end = on; else if (hit) webs.add(hit.point, hit.normal, hit.distance, now);
+        if (on) { end = on.point; fx.web(on.point, on.normal); }
+        else if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
         WSAudio.thunk();
       }
     } else if (range) {
       var t = Training3D.fire(range, shot);
       out.hit = t.hit;
       // The web sticks to the wall or roof behind the target.
-      if (hit) webs.add(hit.point, hit.normal, hit.distance, now);
+      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
       if (t.hit) { flash(.18); shakeAt = now; shakeAmp = SHAKE * .5; WSAudio.crunch(); end = t.point; } else WSAudio.thunk();
     } else {
-      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); WSAudio.thunk(); }
+      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); WSAudio.thunk(); }
     }
     strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now });
     return out;
@@ -354,18 +402,18 @@
   // A web where a shot met the villain (Fight.fire's `body`), placed on him
   // as he is drawn now - on the model, stuck to the bone under it - since a
   // rewound shot was judged where he was, and he has moved on since. Returns
-  // where it went, or null.
+  // where it went and the way the surface faces there, { point, normal }, or null.
   function stickToVillain(body, from, now) {
     if (!body) return null;
     if (body.capsule !== undefined && modelShown) {
       var st = villains.stickBody(fight, body.capsule, body.t, from);
-      if (st) { webs.add(st.point, st.normal, dist(from, st.point), now, st.parent, st.size); return st.point; }
+      if (st) { webs.add(st.point, st.normal, dist(from, st.point), now, st.parent, st.size); return st; }
     }
     var bb = !modelShown && fight.at && Fight.billboard(fight, VILLAINS, Player.eye(player));
     if (bb && body.u !== undefined) {
       var on = Fight.onSprite(bb, body.u, body.v);
       webs.add(on, bb.normal, body.distance, now, actors.villainAnchor(), .9);
-      return on;
+      return { point: on, normal: bb.normal };
     }
     return null;
   }
@@ -472,7 +520,7 @@
     frames = 0; perfAt = now;
     var src = wristLooks(c) ? 'wrist' : (c && !c.calibrated ? 'no centre yet' : 'mouse');
     var turn = lastLook && dt > 0 ? '  ·  turn ' + (lastLook.dyaw / dt * 180 / Math.PI).toFixed(0) + ' / ' + (lastLook.dpitch / dt * 180 / Math.PI).toFixed(0) + ' °/s' : '';
-    $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + r.calls + ' draw calls  ·  ' +
+    $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + world.tier.name.toUpperCase() + (world.post ? ' post' : ' no post') + '  ·  ' + r.calls + ' draw calls  ·  ' +
       (r.triangles / 1000).toFixed(0) + 'k tris  ·  x ' + player.x.toFixed(0) + ' y ' + player.y.toFixed(1) + ' z ' + player.z.toFixed(0) +
       '\nlook ' + (Look.mode(S.lookMode) === 'direct' ? 'DIRECT' : 'EDGE TURN') + ' (' + src + ')  ·  crosshair ' +
       look.crosshair.x.toFixed(2) + ', ' + look.crosshair.y.toFixed(2) + turn +
@@ -527,6 +575,6 @@
     saved: function () { try { var s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.chapter ? s.chapter : 0; } catch (_) { return 0; } },
     get mode() { return mode; }, get fight() { return fight; }, get range() { return range; }, get spots() { return spots; },
     get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
-    get villains() { return villains; }
+    get villains() { return villains; }, get fx() { return fx; }
   };
 })();

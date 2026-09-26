@@ -22,6 +22,14 @@
   // If a villain's model can't be loaded, `shown` stays false for it and
   // actors.js draws the old billboard instead (one warning is logged by
   // WorldModels).
+  //
+  // The look (Session C4): each villain's materials are its own copies,
+  // patched with a rim light - a fresnel edge in his own colour, strongest
+  // on the upward faces, so a dark figure separates from a busy street or
+  // a bright sky - and the defeat dissolve (hitfx.js), which eats him away
+  // along a noise pattern with a glowing web-white edge. They reflect the
+  // city as seen from the fight (setEnvironment), and cast into the
+  // following shadow except on LOW (setCast).
 
   var T = root.THREE;
   var IDS = ['goblin', 'rhino', 'venom'];
@@ -29,11 +37,58 @@
   var FLASH_MS = 180, BOB = .06;
   var GLIDER_OFF = { speed: 9, up: 2.5, drag: .4, life: 4 };   // the glider leaving after his defeat
   var FALL_G = 9.8, FALL_OUT = 40;                           // the goblin falling after it
+  // Rim light per villain: colour (linear, added as light), strength and
+  // how tight to the silhouette (a higher power is a thinner rim).
+  var RIM = {
+    goblin: { color: '#ffe0b0', strength: .45, power: 3 },
+    rhino: { color: '#bcd6ee', strength: .7, power: 2.6 },
+    venom: { color: '#aab8ff', strength: .75, power: 2.5 }
+  };
+  var EDGE = [3.5, 4.2, 5];      // the dissolve's glowing edge (linear; it blooms)
+  var NOISE = 3.2;               // dissolve pattern: cells per metre
+  var ENV_INTENSITY = 1.1;       // how strongly they reflect the city
+
+  var SHADER_HEAD = [
+    'uniform vec3 uRim; uniform float uRimPow, uDissolve, uNoise; uniform vec3 uEdge;',
+    'varying vec3 vDisPos;',
+    'float disHash(vec3 p) { p = fract(p * .3183099 + .1); p *= 17.; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }',
+    'float disNoise(vec3 x) {',
+    '  vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);',
+    '  return mix(mix(mix(disHash(i), disHash(i + vec3(1, 0, 0)), f.x), mix(disHash(i + vec3(0, 1, 0)), disHash(i + vec3(1, 1, 0)), f.x), f.y),',
+    '    mix(mix(disHash(i + vec3(0, 0, 1)), disHash(i + vec3(1, 0, 1)), f.x), mix(disHash(i + vec3(0, 1, 1)), disHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);',
+    '}',
+    ''
+  ].join('\n');
+  // Patch a (cloned) standard material with the rim and the dissolve; u is
+  // the villain's shared uniforms.
+  function patch(m, u) {
+    m.onBeforeCompile = function (sh) {
+      sh.uniforms.uRim = u.rim; sh.uniforms.uRimPow = u.rimPow; sh.uniforms.uDissolve = u.dissolve;
+      sh.uniforms.uNoise = u.noise; sh.uniforms.uEdge = u.edge; sh.uniforms.uOrigin = u.origin;
+      sh.vertexShader = 'uniform vec3 uOrigin;\nvarying vec3 vDisPos;\n' + sh.vertexShader.replace('#include <skinning_vertex>',
+        '#include <skinning_vertex>\n  vDisPos = (modelMatrix * vec4(transformed, 1.)).xyz - uOrigin;');
+      sh.fragmentShader = SHADER_HEAD + sh.fragmentShader
+        .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n' +
+          '  float disN = disNoise(vDisPos * uNoise) * .65 + disNoise(vDisPos * uNoise * 2.7) * .35;\n' +
+          '  if (uDissolve > 0. && disN < uDissolve * 1.05) discard;')
+        .replace('#include <aomap_fragment>', '#include <aomap_fragment>\n' +
+          '  float rimF = pow(1. - clamp(dot(normal, normalize(vViewPosition)), 0., 1.), uRimPow);\n' +
+          '  totalEmissiveRadiance += uRim * rimF * (.35 + .65 * clamp(normal.y * .5 + .5, 0., 1.));\n' +
+          '  if (uDissolve > 0.) totalEmissiveRadiance += uEdge * smoothstep(uDissolve * 1.05 + .08, uDissolve * 1.05, disN);');
+    };
+    m.customProgramCacheKey = function () { return 'villain-look'; };
+    m.needsUpdate = true;
+  }
+  function uniforms(id) {
+    var r = RIM[id] || RIM.goblin, c = new T.Color(r.color).multiplyScalar(r.strength);
+    return { rim: { value: c }, rimPow: { value: r.power }, dissolve: { value: 0 }, noise: { value: NOISE },
+      edge: { value: new T.Vector3().fromArray(EDGE) }, origin: { value: new T.Vector3() } };
+  }
 
   function create(scene, world) {
     var group = new T.Group(); group.name = 'villains'; scene.add(group);
     var items = {}, loading = null, fightRef = null, active = null;
-    var flashAt = -1e9, defeat = null;
+    var flashAt = -1e9, defeat = null, env = null, cast = true, onWrap = null;
     var v3 = new T.Vector3(), v3b = new T.Vector3();
 
     function preload() {
@@ -46,6 +101,10 @@
         return WorldModels.create('glider').then(function (g) {
           var it = items.goblin;
           it.glider = g; it.craft.add(g.root);
+          // The glider is his: his rim, his reflections, his own materials -
+          // but it flies off on its own rather than dissolving with him.
+          own(g.model, uniforms('goblin'), it.mats);
+          lookOf(it);
         }, function () {});
       });
       return loading;
@@ -57,18 +116,42 @@
     function make(id, rig) {
       var craft = new T.Group(); craft.name = 'craft:' + id; craft.rotation.order = 'YXZ'; craft.visible = false;
       craft.add(rig.root); group.add(craft);
-      // Its own materials, so a hit can flash this one without touching the
-      // model viewer's copy.
-      var mats = [];
-      rig.model.traverse(function (o) {
-        if (!o.isMesh) return;
-        o.material = [].concat(o.material).map(function (m) { var c = m.clone(); mats.push({ m: c, color: c.color.clone(), glow: !c.emissiveMap }); return c; });
-        if (o.material.length === 1) o.material = o.material[0];
-      });
+      // Its own materials, so a hit can flash this one - and the rim and the
+      // dissolve patch it - without touching the model viewer's copy.
+      var mats = [], u = uniforms(id);
+      own(rig.model, u, mats);
       var e = rig.entry, durs = {};
       rig.clipNames.forEach(function (n) { durs[n] = rig.machine.clips[n]; });
-      return { id: id, rig: rig, craft: craft, mats: mats, clips: durs, curves: e.shoulders ? curves(rig, e.shoulders) : {},
+      var it = { id: id, rig: rig, craft: craft, mats: mats, u: u, clips: durs, curves: e.shoulders ? curves(rig, e.shoulders) : {},
         air: e.airborne || null, kind: null, glider: null };
+      lookOf(it);
+      return it;
+    }
+    function own(model, u, mats) {
+      model.traverse(function (o) {
+        if (!o.isMesh) return;
+        // In a building's shadow he is in shade too, not lit by the sun.
+        o.receiveShadow = true;
+        o.material = [].concat(o.material).map(function (m) {
+          var c = m.clone();
+          if (c.isMeshStandardMaterial) patch(c, u);
+          mats.push({ m: c, color: c.color.clone(), glow: !c.emissiveMap });
+          return c;
+        });
+        if (o.material.length === 1) o.material = o.material[0];
+      });
+    }
+    // The environment and shadow settings in force, onto one villain.
+    function lookOf(it) {
+      it.mats.forEach(function (x) {
+        if (!x.m.isMeshStandardMaterial) return;
+        if (env) { x.m.envMap = env; x.m.envMapIntensity = ENV_INTENSITY; }
+      });
+      castOf(it, cast);
+    }
+    function castOf(it, on) {
+      it.craft.traverse(function (o) { if (o.isMesh) o.castShadow = on; });
+      if (it.glider) it.glider.root.traverse(function (o) { if (o.isMesh) o.castShadow = on; });
     }
 
     // Which way each clip squares the chest, sampled through it (VillainAnim.curve).
@@ -96,7 +179,7 @@
     // A new fight (or none): start its villain fresh.
     function reset(f) {
       fightRef = f; defeat = null; active = null;
-      IDS.forEach(function (id) { if (items[id]) items[id].craft.visible = false; });
+      IDS.forEach(function (id) { var x = items[id]; if (x) { x.craft.visible = false; x.u.dissolve.value = 0; castOf(x, cast); } });
       if (!f) return;
       var it = items[VILLAINS[f.villain].id];
       if (!it) return;
@@ -135,6 +218,8 @@
       if (f.mode === 'won' && !defeat) beaten(it, f, now);
       if (it.glider) glide(it, f, dt, now);
       if (defeat && defeat.fall) falling(it, dt);
+      if (defeat) dissolving(it, f, dt);
+      it.u.origin.value.copy(c.position);
       if (it.air) {
         c.updateMatrixWorld(true);
         var low = Infinity;
@@ -164,7 +249,7 @@
     // holds it too).
     function bob(it, f) { it.craft.position.y += Math.sin(f.time * 1.8) * BOB; }
     function beaten(it, f, now) {
-      defeat = { at: now, fall: null, glider: null };
+      defeat = { at: now, t: 0, wrapped: false, fall: null, glider: null };
       if (it.id !== 'goblin') return;
       // Knocked off: he tumbles (the defeat clip), then keeps falling to
       // whatever is below; the glider flies on without him.
@@ -187,11 +272,25 @@
       if (it.craft.position.y + q.y - 2 < q.floor || q.y < -FALL_OUT) it.craft.visible = false;
     }
 
+    // Once his defeat has played a moment he dissolves, as webs wrap him.
+    function dissolving(it, f, dt) {
+      defeat.t += dt;
+      var k = HitFx.dissolve(defeat.t);
+      it.u.dissolve.value = k;
+      if (k > 0 && !defeat.wrapped) {
+        defeat.wrapped = true;
+        castOf(it, false);                 // the shadow map would keep the whole of him
+        if (onWrap && f.body) onWrap(f.body.capsules);
+      }
+    }
+
     function flash(it, now) {
       var k = Math.max(0, 1 - (now - flashAt) / FLASH_MS);
       it.mats.forEach(function (x) {
-        x.m.color.copy(x.color).multiplyScalar(1 + k * 1.2);
-        if (x.glow && x.m.emissive) x.m.emissive.setRGB(k * .55, k * .2, k * .2);
+        // A light lift over the whole of him; the impact flash (fx.js) at the
+        // point the shot met him is what says where it landed.
+        x.m.color.copy(x.color).multiplyScalar(1 + k * .5);
+        if (x.glow && x.m.emissive) x.m.emissive.setScalar(k * .06);
       });
     }
 
@@ -209,8 +308,22 @@
     }
     function unit(x, y, z) { var l = Math.hypot(x, y, z) || 1; return { x: x / l, y: y / l, z: z / l }; }
 
+    // The city's reflection for the villains (World3D.environment), replacing
+    // the one before; and whether they cast into the shadow map.
+    function setEnvironment(tex) {
+      var old = env;
+      env = tex;
+      IDS.forEach(function (id) { if (items[id]) lookOf(items[id]); });
+      if (old && old !== tex) old.dispose();
+    }
+    function setCast(on) {
+      cast = !!on;
+      IDS.forEach(function (id) { if (items[id] && !(defeat && defeat.wrapped && active === items[id])) castOf(items[id], cast); });
+    }
+
     return {
-      preload: preload, ready: ready, state: state, update: update,
+      preload: preload, ready: ready, state: state, update: update, setEnvironment: setEnvironment, setCast: setCast,
+      set onWrap(fn) { onWrap = fn; }, get group() { return group; },
       flash: function (now) { flashAt = now; },
       stickBody: stickBody,
       shown: function () { return !!(active && active.craft.visible); },

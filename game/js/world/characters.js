@@ -25,7 +25,9 @@
   // The villains' materials are PBR metal (metalness 1 times a map): lit only
   // by the sun and the sky's hemisphere light they come out nearly black, so
   // they get a neutral studio environment to reflect. Only theirs - the city
-  // is left as it is. Session C4 replaces this with the sky's own.
+  // is left as it is. This is what the model viewer shows; in a fight,
+  // villain-view.js gives the villain the city itself to reflect instead
+  // (World3D.environment, taken from where the fight is).
   var ENV_INTENSITY = 1;
 
   function warnOnce(key, msg) {

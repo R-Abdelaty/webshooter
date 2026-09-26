@@ -2,7 +2,18 @@
   'use strict';
   // The scene around the city: renderer, camera, a gradient sky with a sun,
   // cumulus sprites, the haze (fog) that swallows the far city, and the one
-  // shadow-casting light, whose small shadow box follows the player.
+  // shadow-casting light, whose small shadow box follows the player - or, in
+  // a fight, sits on the villain's stretch of the city (Gfx.shadowBox).
+  //
+  // The colour grade - towards the first clip's warm sun and cool shadows -
+  // is part of the tone mapping itself (three's CustomToneMapping: ACES, then
+  // the grade), so every material gets it with no extra pass and it costs
+  // LOW and MED nothing. MED and LOW render straight to the canvas with its
+  // own MSAA: on this laptop's integrated GPU at 1080p a post chain's HDR
+  // target and full-screen passes cost more than a frame at 60 fps allows.
+  // HIGH adds the post chain (Gfx): the scene in linear HDR, SSAO, bloom -
+  // only what is far brighter than a sunlit wall: the sun, glowing eyes,
+  // sparks and impact flashes - then the same tone mapping and grade, and SMAA.
 
   var T = root.THREE;
 
@@ -11,6 +22,51 @@
   var SUN_DIR = new T.Vector3(-.58, .62, .52).normalize();
   var ZENITH = new T.Color('#3f7fcf'), HORIZON = new T.Color('#c9dbe9'), HAZE = new T.Color('#b9cad8');
   var SHADOW_HALF = 90, SHADOW_SIZE = 2048;
+  // Bloom (HIGH): only what is brighter than this (linear luminance, before
+  // tone mapping) glows; a white wall in full sun is about 2.8.
+  var BLOOM = { strength: .55, radius: .45, threshold: 3.2 };
+  // SSAO (HIGH), in metres (its distances are fractions of the camera's depth range).
+  var AO = { kernel: 1.6, min: .02, max: 3 };
+  // The grade, in display terms after ACES: shadows lean cool and highlights
+  // warm, a touch less saturation than the raw textures, a little contrast.
+  var GRADE = { shadow: [.92, .98, 1.08], high: [1.06, 1, .9], saturation: .88, contrast: 1.07 };
+
+  // GLSL for ACES (three's fit, from tonemapping_pars_fragment) followed by
+  // the grade, as a function `name`(linear colour) -> linear colour, reading
+  // the exposure from `exposure`.
+  function glf(n) { return Number.isInteger(n) ? n + '.' : String(n); }
+  function glv(a) { return 'vec3(' + a.map(glf).join(', ') + ')'; }
+  function gradeGLSL(name, exposure) {
+    return [
+      'vec3 ' + name + 'Fit(vec3 v) { vec3 a = v * (v + .0245786) - .000090537; vec3 b = v * (.983729 * v + .4329510) + .238081; return a / b; }',
+      'vec3 ' + name + '(vec3 c) {',
+      '  const mat3 inM = mat3(vec3(.59719, .07600, .02840), vec3(.35458, .90834, .13383), vec3(.04823, .01566, .83777));',
+      '  const mat3 outM = mat3(vec3(1.60475, -.10208, -.00327), vec3(-.53108, 1.10813, -.07276), vec3(-.07367, -.00605, 1.07602));',
+      '  c = clamp(outM * ' + name + 'Fit(inM * (c * ' + exposure + ' / .6)), 0., 1.);',
+      '  vec3 g = pow(c, vec3(1. / 2.2));',
+      '  float l = dot(g, vec3(.2126, .7152, .0722));',
+      '  g *= mix(' + glv(GRADE.shadow) + ', ' + glv(GRADE.high) + ', smoothstep(.08, .8, l));',
+      '  g = mix(vec3(l), g, ' + glf(GRADE.saturation) + ');',
+      '  g = (g - .5) * ' + glf(GRADE.contrast) + ' + .5;',
+      '  return pow(clamp(g, 0., 1.), vec3(2.2));',
+      '}'
+    ].join('\n');
+  }
+  // Every material's tone mapping, when the renderer's is CustomToneMapping.
+  var CUSTOM = 'vec3 CustomToneMapping( vec3 color ) { return color; }';
+  var graded = T.ShaderChunk.tonemapping_pars_fragment.indexOf(CUSTOM) >= 0;
+  if (graded) T.ShaderChunk.tonemapping_pars_fragment = T.ShaderChunk.tonemapping_pars_fragment.replace(CUSTOM,
+    gradeGLSL('gradeTone', 'toneMappingExposure') + '\nvec3 CustomToneMapping( vec3 color ) { return gradeTone( color ); }');
+  else console.warn('Web Shooter: this three.js has no CustomToneMapping hook; plain ACES, no colour grade');
+  // HIGH's last HDR pass: the same tone mapping and grade, then sRGB. (It
+  // always draws into SMAA's input, never the screen, so the chunk above is
+  // never in its prefix as well.)
+  var OutputGradeShader = {
+    uniforms: { tDiffuse: { value: null }, exposure: { value: 1 } },
+    vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+    fragmentShader: 'uniform sampler2D tDiffuse; uniform float exposure;\nvarying vec2 vUv;\n' + gradeGLSL('gradePass', 'exposure') +
+      '\nvoid main() { vec4 s = texture2D(tDiffuse, vUv); gl_FragColor = sRGBTransferOETF(vec4(gradePass(s.rgb), s.a)); }'
+  };
 
   function sky() {
     var mat = new T.ShaderMaterial({
@@ -91,18 +147,31 @@
     var built = CityMesh.build(city, { anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()) });
     scene.add(built.group);
 
+    // The graphics setting in force, and the post chain it asks for (null on LOW).
+    var tier = Gfx.tier(Gfx.DEFAULT), composer = null, fxaa = null, ssao = null, bloom = null, grade = null;
+    // The draw-call readout counts every pass of a frame, not just the last.
+    renderer.info.autoReset = false;
+
     // Snap the shadow box to its own texel grid as it follows you, so shadow
-    // edges don't crawl when you walk.
-    var texel = SHADOW_HALF * 2 / SHADOW_SIZE, lightRot = new T.Matrix4().lookAt(SUN_DIR, new T.Vector3(), new T.Vector3(0, 1, 0));
-    var inv = lightRot.clone().invert(), tmp = new T.Vector3();
+    // edges don't crawl when you walk. focus: the fight's (Encounters.focus),
+    // or null to follow the player.
+    var lightRot = new T.Matrix4().lookAt(SUN_DIR, new T.Vector3(), new T.Vector3(0, 1, 0));
+    var inv = lightRot.clone().invert(), tmp = new T.Vector3(), shadowFocus = null, shadowHalf = SHADOW_HALF;
     function followShadow(p) {
-      tmp.set(p.x, p.y, p.z).applyMatrix4(inv);
+      var box = Gfx.shadowBox(p, shadowFocus);
+      if (box.half !== shadowHalf) {
+        shadowHalf = box.half;
+        sc.left = -shadowHalf; sc.right = shadowHalf; sc.top = shadowHalf; sc.bottom = -shadowHalf; sc.updateProjectionMatrix();
+      }
+      var texel = shadowHalf * 2 / sun.shadow.mapSize.x;
+      tmp.set(box.x, box.y, box.z).applyMatrix4(inv);
       tmp.x = Math.round(tmp.x / texel) * texel; tmp.y = Math.round(tmp.y / texel) * texel;
       tmp.applyMatrix4(lightRot);
       sun.target.position.copy(tmp);
       sun.position.copy(tmp).addScaledVector(SUN_DIR, 900);
       sun.target.updateMatrixWorld();
     }
+    function setShadowFocus(f) { shadowFocus = f || null; }
 
     var time = 0;
     function update(dt, eye, yaw, pitch) {
@@ -117,15 +186,72 @@
 
     function resize() {
       var w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight;
-      // Render at most about 1080p worth of pixels; a HiDPI laptop screen would
-      // otherwise ask an integrated GPU for twice that.
-      var ratio = Math.min(window.devicePixelRatio || 1, Math.max(1, 1920 / w));
+      // Render at most the tier's worth of pixels (1080p on MED); a HiDPI
+      // laptop screen would otherwise ask an integrated GPU for twice that.
+      var ratio = Gfx.pixelRatio(tier, w, window.devicePixelRatio || 1);
       renderer.setPixelRatio(ratio);
       renderer.setSize(w, h, false);
       camera.aspect = w / h; camera.updateProjectionMatrix();
+      if (composer) {
+        composer.setPixelRatio(ratio); composer.setSize(w, h);
+        if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (w * ratio), 1 / (h * ratio));
+      }
     }
 
-    function render() { renderer.render(scene, camera); }
+    // A graphics tier (Gfx.tier): the shadow map, the pixel count and the
+    // post chain. Villains' shadows, blobs and particles are world-game's.
+    function setTier(t) {
+      tier = t;
+      if (sun.shadow.mapSize.x !== t.shadow) {
+        sun.shadow.mapSize.set(t.shadow, t.shadow);
+        if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      }
+      if (composer) { composer.passes.forEach(function (p) { if (p.dispose) p.dispose(); }); composer.dispose(); }
+      composer = fxaa = ssao = bloom = grade = null;
+      renderer.toneMapping = t.grade && graded ? T.CustomToneMapping : T.ACESFilmicToneMapping;
+      resize();
+      if (t.post) buildPost(t);
+    }
+    function buildPost(t) {
+      var w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight, pr = renderer.getPixelRatio();
+      composer = new T.EffectComposer(renderer, new T.WebGLRenderTarget(w * pr, h * pr, { type: T.HalfFloatType }));
+      composer.addPass(new T.RenderPass(scene, camera));
+      if (t.ssao) {
+        ssao = new T.SSAOPass(scene, camera, w * pr, h * pr);
+        var range = camera.far - camera.near;
+        ssao.kernelRadius = AO.kernel; ssao.minDistance = AO.min / range; ssao.maxDistance = AO.max / range;
+        composer.addPass(ssao);
+      }
+      if (t.bloom) { bloom = new T.UnrealBloomPass(new T.Vector2(w, h), BLOOM.strength, BLOOM.radius, BLOOM.threshold); composer.addPass(bloom); }
+      if (t.grade && graded) { grade = new T.ShaderPass(OutputGradeShader); composer.addPass(grade); } else composer.addPass(new T.OutputPass());
+      if (t.aa === 'fxaa') { fxaa = new T.ShaderPass(T.FXAAShader); composer.addPass(fxaa); }
+      else composer.addPass(new T.SMAAPass(w * pr, h * pr));     // SMAA, and the grade pass never draws to the screen
+      resize();
+    }
+
+    function render() {
+      renderer.info.reset();
+      if (grade) grade.uniforms.exposure.value = renderer.toneMappingExposure;
+      if (composer) composer.render(); else renderer.render(scene, camera);
+    }
+
+    // The city as seen from `at`, blurred for image-based lighting: what the
+    // villains' metal and armour reflect. `hide` is what must not be in it
+    // (the villains themselves, webs, effects). Returns a PMREM texture; the
+    // caller disposes the one it replaces.
+    function environment(at, size, hide) {
+      var was = (hide || []).map(function (o) { var v = o.visible; o.visible = false; return v; });
+      var rt = new T.WebGLCubeRenderTarget(size || 128, { type: T.HalfFloatType });
+      var cube = new T.CubeCamera(.5, 2400, rt);
+      cube.position.set(at.x, at.y, at.z); cube.updateMatrixWorld();
+      skyMesh.position.copy(cube.position);
+      cube.update(renderer, scene);
+      skyMesh.position.copy(camera.position);
+      (hide || []).forEach(function (o, i) { o.visible = was[i]; });
+      var pm = new T.PMREMGenerator(renderer), tex = pm.fromCubemap(rt.texture).texture;
+      pm.dispose(); rt.dispose();
+      return tex;
+    }
 
     // The field of view is vertical, in degrees (Settings -> FOV).
     function setFov(deg) {
@@ -164,8 +290,9 @@
 
     resize();
     return { renderer: renderer, scene: scene, camera: camera, sun: sun, update: update, resize: resize, render: render,
-      setFov: setFov, raycast: raycast, project: project, info: renderer.info };
+      setFov: setFov, raycast: raycast, project: project, info: renderer.info, setTier: setTier, setShadowFocus: setShadowFocus,
+      environment: environment, get tier() { return tier; }, get post() { return composer; } };
   }
 
-  root.World3D = { create: create, SUN_DIR: SUN_DIR };
+  root.World3D = { create: create, SUN_DIR: SUN_DIR, BLOOM: BLOOM, AO: AO, GRADE: GRADE, graded: graded };
 })(window);

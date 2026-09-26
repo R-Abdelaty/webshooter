@@ -18,7 +18,7 @@ You start on the roof of a 196 m tower by the river, looking north-east over a M
 | C | Recentre the wrist's aim |
 | Esc | Pause - see the cards below |
 | Enter | Press the first button on a card (GO, RESUME, RETRY...) |
-| P | Frame rate, draw calls, position, and what the look is doing |
+| P | Frame rate, the graphics setting, draw calls, position, and what the look is doing |
 | M | Model viewer (a debug tool): see *Character models* below |
 
 You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villains are 3D models kept inside script files (see *Character models*).
@@ -44,13 +44,23 @@ Three encounters, each placed somewhere in the city with a spot to fight it from
 
 There are no targets on the villains: a web that hits him anywhere - body, head, arms or legs - does 20 damage, as a weak-spot hit does in the classic game. A shot that misses him does nothing. You can fire about three times a second, and you have **30 seconds**, which start once the villain has made his entrance (the HUD says GET READY until then; he can't be hurt yet). Every shot at the villain, hit or miss, makes it dodge, ducking away from the shot: the Goblin veers and may reverse, the Rhino swerves (and cuts his turn short), and Venom dashes sideways along his beam, or if he is already in the air, leaps on sooner.
 
-The villains are animated 3D models at real size, and what a shot can hit follows their limbs as they move. A shot counts if it passes within 1.5 degrees of him, since a wrist is less steady than a mouse, but not through a wall. A hit makes him flinch (and stagger on the last hit before the end), flashes the view and shakes it, and a web sticks to him and moves with him; a miss leaves a web wherever it lands. When he is beaten he goes down - the Goblin is knocked off his glider, which spins away without him - before the VICTORY card comes up. When what you should be shooting at is off the screen, a red arrow at the edge points the way to turn.
+The villains are animated 3D models at real size, and what a shot can hit follows their limbs as they move. A shot counts if it passes within 1.5 degrees of him, since a wrist is less steady than a mouse, but not through a wall. A hit makes him flinch (and stagger on the last hit before the end), freezes him and the fight for a few frames (the view keeps moving), flashes at the exact point the web met him, throws strands of web off him - and sparks off the Rhino's armour, black splashes of symbiote off Venom - and shakes the view; the web sticks to him and moves with him. A miss leaves a web wherever it lands, with a puff of strands. When he is beaten he goes down - the Goblin is knocked off his glider, which spins away without him - and then dissolves, eaten away along a glowing web-white edge as the web wraps him, before the VICTORY card comes up. When what you should be shooting at is off the screen, a red arrow at the edge points the way to turn.
 
 As in the classic game, a flicked shot is judged where you aimed just before the flick - including where the villain was then, so a dodge that starts during the flick doesn't make you miss.
 
 The HUD shows the encounter, the villain's health and the clock, which turns red for the last ten seconds. **Esc** pauses: RESUME, SETTINGS, FREE ROAM or MENU. Running out of time shows **DEFEAT** (RETRY); beating a villain shows **VICTORY** (NEXT ENCOUNTER), and beating Venom **CITY SAVED** (REPLAY). Every card can be pressed with a flick at the reticle, as on the menu.
 
 **Free roam.** A coloured light column on the street marks where each fight starts: green at the foot of your starting tower (the Goblin), orange by the Rhino's building, purple at the construction site gate (Venom), and cyan at the training roof. Walk into one and its fight begins, taking you up to its spot. Esc in free roam also lists the fights to jump straight to.
+
+### Graphics
+
+**Settings → GRAPHICS → QUALITY** picks how much the picture asks of your graphics card; it applies at once and is remembered.
+
+- **Low** renders about 720p worth of pixels (scaled up to the window), with a smaller shadow map; the villains cast no shadow into it and have a soft blob under their feet instead, and hits throw half the particles. For a weak integrated GPU.
+- **Medium** (the default) renders 1080p worth of pixels; the villains cast real shadows. Meant to hold 60 fps on a laptop's integrated graphics at 1080p (see *Status* in `docs/CHARACTERS_PLAN.md` for what was measured).
+- **High** is for a separate graphics card: it adds a post-processing chain - ambient occlusion in corners and creases, bloom (the sun, the Rhino's eyes, sparks and hit flashes glow), SMAA edge smoothing - renders up to the screen's full resolution (up to 1440p worth) and uses a bigger shadow map.
+
+Every setting has the same look: a colour grade towards the first reference clip's warm sun and cool shadows, the villains lit by the city around them (their metal and armour reflect the place they fight in), a rim of light round each villain so a dark figure stands out from a busy street or a bright sky, and a following shadow that, in a fight, sits on the villain's part of the city so his shadow is sharp.
 
 ## Character models
 

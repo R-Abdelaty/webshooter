@@ -16,10 +16,13 @@ test('gfx: LOW, MED and HIGH, each asking more of the GPU than the last; anythin
   assert.ok(lo.pixels<md.pixels&&md.pixels<hi.pixels);
   assert.ok(lo.shadow<md.shadow&&md.shadow<hi.shadow);
   assert.ok(lo.env<=md.env&&md.env<=hi.env);
-  assert.deepEqual([lo.post,md.post,hi.post],[false,true,true],'no post chain on LOW');
+  // The post chain is for a discrete GPU: an integrated one at 1080p can't
+  // afford its HDR target and passes on MED and still make 60 fps.
+  assert.deepEqual([lo.post,md.post,hi.post],[false,false,true],'a post chain on HIGH only');
   assert.deepEqual([lo.ssao,md.ssao,hi.ssao],[false,false,true],'SSAO on HIGH only');
-  assert.deepEqual([lo.aa,md.aa,hi.aa],['msaa','fxaa','smaa']);
-  assert.ok(md.bloom&&md.grade&&hi.bloom&&hi.grade);
+  assert.deepEqual([lo.bloom,md.bloom,hi.bloom],[false,false,true],'bloom needs the post chain');
+  assert.deepEqual([lo.aa,md.aa,hi.aa],['msaa','msaa','smaa']);
+  assert.ok(lo.grade&&md.grade&&hi.grade,'the grade is free, so every tier has it');
   // LOW: the villains don't cast into the shadow map; a blob under them instead.
   assert.deepEqual([lo.cast,lo.blob,md.cast,md.blob,hi.cast,hi.blob],[false,true,true,false,true,false]);
   assert.ok(lo.particles<md.particles);

@@ -4,20 +4,24 @@
   // HIGH turns on, and the sums that go with it. No Three.js; world.js and
   // world-game.js apply it.
   //
-  //   LOW   no post chain (the canvas's own antialiasing), about 720p worth of
-  //         pixels, a small shadow map the villains don't cast into - a blob
-  //         under them instead - and half the hit particles. For integrated
-  //         GPUs.
-  //   MED   the default. The post chain: bloom (glowing eyes, sparks, impact
-  //         flashes and the sun), the colour grade, FXAA. 1080p worth of
-  //         pixels, villains cast real shadows.
-  //   HIGH  MED plus SSAO, SMAA instead of FXAA, the screen's full pixel
-  //         density (up to 1440p worth) and a bigger shadow map.
+  //   LOW   about 720p worth of pixels, a small shadow map the villains
+  //         don't cast into - a blob under them instead - and half the hit
+  //         particles. For a weak integrated GPU, or a big screen.
+  //   MED   the default, for an integrated GPU at 1080p: 1080p worth of
+  //         pixels, villains cast real shadows. No post chain: on this
+  //         laptop's Intel UHD its HDR target and passes alone cost more
+  //         than a 60 fps frame had left.
+  //   HIGH  for a discrete GPU: the post chain - SSAO, bloom (glowing eyes,
+  //         sparks, impact flashes and the sun) and SMAA - the screen's full
+  //         pixel density (up to 1440p worth) and a bigger shadow map.
+  //
+  // Every tier has the colour grade (it is part of the tone mapping, so it
+  // is free) and the canvas's own MSAA below the post chain.
 
   var TIERS = {
-    low: { name: 'low', pixels: 1280, shadow: 1024, post: false, bloom: false, grade: false, ssao: false, aa: 'msaa',
+    low: { name: 'low', pixels: 1280, shadow: 1024, post: false, bloom: false, grade: true, ssao: false, aa: 'msaa',
       cast: false, blob: true, env: 64, particles: .5 },
-    med: { name: 'med', pixels: 1920, shadow: 2048, post: true, bloom: true, grade: true, ssao: false, aa: 'fxaa',
+    med: { name: 'med', pixels: 1920, shadow: 2048, post: false, bloom: false, grade: true, ssao: false, aa: 'msaa',
       cast: true, blob: false, env: 128, particles: 1 },
     high: { name: 'high', pixels: 2560, shadow: 4096, post: true, bloom: true, grade: true, ssao: true, aa: 'smaa',
       cast: true, blob: false, env: 256, particles: 1 }
