@@ -8,8 +8,8 @@
 // 1. (--blender) runs game/tools/blender/<id>.py headless, which writes
 //    assets/models/<id>.glb. Blender is looked for in BLENDER_PATH, then on
 //    PATH, then in C:\Program Files\Blender Foundation\Blender *\.
-// 2. Compresses each GLB with glTF-Transform - drop channels on bones that
-//    move no vertex, one time grid per clip, prune, dedup, meshopt
+// 2. Compresses each GLB with glTF-Transform - bake cubic-spline tracks to
+//    linear keys, drop channels on bones that move no vertex, one time grid per clip, prune, dedup, meshopt
 //    (EXT_meshopt_compression, decoded by the WASM inlined in
 //    vendor/three-addons.js) - into assets/models/dist/. WebP textures are
 //    kept as they are. Draco and KTX2 are not allowed: they would need a
@@ -150,6 +150,57 @@ function dropDeadChannels(doc, keep) {
   return n;
 }
 
+// CUBICSPLINE tracks (the eased clips Blender bakes from Bezier keys, like
+// Venom's hit) keep in and out tangents beside each key. meshopt 'high'
+// quantizes rotation outputs with its quaternion filter, which assumes unit
+// quaternions and so wrecks the tangents: Venom's hand ended up 70 cm off.
+// Sample them at BAKE_FPS into LINEAR keys first (glTF's Hermite form).
+const BAKE_FPS = 30;
+function bakeCubic(doc) {
+  const root = doc.getRoot(), buffer = root.listBuffers()[0];
+  let n = 0;
+  root.listAnimations().forEach(a => a.listSamplers().forEach(s => {
+    if (s.getInterpolation() !== 'CUBICSPLINE') return;
+    const times = s.getInput().getArray(), outAcc = s.getOutput(), k = outAcc.getElementSize();
+    let vals = outAcc.getArray();
+    const rot = a.listChannels().some(c => c.getSampler() === s && c.getTargetPath() === 'rotation');
+    if (rot) {
+      // q and -q are the same rotation, but a spline between keys on opposite
+      // sides swings through a near-zero quaternion: Venom's hit has one on
+      // clavicle_r (its Blender bake), which flails the arm for a few frames.
+      // Put every key on its predecessor's side, tangents included.
+      vals = Float32Array.from(vals);
+      for (let i = 1; i < times.length; i++) {
+        let d = 0; for (let q = 0; q < k; q++) d += vals[(i - 1) * 3 * k + k + q] * vals[i * 3 * k + k + q];
+        if (d < 0) for (let q = 0; q < 3 * k; q++) vals[i * 3 * k + q] = -vals[i * 3 * k + q];
+      }
+    }
+    const t0 = times[0], t1 = times[times.length - 1], steps = Math.max(1, Math.round((t1 - t0) * BAKE_FPS));
+    const grid = new Float32Array(steps + 1), v = new Float32Array((steps + 1) * k);
+    for (let g = 0, i = 0; g <= steps; g++) {
+      const t = g === steps ? t1 : t0 + (t1 - t0) * g / steps;
+      grid[g] = t;
+      while (i < times.length - 2 && times[i + 1] <= t) i++;
+      const td = times[i + 1] - times[i] || 1, u = Math.min(1, Math.max(0, (t - times[i]) / td));
+      const u2 = u * u, u3 = u2 * u;
+      const h00 = 2 * u3 - 3 * u2 + 1, h10 = u3 - 2 * u2 + u, h01 = -2 * u3 + 3 * u2, h11 = u3 - u2;
+      // Per key: [in-tangent, value, out-tangent], each k wide.
+      const a0 = i * 3 * k, a1 = (i + 1) * 3 * k;
+      let len = 0;
+      for (let q = 0; q < k; q++) {
+        const x = h00 * vals[a0 + k + q] + h10 * td * vals[a0 + 2 * k + q] + h01 * vals[a1 + k + q] + h11 * td * vals[a1 + q];
+        v[g * k + q] = x; len += x * x;
+      }
+      if (rot) { len = Math.sqrt(len) || 1; for (let q = 0; q < k; q++) v[g * k + q] /= len; }
+    }
+    s.setInput(doc.createAccessor().setType('SCALAR').setArray(grid).setBuffer(buffer))
+      .setOutput(doc.createAccessor().setType(outAcc.getType()).setArray(v).setBuffer(buffer))
+      .setInterpolation('LINEAR');
+    n++;
+  }));
+  return n;
+}
+
 // Sample a LINEAR track at time t (slerp for rotations).
 function sampleAt(times, values, k, t, rot, out) {
   const last = times.length - 1;
@@ -221,6 +272,7 @@ async function compressor() {
     const used = doc.getRoot().listExtensionsUsed().map(e => e.extensionName);
     const banned = used.filter(n => /draco|basisu|ktx/i.test(n));
     if (banned.length) throw new Error(path.basename(src) + ' uses ' + banned.join(', ') + ': only meshopt and WebP are allowed');
+    const baked = bakeCubic(doc);
     const dead = dropDeadChannels(doc, keep || new Set());
     shareClipTimes(doc);
     await doc.transform(
@@ -232,7 +284,7 @@ async function compressor() {
       meshopt({ encoder: MeshoptEncoder, level: 'high' })
     );
     fs.writeFileSync(dst, slimJson(await io.writeBinary(doc)));
-    return { dead };
+    return { dead, baked };
   };
 }
 
@@ -263,7 +315,7 @@ async function main() {
     const json = fs.readFileSync(dst).readUInt32LE(12) / 1e6;
     console.log(id.padEnd(7) + before.mb.toFixed(2).padStart(6) + ' MB -> ' + after.mb.toFixed(2).padStart(5) + ' MB  (JSON ' +
       json.toFixed(2) + ' MB, ' + after.triangles + ' tris, ' + after.clips.length + ' clips' +
-      (r.dead ? ', ' + r.dead + ' dead channels dropped' : '') + ')');
+      (r.dead ? ', ' + r.dead + ' dead channels dropped' : '') + (r.baked ? ', ' + r.baked + ' cubic tracks baked' : '') + ')');
     if (after.clips.length !== before.clips.length) throw new Error(id + ': compression lost clips');
   }
   embed.run(ids);
