@@ -8,15 +8,29 @@ You start on the roof of a 196 m tower by the river, looking north-east over a M
 
 | Control | Does |
 | --- | --- |
-| Click the view | Take the mouse for looking (pointer lock) |
-| Mouse | Look around |
+| Wrist shooter | Look and aim (see LOOK below) |
+| Flick | Shoot a web where the crosshair was just before the flick |
+| Click the view | Take the mouse for looking (pointer lock); once it has the mouse, a click shoots. While the wrist is aiming, a click shoots straight away |
+| Mouse | Look around, crosshair in the middle |
 | W A S D or arrows | Walk |
 | Shift | Sprint |
 | Space | Jump (clears a roof parapet) |
-| Esc | Pause - RESUME or MENU on the card |
-| P | Frame rate, draw calls and position |
+| C | Recentre the wrist's aim |
+| Esc | Pause - RESUME, SETTINGS or MENU on the card |
+| P | Frame rate, draw calls, position, and what the look is doing |
 
-You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. For now the view is first person with a centre crosshair and nothing to shoot; aiming and looking with the wrist shooter come next. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built.
+You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built.
+
+### Looking with the wrist
+
+A wrist turns about 80 degrees each way, not 360, so **Settings → CONTROLLER → LOOK** offers two ways to look around. Settings can be opened from the PAUSED card without leaving the city.
+
+- **Edge turn** (the default, as in the Wii shooters). The crosshair follows your wrist over the screen. Inside a box covering the middle 60% of the screen the view stays still, so you aim. Push the crosshair past the box edge and the view turns that way, slowly just past the edge and up to 140 degrees a second sideways (90 up and down) at the screen edge; the crosshair turns cyan while it is turning. Bring the wrist back inside the box and the turning stops. Hold it at the edge to turn all the way round.
+- **Direct.** The crosshair stays in the middle. Turning your wrist turns the view twice as far (scaled by SENSITIVITY), and tilting it up or down points the view exactly as high or low as your wrist, up to 75 degrees. This suits a stick for turning the body, which the shooter doesn't have yet.
+
+**TURN SPEED** scales how fast Edge turn turns, **SENSITIVITY** is the same setting as in the classic game (how far the crosshair moves per degree of wrist, and Direct's turn gain), and **FOV** is the vertical field of view, 60-100 degrees (default 75). They are remembered with the other settings. Moving the mouse takes the look from the wrist; turning the wrist takes it back.
+
+The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A web splat sticks to whatever it hits (a wall, a roof, the street, a tree, the water) and fades after six seconds, and a strand flicks out from your wrist at the bottom right for the instant of the shot. The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
 
 ## Classic
 
