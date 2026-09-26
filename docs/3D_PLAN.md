@@ -43,9 +43,10 @@ videos.
 3. **Testable logic stays in plain UMD modules**, like `levels.js`, `combat.js` and `training.js`, with no
    Three.js inside, so `node --test game/tests/*.test.cjs` can exercise it. Rendering code can use
    Three.js. All the existing tests must keep passing. Each session adds tests for the logic it adds.
-4. **No downloaded 3D models or textures of copyrighted characters or places.** The city is procedural
-   (boxes, instancing, canvas-generated window and brick textures). Villains reuse the existing PNGs in
-   `game/assets/villains/` as camera-facing billboards. Thugs are simple primitive humanoids.
+4. **The city is procedural** (boxes, instancing, canvas-generated window and brick textures). **Characters
+   are real 3D models:** the villains and thugs are rigged, animated GLB models made by the user and
+   processed by the pipeline in **`docs/CHARACTERS_PLAN.md`**. That plan replaces the earlier billboard
+   villains and primitive thugs. Do not go back to either.
 5. **Movement goes through one interface: `Move`.** `Move.vector()` returns `{x, z}` in [-1, 1] (strafe,
    forward), plus `Move.buttons()` for jump or sprint. For now only a **keyboard** source exists
    (WASD/arrows, Shift sprint, Space jump), for desk testing. The user will add an analog stick to the
