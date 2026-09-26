@@ -1,8 +1,8 @@
 # Web Shooter
 
-Open `game/index.html` in a modern browser (straight from disk is fine). **START** opens the 3D city; **CLASSIC** is the original 2D game described further down.
+Open `game/index.html` in a modern browser (straight from disk is fine). **START** takes you into the 3D city for the first encounter, **CONTINUE** picks up at the furthest encounter you have reached, and **TRAINING** opens target practice in the city. **CLASSIC** is the original 2D game described further down.
 
-## The city (START)
+## The city
 
 You start on the roof of a 196 m tower by the river, looking north-east over a Manhattan-style city about 1.2 km square: brick walk-ups, sandstone apartments, offices and glass towers with setbacks, water tanks and roof plant, three supertall landmarks, avenues with lane markings and crossings, a park of 3 × 6 blocks with autumn trees and a pond, a riverside promenade, and a construction site with a steel frame, scaffolding, brick stacks, tarps and a crane. The city beyond the edges and across the river is backdrop that fades into the haze.
 
@@ -16,10 +16,11 @@ You start on the roof of a 196 m tower by the river, looking north-east over a M
 | Shift | Sprint |
 | Space | Jump (clears a roof parapet) |
 | C | Recentre the wrist's aim |
-| Esc | Pause - RESUME, SETTINGS or MENU on the card |
+| Esc | Pause - see the cards below |
+| Enter | Press the first button on a card (GO, RESUME, RETRY...) |
 | P | Frame rate, draw calls, position, and what the look is doing |
 
-You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built.
+You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villain pictures are the PNGs in `assets/villains/`, copied into `js/world/villain-sprites.js` as data URIs because WebGL refuses images loaded from a `file://` page; after changing a PNG, run `node game/tools/embed-sprites.cjs`.
 
 ### Looking with the wrist
 
@@ -32,9 +33,31 @@ A wrist turns about 80 degrees each way, not 360, so **Settings → CONTROLLER �
 
 The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A web splat sticks to whatever it hits (a wall, a roof, the street, a tree, the water) and fades after six seconds, and a strand flicks out from your wrist at the bottom right for the instant of the shot. The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
 
+## Fights
+
+Three encounters, each placed somewhere in the city with a spot to fight it from, because until the shooter has a stick the wrist can't walk you anywhere. Starting one puts you there facing the action, with an **INTRO** card: **GO** starts it, **FREE ROAM** lets you wander instead, **MENU** leaves.
+
+1. **Green Goblin** (100 HP) glides in circles round the roof you start on, dipping and climbing. You fight from the middle of the roof, so he goes behind you: turn with him.
+2. **Rhino** (140 HP) charges up and down an avenue, turning round at each end and swerving across the lanes. You perch on the parapet of a low roof above it.
+3. **Venom** (180 HP) is at the construction site. First a wave of six masked thugs in black suits: half go down to one hit, half take two. Once they are all down Venom drops in and leaps from beam to beam of the steel frame. You fight from a shipping container in the yard.
+
+The rules are the classic game's: each hit on the highlighted weak spot does 20 damage and moves the highlight to the next one (chest, head, shoulder), anything else does nothing, you can fire about three times a second, and you have **30 seconds** - which for Venom only start when he arrives; the thug wave is untimed. Every shot at the villain, hit or miss, makes it dodge: the Goblin veers and may reverse, the Rhino swerves, Venom leaps sooner.
+
+The villains are the classic game's pictures, standing at real size in the city and turned to face you. The weak spot to hit is a white ring with a red cross; the others show as faint dashed rings. A shot counts if it passes within 1.5 degrees of the weak spot, since a wrist is less steady than a mouse, but not through a wall. A hit flashes the view and shakes it, and a web sticks to the villain (or the thug, who topples over); a miss leaves a web wherever it lands, on the villain's body included. When what you should be shooting at is off the screen, a red arrow at the edge points the way to turn.
+
+As in the classic game, a flicked shot is judged where you aimed just before the flick - including where the villain was then, so a dodge that starts during the flick doesn't make you miss.
+
+The HUD shows the encounter, the villain's health (or the thugs left), the weak spot to hit and the clock, which turns red for the last ten seconds. **Esc** pauses: RESUME, SETTINGS, FREE ROAM or MENU. Running out of time shows **DEFEAT** (RETRY); beating a villain shows **VICTORY** (NEXT ENCOUNTER), and beating Venom **CITY SAVED** (REPLAY). Every card can be pressed with a flick at the reticle, as on the menu.
+
+**Free roam.** A coloured light column on the street marks where each fight starts: green at the foot of your starting tower (the Goblin), orange by the Rhino's building, purple at the construction site gate (Venom), and cyan at the training roof. Walk into one and its fight begins, taking you up to its spot. Esc in free roam also lists the fights to jump straight to.
+
+## Training (3D)
+
+**TRAINING** puts you on a mid-height roof with targets on the walls and roofs around it, near and far (about 16 to 70 m). One target at a time: hit it and the next appears at least 30 degrees away from the last, so every one is a real re-aim. Far targets are drawn bigger so each is about the same size on screen. There is no clock and nothing to lose; the HUD shows hits, shots, accuracy, best streak and the current streak.
+
 ## Classic
 
-Press **CLASSIC**, then **Go**. Move the mouse to aim; left-click or Space fires. Escape pauses, the **← MENU** button in the HUD quits to the menu at any time, C recentres aim, and the Controller settings provide wrist axes, inversion, sensitivity, and a visible Center Aim action. **CONTINUE** resumes the classic encounters.
+Press **CLASSIC**, then **Go**. Move the mouse to aim; left-click or Space fires. Escape pauses, the **← MENU** button in the HUD quits to the menu at any time, C recentres aim, and the Controller settings provide wrist axes, inversion, sensitivity, and a visible Center Aim action. The classic INTRO card also has **TRAINING**, the classic target practice below.
 
 The arena is fixed: `bavkghround.webp` is cover-cropped at a 72% vertical focal point. The villain stays one size and roams the arena between waypoints, breaking into a faster dodge for a moment each time you take a shot at it — so the weak spot moves and you have to track it. The background and camera stay still.
 
@@ -64,9 +87,9 @@ The menu uses the game's reticle instead of the mouse pointer, and the shooter d
 
 It stays live on the cards that interrupt a round too - INTRO, PAUSED, DEFEAT, VICTORY - so you can flick at **GO** or **Retry** without reaching for the mouse. It hides only while you are actually playing, where the canvas draws its own reticle.
 
-## Training
+## Classic training
 
-**TRAINING** in the menu is endless target practice on the menu artwork - no villain, no clock, nothing to lose. One target at a time; hit it and the next appears somewhere else, always at least 30% of the screen away so it is a real re-aim rather than a nudge. The HUD tracks hits, shots, accuracy and your current streak. Escape or **← MENU** leaves.
+**TRAINING** on the classic INTRO card is endless target practice on the menu artwork - no villain, no clock, nothing to lose. One target at a time; hit it and the next appears somewhere else, always at least 30% of the screen away so it is a real re-aim rather than a nudge. The HUD tracks hits, shots, accuracy and your current streak. Escape or **← MENU** leaves.
 
 It shares the reticle, the firing path and the web splats with the encounters, so practice behaves exactly like play.
 
