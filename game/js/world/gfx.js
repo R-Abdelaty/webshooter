@@ -1,35 +1,29 @@
 (function (root) {
   'use strict';
-  // The graphics setting (Settings -> GRAPHICS): what each of LOW, MED and
-  // HIGH turns on, and the sums that go with it. No Three.js; world.js and
+  // The graphics setting (Settings -> GRAPHICS): what LOW and MED each turn
+  // on, and the sums that go with it. No Three.js; world.js and
   // world-game.js apply it.
   //
   //   LOW   about 720p worth of pixels, a small shadow map the villains
   //         don't cast into - a blob under them instead - and half the hit
   //         particles. For a weak integrated GPU, or a big screen.
   //   MED   the default, for an integrated GPU at 1080p: 1080p worth of
-  //         pixels, villains cast real shadows. No post chain: on this
-  //         laptop's Intel UHD its HDR target and passes alone cost more
-  //         than a 60 fps frame had left.
-  //   HIGH  for a discrete GPU: the post chain - SSAO, bloom (glowing eyes,
-  //         sparks, impact flashes and the sun) and SMAA - the screen's full
-  //         pixel density (up to 1440p worth) and a bigger shadow map.
+  //         pixels, villains cast real shadows.
   //
-  // Every tier has the colour grade (it is part of the tone mapping, so it
-  // is free) and the canvas's own MSAA below the post chain.
+  // Both have the colour grade (it is part of the tone mapping, so it is
+  // free) and the canvas's own MSAA. There is no post chain: Session C4's
+  // HIGH setting (SSAO, bloom, SMAA) ran at 20 fps on this laptop's
+  // integrated GPU and the user removed it.
 
   var TIERS = {
-    low: { name: 'low', pixels: 1280, shadow: 1024, post: false, bloom: false, grade: true, ssao: false, aa: 'msaa',
-      cast: false, blob: true, env: 64, particles: .5 },
-    med: { name: 'med', pixels: 1920, shadow: 2048, post: false, bloom: false, grade: true, ssao: false, aa: 'msaa',
-      cast: true, blob: false, env: 128, particles: 1 },
-    high: { name: 'high', pixels: 2560, shadow: 4096, post: true, bloom: true, grade: true, ssao: true, aa: 'smaa',
-      cast: true, blob: false, env: 256, particles: 1 }
+    low: { name: 'low', pixels: 1280, shadow: 1024, grade: true, cast: false, blob: true, env: 64, particles: .5 },
+    med: { name: 'med', pixels: 1920, shadow: 2048, grade: true, cast: true, blob: false, env: 128, particles: 1 }
   };
   var DEFAULT = 'med';
   var MIN_RATIO = .5;          // never render at less than half the CSS pixels
 
-  // The settings for a tier by name (anything unknown is MED), as a copy.
+  // The settings for a tier by name (anything unknown - including a HIGH
+  // saved before it was removed - is MED), as a copy.
   function tier(name) {
     var t = TIERS[String(name || '').toLowerCase()] || TIERS[DEFAULT];
     return Object.assign({}, t);

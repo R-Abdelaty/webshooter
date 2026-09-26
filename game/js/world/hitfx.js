@@ -28,7 +28,7 @@
     wrap: { n: 30, v0: .6, v1: 2, cone: 85, life0: .6, life1: 1.1, size0: .06, size1: .12, drag: 2, g: -.6 }
   };
   // Per villain: the particles of a hit, and the flash's colour (linear, and
-  // above 1 so the bloom catches it) and size in metres.
+  // above 1, so it tone-maps to a hot white core) and size in metres.
   var STYLES = {
     goblin: { kinds: ['web'], flash: [2.6, 2.5, 2.1], size: .9 },
     rhino: { kinds: ['web', 'sparks'], flash: [3.2, 2.1, 1.1], size: 1.1 },

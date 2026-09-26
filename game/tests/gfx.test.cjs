@@ -9,31 +9,25 @@ function seeded(s){return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7ffff
 const dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z,len=v=>Math.hypot(v.x,v.y,v.z);
 
 // --- the graphics setting -------------------------------------------------------------
-test('gfx: LOW, MED and HIGH, each asking more of the GPU than the last; anything else is MED',()=>{
-  assert.deepEqual(Gfx.names(),['low','med','high']);
-  const [lo,md,hi]=Gfx.names().map(Gfx.tier);
-  assert.equal(Gfx.tier('nonsense').name,'med');assert.equal(Gfx.tier(undefined).name,'med');assert.equal(Gfx.tier('HIGH').name,'high');
-  assert.ok(lo.pixels<md.pixels&&md.pixels<hi.pixels);
-  assert.ok(lo.shadow<md.shadow&&md.shadow<hi.shadow);
-  assert.ok(lo.env<=md.env&&md.env<=hi.env);
-  // The post chain is for a discrete GPU: an integrated one at 1080p can't
-  // afford its HDR target and passes on MED and still make 60 fps.
-  assert.deepEqual([lo.post,md.post,hi.post],[false,false,true],'a post chain on HIGH only');
-  assert.deepEqual([lo.ssao,md.ssao,hi.ssao],[false,false,true],'SSAO on HIGH only');
-  assert.deepEqual([lo.bloom,md.bloom,hi.bloom],[false,false,true],'bloom needs the post chain');
-  assert.deepEqual([lo.aa,md.aa,hi.aa],['msaa','msaa','smaa']);
-  assert.ok(lo.grade&&md.grade&&hi.grade,'the grade is free, so every tier has it');
+test('gfx: LOW and MED, LOW asking less of the GPU; anything else - a saved HIGH included - is MED',()=>{
+  assert.deepEqual(Gfx.names(),['low','med'],'HIGH was removed by the user: too slow');
+  const [lo,md]=Gfx.names().map(Gfx.tier);
+  for(const n of ['nonsense',undefined,'high','HIGH'])assert.equal(Gfx.tier(n).name,'med',String(n));
+  assert.equal(Gfx.tier('LOW').name,'low');
+  assert.ok(lo.pixels<md.pixels&&lo.shadow<md.shadow&&lo.env<=md.env);
+  assert.ok(lo.grade&&md.grade,'the grade is free, so both have it');
+  assert.ok(!('post' in md)&&!('bloom' in md)&&!('ssao' in md),'no post chain');
   // LOW: the villains don't cast into the shadow map; a blob under them instead.
-  assert.deepEqual([lo.cast,lo.blob,md.cast,md.blob,hi.cast,hi.blob],[false,true,true,false,true,false]);
+  assert.deepEqual([lo.cast,lo.blob,md.cast,md.blob],[false,true,true,false]);
   assert.ok(lo.particles<md.particles);
   const t=Gfx.tier('med');t.pixels=1;assert.equal(Gfx.tier('med').pixels,1920,'tier() hands out copies');
 });
 test('gfx: the pixel ratio renders at most the tier\'s width, never more than the screen has, never under half',()=>{
-  const [lo,md,hi]=Gfx.names().map(Gfx.tier);
+  const [lo,md]=Gfx.names().map(Gfx.tier);
   // A 1080p laptop at 150% scaling: 1280 CSS pixels across.
   assert.equal(Gfx.pixelRatio(md,1280,1.5),1.5);
   assert.ok(Math.abs(Gfx.pixelRatio(lo,1280,1.5)-1)<1e-9);
-  assert.equal(Gfx.pixelRatio(hi,1280,1.5),1.5,'HIGH is capped by the screen');
+  assert.equal(Gfx.pixelRatio(md,1280,1),1,'capped by the screen');
   // A 1080p screen at 100%.
   assert.equal(Gfx.pixelRatio(md,1920,1),1);
   assert.ok(Math.abs(Gfx.pixelRatio(lo,1920,1)-2/3)<1e-9,'LOW renders 720p worth');

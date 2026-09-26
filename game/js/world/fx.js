@@ -7,8 +7,8 @@
   //
   // Three pools, drawn only while something is in them: soft round points
   // for web and symbiote, line streaks for sparks, and a few flash sprites.
-  // The sparks and flashes are brighter than white (linear, above the bloom
-  // threshold in world.js), so on MED and HIGH they glow.
+  // The sparks and flashes are brighter than white (linear, above 1), so
+  // tone mapping keeps them a hot white at their core.
 
   var T = root.THREE;
   var MAX_POINTS = 600, MAX_SPARKS = 200, MAX_FLASH = 4;

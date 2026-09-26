@@ -7,13 +7,11 @@
   //
   // The colour grade - towards the first clip's warm sun and cool shadows -
   // is part of the tone mapping itself (three's CustomToneMapping: ACES, then
-  // the grade), so every material gets it with no extra pass and it costs
-  // LOW and MED nothing. MED and LOW render straight to the canvas with its
-  // own MSAA: on this laptop's integrated GPU at 1080p a post chain's HDR
-  // target and full-screen passes cost more than a frame at 60 fps allows.
-  // HIGH adds the post chain (Gfx): the scene in linear HDR, SSAO, bloom -
-  // only what is far brighter than a sunlit wall: the sun, glowing eyes,
-  // sparks and impact flashes - then the same tone mapping and grade, and SMAA.
+  // the grade), so every material gets it with no extra pass. The picture is
+  // rendered straight to the canvas with its own MSAA; there is no post
+  // chain. (Session C4 had one, on a HIGH setting - SSAO, bloom, SMAA - and
+  // the user removed it as too slow: on this laptop's integrated GPU it ran
+  // at 20 fps. It is in git at b2c83db.)
 
   var T = root.THREE;
 
@@ -22,18 +20,14 @@
   var SUN_DIR = new T.Vector3(-.58, .62, .52).normalize();
   var ZENITH = new T.Color('#3f7fcf'), HORIZON = new T.Color('#c9dbe9'), HAZE = new T.Color('#b9cad8');
   var SHADOW_HALF = 90, SHADOW_SIZE = 2048;
-  // Bloom (HIGH): only what is brighter than this (linear luminance, before
-  // tone mapping) glows; a white wall in full sun is about 2.8.
-  var BLOOM = { strength: .55, radius: .45, threshold: 3.2 };
-  // SSAO (HIGH), in metres (its distances are fractions of the camera's depth range).
-  var AO = { kernel: 1.6, min: .02, max: 3 };
   // The grade, in display terms after ACES: shadows lean cool and highlights
   // warm, a touch less saturation than the raw textures, a little contrast.
   var GRADE = { shadow: [.92, .98, 1.08], high: [1.06, 1, .9], saturation: .88, contrast: 1.07 };
 
   // GLSL for ACES (three's fit, from tonemapping_pars_fragment) followed by
   // the grade, as a function `name`(linear colour) -> linear colour, reading
-  // the exposure from `exposure`.
+  // the exposure from `exposure`. Its own copy of ACES, as the chunk's
+  // function is replaced by it.
   function glf(n) { return Number.isInteger(n) ? n + '.' : String(n); }
   function glv(a) { return 'vec3(' + a.map(glf).join(', ') + ')'; }
   function gradeGLSL(name, exposure) {
@@ -58,15 +52,6 @@
   if (graded) T.ShaderChunk.tonemapping_pars_fragment = T.ShaderChunk.tonemapping_pars_fragment.replace(CUSTOM,
     gradeGLSL('gradeTone', 'toneMappingExposure') + '\nvec3 CustomToneMapping( vec3 color ) { return gradeTone( color ); }');
   else console.warn('Web Shooter: this three.js has no CustomToneMapping hook; plain ACES, no colour grade');
-  // HIGH's last HDR pass: the same tone mapping and grade, then sRGB. (It
-  // always draws into SMAA's input, never the screen, so the chunk above is
-  // never in its prefix as well.)
-  var OutputGradeShader = {
-    uniforms: { tDiffuse: { value: null }, exposure: { value: 1 } },
-    vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
-    fragmentShader: 'uniform sampler2D tDiffuse; uniform float exposure;\nvarying vec2 vUv;\n' + gradeGLSL('gradePass', 'exposure') +
-      '\nvoid main() { vec4 s = texture2D(tDiffuse, vUv); gl_FragColor = sRGBTransferOETF(vec4(gradePass(s.rgb), s.a)); }'
-  };
 
   function sky() {
     var mat = new T.ShaderMaterial({
@@ -147,9 +132,10 @@
     var built = CityMesh.build(city, { anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()) });
     scene.add(built.group);
 
-    // The graphics setting in force, and the post chain it asks for (null on LOW).
-    var tier = Gfx.tier(Gfx.DEFAULT), composer = null, fxaa = null, ssao = null, bloom = null, grade = null;
-    // The draw-call readout counts every pass of a frame, not just the last.
+    // The graphics setting in force.
+    var tier = Gfx.tier(Gfx.DEFAULT);
+    // The draw-call readout counts the shadow pass too (three resets its
+    // counts after drawing the shadow map, so they used to leave it out).
     renderer.info.autoReset = false;
 
     // Snap the shadow box to its own texel grid as it follows you, so shadow
@@ -192,47 +178,23 @@
       renderer.setPixelRatio(ratio);
       renderer.setSize(w, h, false);
       camera.aspect = w / h; camera.updateProjectionMatrix();
-      if (composer) {
-        composer.setPixelRatio(ratio); composer.setSize(w, h);
-        if (fxaa) fxaa.material.uniforms.resolution.value.set(1 / (w * ratio), 1 / (h * ratio));
-      }
     }
 
-    // A graphics tier (Gfx.tier): the shadow map, the pixel count and the
-    // post chain. Villains' shadows, blobs and particles are world-game's.
+    // A graphics tier (Gfx.tier): the shadow map and the pixel count.
+    // Villains' shadows, blobs and particles are world-game's.
     function setTier(t) {
       tier = t;
       if (sun.shadow.mapSize.x !== t.shadow) {
         sun.shadow.mapSize.set(t.shadow, t.shadow);
         if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
       }
-      if (composer) { composer.passes.forEach(function (p) { if (p.dispose) p.dispose(); }); composer.dispose(); }
-      composer = fxaa = ssao = bloom = grade = null;
       renderer.toneMapping = t.grade && graded ? T.CustomToneMapping : T.ACESFilmicToneMapping;
-      resize();
-      if (t.post) buildPost(t);
-    }
-    function buildPost(t) {
-      var w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight, pr = renderer.getPixelRatio();
-      composer = new T.EffectComposer(renderer, new T.WebGLRenderTarget(w * pr, h * pr, { type: T.HalfFloatType }));
-      composer.addPass(new T.RenderPass(scene, camera));
-      if (t.ssao) {
-        ssao = new T.SSAOPass(scene, camera, w * pr, h * pr);
-        var range = camera.far - camera.near;
-        ssao.kernelRadius = AO.kernel; ssao.minDistance = AO.min / range; ssao.maxDistance = AO.max / range;
-        composer.addPass(ssao);
-      }
-      if (t.bloom) { bloom = new T.UnrealBloomPass(new T.Vector2(w, h), BLOOM.strength, BLOOM.radius, BLOOM.threshold); composer.addPass(bloom); }
-      if (t.grade && graded) { grade = new T.ShaderPass(OutputGradeShader); composer.addPass(grade); } else composer.addPass(new T.OutputPass());
-      if (t.aa === 'fxaa') { fxaa = new T.ShaderPass(T.FXAAShader); composer.addPass(fxaa); }
-      else composer.addPass(new T.SMAAPass(w * pr, h * pr));     // SMAA, and the grade pass never draws to the screen
       resize();
     }
 
     function render() {
       renderer.info.reset();
-      if (grade) grade.uniforms.exposure.value = renderer.toneMappingExposure;
-      if (composer) composer.render(); else renderer.render(scene, camera);
+      renderer.render(scene, camera);
     }
 
     // The city as seen from `at`, blurred for image-based lighting: what the
@@ -291,8 +253,8 @@
     resize();
     return { renderer: renderer, scene: scene, camera: camera, sun: sun, update: update, resize: resize, render: render,
       setFov: setFov, raycast: raycast, project: project, info: renderer.info, setTier: setTier, setShadowFocus: setShadowFocus,
-      environment: environment, get tier() { return tier; }, get post() { return composer; } };
+      environment: environment, get tier() { return tier; } };
   }
 
-  root.World3D = { create: create, SUN_DIR: SUN_DIR, BLOOM: BLOOM, AO: AO, GRADE: GRADE, graded: graded };
+  root.World3D = { create: create, SUN_DIR: SUN_DIR, GRADE: GRADE, graded: graded };
 })(window);

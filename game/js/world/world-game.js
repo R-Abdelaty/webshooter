@@ -8,7 +8,7 @@
   // hold everything still while they are up. The 2D game is untouched and
   // still reachable as CLASSIC.
   //
-  // The graphics setting (Gfx: LOW / MED / HIGH) is applied from the
+  // The graphics setting (Gfx: LOW / MED) is applied from the
   // settings each frame it changes. A villain hit throws its particles and
   // flashes where it landed (fx.js) and freezes the fight for a few frames
   // (the hit-stop); every web that lands throws a puff of strands.
@@ -520,7 +520,7 @@
     frames = 0; perfAt = now;
     var src = wristLooks(c) ? 'wrist' : (c && !c.calibrated ? 'no centre yet' : 'mouse');
     var turn = lastLook && dt > 0 ? '  ·  turn ' + (lastLook.dyaw / dt * 180 / Math.PI).toFixed(0) + ' / ' + (lastLook.dpitch / dt * 180 / Math.PI).toFixed(0) + ' °/s' : '';
-    $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + world.tier.name.toUpperCase() + (world.post ? ' post' : ' no post') + '  ·  ' + r.calls + ' draw calls  ·  ' +
+    $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + world.tier.name.toUpperCase() + '  ·  ' + r.calls + ' draw calls  ·  ' +
       (r.triangles / 1000).toFixed(0) + 'k tris  ·  x ' + player.x.toFixed(0) + ' y ' + player.y.toFixed(1) + ' z ' + player.z.toFixed(0) +
       '\nlook ' + (Look.mode(S.lookMode) === 'direct' ? 'DIRECT' : 'EDGE TURN') + ' (' + src + ')  ·  crosshair ' +
       look.crosshair.x.toFixed(2) + ', ' + look.crosshair.y.toFixed(2) + turn +

@@ -58,9 +58,8 @@ The HUD shows the encounter, the villain's health and the clock, which turns red
 
 - **Low** renders about 720p worth of pixels (scaled up to the window), with a smaller shadow map; the villains cast no shadow into it and have a soft blob under their feet instead, and hits throw half the particles. For a weak integrated GPU.
 - **Medium** (the default) renders 1080p worth of pixels; the villains cast real shadows. Meant to hold 60 fps on a laptop's integrated graphics at 1080p (see *Status* in `docs/CHARACTERS_PLAN.md` for what was measured).
-- **High** is for a separate graphics card: it adds a post-processing chain - ambient occlusion in corners and creases, bloom (the sun, the Rhino's eyes, sparks and hit flashes glow), SMAA edge smoothing - renders up to the screen's full resolution (up to 1440p worth) and uses a bigger shadow map.
 
-Every setting has the same look: a colour grade towards the first reference clip's warm sun and cool shadows, the villains lit by the city around them (their metal and armour reflect the place they fight in), a rim of light round each villain so a dark figure stands out from a busy street or a bright sky, and a following shadow that, in a fight, sits on the villain's part of the city so his shadow is sharp.
+Both have the same look: a colour grade towards the first reference clip's warm sun and cool shadows, the villains lit by the city around them (their metal and armour reflect the place they fight in), a rim of light round each villain so a dark figure stands out from a busy street or a bright sky, and a following shadow that, in a fight, sits on the villain's part of the city so his shadow is sharp.
 
 ## Character models
 
