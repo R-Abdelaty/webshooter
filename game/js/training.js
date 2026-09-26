@@ -47,30 +47,39 @@
     return state;
   }
 
-  // Same signature as Combat.fire so game.js can treat both the same way: the
-  // caller does the normalised-to-pixels conversion, we just judge the shot.
-  function fire(state, point, target) {
+  // The scoring of a shot, given whether it hit: the cooldown, and the hits,
+  // streak and timing the HUD shows. Shared with the 3D range
+  // (world/training3d.js), which decides `hit` its own way and picks its own
+  // next target.
+  function score(state, hit) {
     if (state.cooldownRemaining > 0) return { accepted:false };
     state.cooldownRemaining = COOLDOWN;
     state.shots++;
-    var dx = point.x - target.x, dy = point.y - target.y;
-    var hit = dx * dx + dy * dy <= target.radius * target.radius;
     if (hit) {
       state.hits++;
       state.streak++;
       if (state.streak > state.best) state.best = state.streak;
       state.lastTimeToHit = state.elapsed - state.spawnedAt;
-      next(state);
     } else {
       state.streak = 0;
     }
-    return { accepted:true, hit:hit };
+    return { accepted:true, hit:!!hit };
+  }
+
+  // Same signature as Combat.fire so game.js can treat both the same way: the
+  // caller does the normalised-to-pixels conversion, we just judge the shot.
+  function fire(state, point, target) {
+    if (state.cooldownRemaining > 0) return { accepted:false };
+    var dx = point.x - target.x, dy = point.y - target.y;
+    var r = score(state, dx * dx + dy * dy <= target.radius * target.radius);
+    if (r.hit) next(state);
+    return r;
   }
 
   function accuracy(state) { return state.shots ? state.hits / state.shots : 0; }
 
   var api = { COOLDOWN:COOLDOWN, FIELD:FIELD, MIN_JUMP:MIN_JUMP,
-    start:start, tick:tick, fire:fire, next:next, accuracy:accuracy };
+    start:start, tick:tick, score:score, fire:fire, next:next, accuracy:accuracy };
   if (typeof module !== 'undefined') module.exports = api;
   root.Training = api;
 })(typeof window === 'undefined' ? globalThis : window);
