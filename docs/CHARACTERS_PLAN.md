@@ -405,3 +405,102 @@ and anything the next session must know._
   hits, dodges and defeat); the user was given the list. Venom looks like it floats in the lineup
   renders only because those test scripts placed him from his rest-pose bounds; that is not a model
   problem.
+- 2026-09-26 — **Session C1 done: all five models load in the page, from `file://` too, and every clip
+  plays in the viewer.** 126 tests pass (103 old + 1 in `addons.test.cjs` + 22 in `rig.test.cjs`). All the
+  sources and the Blender scripts are now committed, the sources through Git LFS (`git lfs install --local`
+  was run). **Nothing is pushed.** `origin` (R-Abdelaty/webshooter) is a *public* GitHub repo. Pushing would
+  publish the ripped sources (LFS), the built GLBs and the embedded models, which this plan says must not be
+  redistributed. Ask the user before any push; a private remote or keeping these files out of the pushed
+  branch are the options.
+  - **Addons.** `game/vendor/three-addons.js` (177 KB) is built by `node game/tools/build-addons.cjs` from
+    `three@0.159.0` and `esbuild@0.28.2`, pinned in the new root `package.json` (`npm install` once;
+    `node_modules/` is ignored). It carries GLTFLoader, SkeletonUtils, MeshoptDecoder (its WASM is inlined),
+    RoomEnvironment, EffectComposer, RenderPass, ShaderPass, OutputPass, UnrealBloomPass, SMAAPass, SSAOPass
+    and FXAAShader, attached to `window.THREE`. It loads right after `three.min.js`. `addons.test.cjs` loads
+    both scripts the way the page does and checks they share one THREE. `npm test` runs every test.
+  - **Model build.** `node game/tools/build-models.cjs [--blender] [--sheets] [--only <villain>]`. Blender is
+    looked for in `BLENDER_PATH` **first**, then `PATH`, then the newest `Program Files\Blender Foundation\Blender *`.
+    The plan had `BLENDER_PATH` last; an explicit setting should win. The tool's own rebuild of the Rhino was
+    byte-identical to the committed GLB. Compression, before → after: Venom 9.92 → 4.58 MB (JSON 1.76 MB),
+    Rhino 1.30 → 0.76, Goblin 0.97 → 0.49, glider 0.20 → 0.12, bomb 0.07 → 0.03. Plain prune + dedup +
+    meshopt left Venom's JSON at 3 MB: its ~10,000 channels are real motion, not static. The passes, in order:
+    1. **bake cubic tracks** to 30 fps linear keys;
+    2. **drop channels on bones that move no vertex**. Bones named in the manifest always stay;
+    3. **one time grid per clip** for the linear tracks, since Blender's key thinning had given every channel
+       its own time accessor;
+    4. prune, dedup, then meshopt `high` (quantized; quaternion filter on rotations);
+    5. strip default values from the JSON.
+
+    The dropped channels are: Venom's IK, weapon, thorn and `*_Latissimus_04` joints; the Rhino's
+    brow, lid, eye and lip bones; and the Goblin's finger and toe ends, `Jaw_Lower` and `Mouth_Corner_L/R`.
+    None of them have skin weights, **so the Goblin's roar never could open his jaw** (the mask isn't
+    weighted to it). Measured against the uncompressed GLBs, every weighted bone in every clip lands within
+    2 mm, except Venom's `hit`.
+  - **Venom's `hit` had a real bug, now fixed in the build.** It was the one CUBICSPLINE clip. meshopt's
+    quaternion filter mangled its tangents, and underneath that, the source file itself flips `clavicle_r`'s
+    quaternion sign between two keys, so the arm snapped 169° in 1/120 s even uncompressed. The build now
+    puts spline keys on one hemisphere and bakes them, and the compressed `hit` is smooth. It therefore
+    differs from `assets/models/venom.glb` on purpose. The root cause is `bake(..., interp="BEZIER")` in
+    `common.py`/`venom_clips.py`, which doesn't keep quaternion keys continuous. Fix it there if the Blender
+    side is touched again (the Rhino retargets its `hit` from the same bake).
+  - **Embedding.** `node game/tools/embed-models.cjs` writes `js/world/models/<id>.js` (7.96 MB in all;
+    Venom 6.1 MB) and `js/world/models/manifest.js` (`window.CharacterManifest`, the only one in a static
+    `<script>` tag). Re-run it after editing `characters.json`. `assets/models/dist/` is ignored; the scripts
+    hold the same bytes. `.gitattributes` marks the generated scripts `-diff`.
+  - **Runtime.** `js/world/rig.js` (`Rig`, UMD, tested) holds manifest validation and model checks, clip
+    fallbacks (`Rig.FALLBACKS`), the state machine and speed blending, `Rig.updateEvery`, `Rig.sample` (bone
+    matrices to plain `{spots, capsules}`) and `Rig.rayCapsule`. `js/world/characters.js` holds
+    `WorldModels.load/create/setRenderer/entry/ids` and `CharacterRig`. Using them:
+    - `WorldModels.setRenderer(world.renderer)` once, then `WorldModels.create('venom').then(rig => scene.add(rig.root))`.
+    - `rig.play(name, {speed, fade, hold, loop, restart, cut})`.
+    - `rig.setSpeed(mps)` with `rig.play('loco')`.
+    - `rig.update(dt, distance, onScreen)` returns events: `end`, and `release` for the Goblin's bomb.
+    - `rig.sample()` returns plain data, ready for `Fight.snapshot` (C2 stores it).
+    - `rig.bone(name)` looks bones up. **GLTFLoader sanitises node names** (`mixamorig:Head` →
+      `mixamorigHead`, `TreyarchBiped.Bip01_Head` → `TreyarchBipedBip01_Head`), so always look bones up
+      through it with the file's name, as `characters.json` gives it.
+
+    A model loads on first request: its script is injected, decoded and parsed. First-load times on this PC:
+    Venom 143 ms, the Rhino 36, the Goblin 30. Preload during the fight's INTRO. One animation frame costs
+    0.14 ms for Venom and 0.03 ms for the others. A model that fails logs one `console.warn` and rejects,
+    which is the fallback hook.
+  - **Decisions to know about.**
+    1. The mixer never keeps time. Each frame the rig copies Rig's `{clip, t, w}` into the actions and calls
+       `mixer.update(0)`. Non-additive weights always sum to 1, so the rest pose never bleeds into a
+       crossfade.
+    2. `hit` is additive: `makeClipAdditive` against its own first frame. A hit over a run leaves the run at
+       full weight.
+    3. A one-shot hands back to the base over its last 0.2 s. With `hold` (for defeat) it stays on its last
+       frame until a new base is asked for. An interrupted one-shot never reports `end`. The default fades
+       (0.12 s in, 0.2 s out) eat most of a short clip like Venom's `land` (0.29 s), so pass a smaller
+       `fade`.
+    4. **The villain materials are all metal** (metalness 1 × map), so under only the sun and hemisphere
+       light the Rhino came out pitch black. `WorldModels.setRenderer` gives *their* materials a PMREM
+       `RoomEnvironment` (`ENV_INTENSITY` 1); the city is untouched. C4 swaps it for the sky's environment.
+    5. The manifest gained `speeds` (walk/run ground speeds: Rhino 1.8/7.4 and Venom 1.6/6.5 m/s, both
+       **guesses** for C2 to tune against foot slide) and the glider's `loops`. Its `_about` now defines
+       offsets: metres along the bone's own axes, rotation only, so the Rhino's 2.0973 scale doesn't stretch
+       them. Radii are in metres.
+  - **Model viewer** (`js/world/model-viewer.js`; **M** in the city, or `index.html?viewer`). The keys are in
+    `game/README.md`. It lays the five models out on level floor, turning you if it must: the spawn corner
+    faces off the roof. The Goblin rides his own glider, which spins away on `defeat`. It shows each
+    model's measured standing height. In idle that is 1.84 m for the Goblin, 2.26 m for the Rhino and
+    2.10 m for Venom; the brutes hunch, and their rest heights are 2.9 and 2.5 m. With all five and every
+    overlay it drew 115 calls (about 60 of them debug meshes) at 75 fps in the pane. `window.ModelViewer`
+    (`select`, `play`, `loco`, `layout`, `items`) lets a script drive it. `WorldGame.onFrame(fn)` is new,
+    for things like it.
+  - **Verified.** In the pane over http: all five models load and all 57 clips take over the pose and move
+    the bones. The glider follows the Goblin's `defeat`, `H` layers the hit, `L` blends walk into run on one
+    phase, and a missing model warns once. The Venom fight still starts and plays, with no model loaded
+    unless the viewer asked. **From `file://` in headless Chrome** (a DevTools script driving the real
+    `index.html?viewer`, 1280×800): all five load, the WebP textures decode, there are no warnings or errors,
+    and a screenshot shows them rendered.
+  - **Not verified.** The user's own Chrome from disk, by eye: ask them to open `game/index.html?viewer`
+    and step through a few clips. Performance with models in the fights (C2) and at 1080p on an
+    integrated GPU.
+  - **For C2.**
+    - **The weak-spot offsets are all zero** (spheres sit on the bone origins). **The capsule radii look
+      too fat** on the Rhino and Venom: the green capsules swallow the whole body. Tune both in the viewer.
+    - Attach the glider by adding its `root` under the Goblin's `root`, as the viewer does.
+    - Spawn the bomb at `ValveBiped.Bip01_R_Hand` on the `release` event.
+    - Lower Venom by ~0.85 m while his leap clips play (see his manifest notes).
