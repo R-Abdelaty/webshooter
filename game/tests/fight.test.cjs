@@ -128,6 +128,21 @@ test('fight: hitting a weak spot that is not the current one, or missing, does n
   assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,140);
   assert.equal(s.shots,2);assert.equal(s.hits,0);
 });
+test('fight: the sprite faces you square on, even from a roof, and its weak spots are on it',()=>{
+  const s=playing(rhino),eye=eyeAt(rhino.vantage);
+  for(let n=0;n<30;n++){
+    Fight.tick(s,.25);
+    const bb=Fight.billboard(s,villains,eye),to=aimAt(bb.centre,eye);
+    const off=Math.acos(Math.min(1,to.x*bb.normal.x+to.y*bb.normal.y+to.z*bb.normal.z))/DEG;
+    assert.ok(off<3,'the sprite is '+off.toFixed(1)+' degrees off facing the eye');
+    assert.ok(Math.abs(bb.at.y-s.at.y)<1e-12,'its feet left the ground');
+    Fight.weakSpots(s,villains,eye).forEach((w,k)=>{
+      const p=Fight.bodyHit(bb,eye,aimAt(eye,w)),t=villains[1].targets[k];
+      assert.ok(p&&Math.abs(p.u-t.x)<1e-9&&Math.abs(p.v-t.y)<1e-9,'weak spot '+t.name+' is off the sprite');
+    });
+  }
+  assert.ok(Fight.billboard(s,villains,eye).tilt>.6,'from the roof the sprite should tip back');
+});
 test('fight: a weak spot behind a wall cannot be hit through it',()=>{
   const s=playing(goblin),eye=eyeAt(goblin.vantage),w=current(s,eye);
   const d=Math.hypot(w.x-eye.x,w.y-eye.y,w.z-eye.z);

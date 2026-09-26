@@ -25,12 +25,12 @@
     EYE: 1.7,
     TRIGGER: 5,                 // metres from a trigger's centre that starts it
     // Goblin: radius and height above the roof of his circuit round you.
-    GLIDER: { R0: 14, R1: 24, H0: 3, H1: 10, SCALE: 60 },
+    GLIDER: { R0: 12, R1: 20, H0: 3, H1: 9, SCALE: 60 },
     // Rhino: roof height for the vantage, how far each way along the avenue
     // he charges, and how far either side of its centre line he swerves.
     CHARGE: { ROOF_MIN: 12, ROOF_MAX: 30, HALF: 32, LANE: 7, SCALE: 64 },
     // Venom: how far away a beam may be to leap to, and the thugs.
-    LEAP: { RANGE: 34, HOP_MIN: 3, HOP_MAX: 13, SCALE: 50 },
+    LEAP: { RANGE: 28, HOP_MIN: 3, HOP_MAX: 13, SCALE: 50 },
     THUGS: { COUNT: 6, MIN: 6, MAX: 30, SPACING: 2.5, SPREAD: 70 },
     // Training: roof heights to stand on, and target distances.
     RANGE: { ROOF_MIN: 28, ROOF_MAX: 60, NEAR: 12, FAR: 75, MAX_TARGETS: 60, SPACING: 6 }

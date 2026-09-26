@@ -12,7 +12,13 @@
   var TrainingRef = root.Training || (typeof require === 'function' ? require('../training.js') : null);
   var Aim = root.AimAssist || (typeof require === 'function' ? require('./aim-assist.js') : null);
 
-  var MIN_DEG = 30, RADIUS = .7, EYE = 1.7;
+  // A target's radius grows with its distance so a far one is still a fair
+  // mark: about ANGLE degrees, within MIN_R..MAX_R metres.
+  var MIN_DEG = 30, ANGLE = 1.2, MIN_R = .6, MAX_R = 1.6, EYE = 1.7;
+  function radius(eye, t) {
+    var d = Math.hypot(t.x - eye.x, t.y - eye.y, t.z - eye.z);
+    return Math.max(MIN_R, Math.min(MAX_R, d * Math.tan(ANGLE * Math.PI / 180)));
+  }
 
   function rand(s) { s.seed = (s.seed * 1103515245 + 12345) & 0x7fffffff; return s.seed / 0x7fffffff; }
   function eyeOf(range) { var v = range.vantage; return { x: v.x, y: v.y + EYE, z: v.z }; }
@@ -37,7 +43,7 @@
       for (i = 0; i < T.length; i++) if (i !== s.index && (!last || apart(eye, last, T[i]) > far)) { far = last ? apart(eye, last, T[i]) : 0; pick = i; }
     }
     s.index = pick;
-    s.target3 = { x: T[pick].x, y: T[pick].y, z: T[pick].z, r: RADIUS };
+    s.target3 = { x: T[pick].x, y: T[pick].y, z: T[pick].z, r: radius(eye, T[pick]) };
     s.spawnedAt = s.elapsed;
     return s;
   }
@@ -61,7 +67,7 @@
     return r;
   }
 
-  var api = { MIN_DEG: MIN_DEG, RADIUS: RADIUS, start: start, tick: tick, fire: fire, next: next, apart: apart,
+  var api = { MIN_DEG: MIN_DEG, ANGLE: ANGLE, radius: radius, start: start, tick: tick, fire: fire, next: next, apart: apart,
     accuracy: function (s) { return TrainingRef.accuracy(s); }, eye: eyeOf };
   if (typeof module !== 'undefined') module.exports = api;
   root.Training3D = api;

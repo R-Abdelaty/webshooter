@@ -184,19 +184,24 @@
   }
 
   // --- where things are, for drawing and for shots ---------------------------------
-  // The sprite, standing at `at` and turned about the vertical to face `eye`.
+  // The sprite, standing at `at` and turned to face `eye` square on: about the
+  // vertical, and tipped back about its feet by how far above it you are (from
+  // a roof, a sprite left upright is squashed flat). normal points at you,
+  // right and up run along the sprite.
   function billboard(s, villains, eye, at) {
     at = at || s.at;
     if (!at) return null;
     var v = villains[s.villain], h = v.height, w = h * v.aspect;
     var dx = eye.x - at.x, dz = eye.z - at.z, d = Math.hypot(dx, dz) || 1, nx = dx / d, nz = dz / d;
-    return { at: copy(at), w: w, h: h, normal: { x: nx, y: 0, z: nz }, right: { x: nz, y: 0, z: -nx },
-      centre: { x: at.x, y: at.y + h / 2, z: at.z } };
+    var el = Math.atan2(eye.y - (at.y + h / 2), d), c = Math.cos(el), sn = Math.sin(el);
+    var up = { x: -nx * sn, y: c, z: -nz * sn };
+    return { at: copy(at), w: w, h: h, tilt: el, normal: { x: nx * c, y: sn, z: nz * c }, right: { x: nz, y: 0, z: -nx }, up: up,
+      centre: { x: at.x + up.x * h / 2, y: at.y + up.y * h / 2, z: at.z + up.z * h / 2 } };
   }
   // A point on the sprite, u and v from its top left as in villains.js.
   function onSprite(bb, u, v) {
     var ox = (u - .5) * bb.w, oy = (1 - v) * bb.h;
-    return { x: bb.at.x + bb.right.x * ox, y: bb.at.y + oy, z: bb.at.z + bb.right.z * ox };
+    return { x: bb.at.x + bb.right.x * ox + bb.up.x * oy, y: bb.at.y + oy * bb.up.y, z: bb.at.z + bb.right.z * ox + bb.up.z * oy };
   }
   // Every weak spot, with the one to hit now marked current.
   function weakSpots(s, villains, eye, at) {
@@ -211,12 +216,13 @@
   // Where a ray meets the sprite's rectangle (not its outline), or null.
   function bodyHit(bb, origin, dir) {
     if (!bb) return null;
-    var n = bb.normal, den = dir.x * n.x + dir.z * n.z;
+    var n = bb.normal, den = dir.x * n.x + dir.y * n.y + dir.z * n.z;
     if (Math.abs(den) < 1e-6) return null;
-    var t = ((bb.at.x - origin.x) * n.x + (bb.at.z - origin.z) * n.z) / den;
+    var t = ((bb.at.x - origin.x) * n.x + (bb.at.y - origin.y) * n.y + (bb.at.z - origin.z) * n.z) / den;
     if (t <= 0) return null;
     var p = { x: origin.x + dir.x * t, y: origin.y + dir.y * t, z: origin.z + dir.z * t };
-    var side = (p.x - bb.at.x) * bb.right.x + (p.z - bb.at.z) * bb.right.z, up = p.y - bb.at.y;
+    var rx = p.x - bb.at.x, ry = p.y - bb.at.y, rz = p.z - bb.at.z;
+    var side = rx * bb.right.x + rz * bb.right.z, up = rx * bb.up.x + ry * bb.up.y + rz * bb.up.z;
     if (Math.abs(side) > bb.w / 2 || up < 0 || up > bb.h) return null;
     p.distance = t; p.u = side / bb.w + .5; p.v = 1 - up / bb.h;
     return p;
@@ -267,7 +273,7 @@
   }
 
   var api = { start: start, play: play, pause: pause, tick: tick, fire: fire, snapshot: snapshot,
-    billboard: billboard, weakSpots: weakSpots, bodyHit: bodyHit, thugSphere: thugSphere, standing: standing,
+    billboard: billboard, onSprite: onSprite, weakSpots: weakSpots, bodyHit: bodyHit, thugSphere: thugSphere, standing: standing,
     constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Fight = api;
