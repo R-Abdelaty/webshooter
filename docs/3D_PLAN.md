@@ -55,7 +55,8 @@ videos.
 6. **Performance budget:** a steady 60 fps on a laptop integrated GPU at 1080p. Use InstancedMesh or
    merged geometry for buildings, windows and trees, keep draw calls under about 300, use at most one
    shadow-casting light with a small shadow frustum that follows the player, and let fog hide the far
-   plane. Add a LOW/MED/HIGH graphics setting once there is something to scale.
+   plane. Add a graphics setting once there is something to scale (C4 added LOW/MED; the user removed
+   HIGH as too slow).
 7. **Keep the classic 2D game reachable** as **CLASSIC** in the menu until Session 4 decides with the
    user whether to remove it.
 8. **Work style:** small commits with clear messages. Run the tests before every commit. Open the page in
@@ -166,8 +167,9 @@ packets must never turn the camera. **C** or *Center Aim* recentres. The off-scr
   indicator at the screen edge pointing toward the current villain when it is out of view.
 - World life: instanced traffic (yellow cabs and cars) looping the avenues, some pedestrians as simple
   instanced figures, drifting clouds, and a water shimmer. Keep all of it inside the draw-call budget.
-- Positional audio for villains and impacts. Graphics setting LOW/MED/HIGH covering shadow, draw
-  distance, traffic density and pixel ratio.
+- Positional audio for villains and impacts. Extend C4's LOW/MED graphics setting (`world/gfx.js`,
+  which already covers shadow and pixel ratio) to draw distance and traffic density. There is no HIGH:
+  the user removed it (see C4's Status entry in `docs/CHARACTERS_PLAN.md`).
 - Ask the user whether to delete CLASSIC and the 2D code. Update the top-level `README.md`,
   `game/README.md` and `web_shooter/BUILD.md` for the new game.
 - **Done when:** it holds 60 fps on MED on the user's laptop, and the README describes the 3D game.

@@ -403,8 +403,8 @@ switched off (C3).
   iterate. Report fps with and without the post chain.
 - **Done when:** the side-by-side screenshots read as one coherent, lit game, and MED holds 60 fps.
 
-After C4, return to `docs/3D_PLAN.md` Session 4 (HUD, world life) and Session 5. The LOW/MED/HIGH tiers
-from C4 are the ones Session 4 extends. Session H (hitmen) waits until the user has a model.
+After C4, return to `docs/3D_PLAN.md` Session 4 (HUD, world life) and Session 5. The LOW/MED tiers
+from C4 are the ones Session 4 extends (the user removed HIGH). Session H (hitmen) waits until the user has a model.
 
 ## Status
 
@@ -644,3 +644,65 @@ and anything the next session must know._
     the 2D game has them, and the menu is shared with CLASSIC. Ask the user before changing either.
   - **For the next session.** Session H turns the switch on and restores the thug text (the old intro is still
     in `venom()`, used whenever there are thugs).
+- 2026-09-27 — **Session C4 done: the fights are lit, graded and every hit reads, with two user decisions
+  that change the plan.** 154 tests pass (144 old, plus 10 in the new `gfx.test.cjs`). No models changed.
+  - **User decision: no HIGH setting, and so no post chain.** HIGH (SSAO, bloom, SMAA, 1440p) was built and ran,
+    but at about 20 fps on this laptop's integrated GPU; the user removed it. GRAPHICS is **LOW / MED** only, and a
+    saved `high` opens as MED. So there is **no bloom, SSAO, SMAA or FXAA**: glowing eyes and impacts rely on
+    brighter-than-white colours tone-mapping to a hot white. The post chain is in git at `b2c83db` (world.js
+    `buildPost`) if it's ever wanted back. MED had to lose the post chain anyway: on the Intel UHD at 1080p its
+    HDR target plus bloom, grade and FXAA passes cost ~6–8 ms and took MED to 44–52 fps.
+  - **What exists.** Logic (UMD, tested): `world/gfx.js` (`Gfx`: the tiers, `pixelRatio`, `shadowBox`, `texel`),
+    `world/hitfx.js` (`HitFx`: particle `burst`/`hit`/`step`/`alpha`, `stopUntil`/`stopped` for the hit-stop,
+    `dissolve` curve), `Encounters.focus(enc)` (centre + radius of each fight's action) and `Fight.ground(s)`
+    (floor under the villain, null for the Goblin). Render: `world/fx.js` (`WorldFx`: particles as soft points
+    and spark streaks, impact flash sprites, the LOW blob), and changes to `world.js`, `villain-view.js`,
+    `world-game.js`, `menu.js`/`index.html` (Settings → GRAPHICS → QUALITY, `ws.settings.v2.graphics`).
+  - **Colour.** sRGB out, texture colour spaces were already right (GLTFLoader + canvas textures), r159 has no AgX
+    so it stays ACES. The **grade is inside the tone mapping**: world.js replaces three's `CustomToneMapping` in
+    `ShaderChunk.tonemapping_pars_fragment` with ACES followed by the grade (`World3D.GRADE`: cool shadows, warm
+    highlights, saturation .88, contrast 1.07), and the renderer uses `CustomToneMapping`. Every material gets it
+    at no extra pass; if a three.js update drops that hook it warns once and falls back to plain ACES. The
+    planned vignette was dropped (it needs screen coordinates the tone mapping doesn't have).
+  - **Villain lighting.** On entering a fight, `World3D.environment()` renders a cube map of the city from
+    `Encounters.focus` (villains and effects hidden), PMREMs it, and `villains.setEnvironment` puts it on their
+    materials (`ENV_INTENSITY` 1.1), so their metal reflects the actual street, sky or steel frame. The viewer keeps
+    the RoomEnvironment. Each villain's cloned materials are patched (`onBeforeCompile`) with a **rim light**
+    (fresnel, stronger on upward faces; `RIM` per villain in villain-view.js) and the **defeat dissolve**. Villains
+    now **receive** shadows (the Rhino stood lit by full sun inside a building's shadow) and cast them except on
+    LOW. The C2 whole-body hit flash was cut right down (it washed Venom pink under the new light).
+  - **Shadows.** In a fight the following shadow's box is centred on `Encounters.focus` and sized to it
+    (`Gfx.shadowBox`: 28–43 m half-width against 90 when roaming), so texels drop from 8.8 to 2.7–4.2 cm on MED and
+    the villains' shadows are sharp. LOW: 1024² map, villains don't cast, a blob (`WorldFx.BLOB`) under them that
+    fades with height.
+  - **Hits.** Every villain hit: particles from the point on the model (web strands; plus sparks off the Rhino,
+    black symbiote blobs with a glint off Venom), an impact flash sprite there, and a 70 ms hit-stop that freezes
+    the fight, the villain's clips and the particles but not the camera. Every web landing anywhere throws a puff.
+    Defeat: 0.7 s after the win the villain dissolves over 0.9 s along a 3D noise pattern with a glowing web-white
+    edge, while wrap strands lift off him; he's gone before VICTORY (1.8 s). No markers or targets were added.
+  - **Measured** (headless Chrome driven over DevTools on this PC: the app's browser pane was hidden, so its page
+    never animated). Canvas 1920×1080 (1280×720 CSS at DPR 1.5), fight frozen, view fixed, median fps. On the
+    **Intel UHD integrated GPU, on battery**: before C4 (commit `839323a`) Goblin/Rhino/Venom 110/84/90; **MED
+    110/77/99**; **LOW 182/148/163**; the removed HIGH 20/19/19. So MED holds 60 on the budget GPU and costs
+    about what the old renderer did. The RTX 4070 run was not usable (headless capped MED at 240 fps and the
+    run was stopped once HIGH was removed). Numbers swing ±15% between runs; the Rhino view is the heaviest.
+  - **Draw calls now include the shadow pass.** three r159 resets `renderer.info` *after* drawing the shadow map,
+    so every figure in earlier Status entries (and the old P readout) left it out. world.js now resets by hand, so
+    the readout counts it: MED 40–81 calls and 600–700k triangles in the fights, of which the shadow pass is ~13
+    calls and ~260k. Still well inside the 300-call budget.
+  - **Compared against `docs/reference/`.** `c4_fights_med.png` (all three fights at game size, just after a hit)
+    and `c4_defeat_dissolve.png` (Venom) are new there. Against video 1 the light now reads as one warm-sun,
+    cool-shade, hazy afternoon across all three fights, and the villains separate from the street and sky. What
+    still separates it from the reference is not C4's: the procedural city's flat textures and the fight
+    distances, which keep the villains 40–70 px tall at 1080p.
+  - **Verified.** All three fights played, hit and won through `WorldGame.fire`; particles, flash, hit-stop and the
+    dissolve filmed frame by frame; LOW's blob; switching LOW↔MED live; a saved `high` → MED; the page from
+    `file://` (fight, model, hit and particles). No console errors beyond the known WebSocket noise and the r159
+    deprecation warning.
+  - **Not verified.** A real Chrome window (vsync, compositor) rather than headless; the real shooter; the user's
+    own eyes on the look.
+  - **Constants to tune by eye.** world.js `GRADE`; villain-view.js `RIM`, `EDGE`, `NOISE`, `ENV_INTENSITY`, the
+    flash in `flash()`; fx.js `FLASH_MS`, `FLASH_GAIN`, `SPARK_COLOR`, `WEB_COLOR`, `SYMBIOTE_COLOR`, `BLOB`;
+    hitfx.js `KINDS`, `STYLES`, `HITSTOP_MS`, `DISSOLVE`; gfx.js `TIERS`, `SHADOW`.
+  - **For Session 4.** Extend `Gfx.TIERS` (draw distance, traffic). The P readout shows the tier. The Goblin's
+    bomb is still unused.
