@@ -42,17 +42,18 @@
   </section>
   <section id="world" class="is-hidden">
     <canvas id="world-canvas"></canvas>
+    <canvas id="world-fx" aria-hidden="true"></canvas>
     <header class="world-hud">
       <span class="world-tag">FREE ROAM</span>
       <button id="btn-world-quit" class="hud-quit" type="button">← MENU</button>
     </header>
-    <div class="crosshair" aria-hidden="true"></div>
+    <div id="world-crosshair" class="crosshair" aria-hidden="true"></div>
     <pre id="world-perf" class="world-perf is-hidden" aria-hidden="true"></pre>
     <p id="world-loading" class="world-loading is-hidden">BUILDING THE CITY…</p>
-    <footer class="hud-bottom world-hint">Click to look · WASD / arrows move · Shift sprint · Space jump · Esc pause · P performance</footer>
+    <footer class="hud-bottom world-hint">Wrist or mouse to look · Flick or click to shoot · WASD / arrows move · Shift sprint · Space jump · C recentre · Esc pause · P readout</footer>
     <div id="world-card" class="card-wrap is-hidden"><div class="card" data-kind="paused">
       <h2>PAUSED</h2><p>Take a breather. The city will wait.</p>
-      <div class="card-actions"><button id="btn-world-resume" type="button">RESUME</button><button id="btn-world-menu" type="button">MENU</button></div>
+      <div class="card-actions"><button id="btn-world-resume" type="button">RESUME</button><button id="btn-world-settings" type="button">SETTINGS</button><button id="btn-world-menu" type="button">MENU</button></div>
     </div></div>
   </section>
   <div id="centre-cal" class="cal-wrap is-hidden" role="dialog" aria-modal="true" aria-labelledby="cal-title">
@@ -74,6 +75,9 @@
       <h3>CONTROLLER</h3><p id="controller-status" class="controller-status">Controller disconnected</p>
       <label>SHOOTER ADDRESS <input id="shooter-host" type="text" spellcheck="false" autocomplete="off" placeholder="webshooter.local"></label>
       <label>INPUT <select id="input-source"><option value="mouse">Mouse</option><option value="wrist">Wrist</option></select></label>
+      <label>LOOK <select id="look-mode"><option value="edge">Edge turn (aim, turn past the box)</option><option value="direct">Direct (wrist turns the view)</option></select></label>
+      <label>TURN SPEED <input id="turn-speed" type="range" min=".4" max="2.5" step=".1"></label>
+      <label>FOV <input id="fov" type="range" min="60" max="100" step="1"> <output id="fov-value"></output></label>
       <label>AIM <select id="aim-mode"><option value="track">Tracking (reticle follows)</option><option value="flick">Flick only (no reticle)</option></select></label>
       <label><input id="invert-horizontal" type="checkbox"> INVERT HORIZONTAL</label>
       <label><input id="invert-vertical" type="checkbox"> INVERT VERTICAL</label>
@@ -98,6 +102,8 @@
   <script src="js/world/textures.js"></script>
   <script src="js/world/city-mesh.js"></script>
   <script src="js/world/world.js"></script>
+  <script src="js/world/look.js"></script>
+  <script src="js/world/webs.js"></script>
   <script src="js/world/world-game.js"></script>
   <script src="js/game.js"></script>
   <script src="js/menu-aim.js"></script>

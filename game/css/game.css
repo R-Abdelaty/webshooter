@@ -26,15 +26,20 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 /* --- 3D world (START) ----------------------------------------------------- */
 #world{position:fixed;inset:0;z-index:2;background:#b9cad8}
 #world-canvas{width:100%;height:100%;display:block}
+#world-fx{position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none}
 .world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:15px 4vw;pointer-events:none}
 .world-hud .hud-quit{pointer-events:auto}
 .world-tag{padding:4px 10px;border:1px solid #5fe3ff;background:#04121acc;color:#9ff0ff;font:800 12px Arial,sans-serif;letter-spacing:.14em}
-/* The crosshair sits dead centre; the view turns under it. */
+/* The crosshair: dead centre for the mouse and DIRECT look, following the
+   wrist in EDGE TURN, where it goes cyan while the view is turning. */
 .crosshair{position:absolute;z-index:2;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;pointer-events:none}
 .crosshair::before,.crosshair::after{content:'';position:absolute;background:#fff;box-shadow:0 0 2px #000a}
 .crosshair::before{left:12px;top:0;width:2px;height:26px}
 .crosshair::after{top:12px;left:0;width:26px;height:2px}
+.crosshair.is-turning::before,.crosshair.is-turning::after{background:#5fe3ff;box-shadow:0 0 4px #5fe3ff}
 .world-hint{pointer-events:none;font-size:13px}
+#world-card .card-actions{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:570px){#world-card .card-actions{grid-template-columns:1fr}}
 body.world-locked .world-hint{opacity:.55}
-.world-perf{position:absolute;z-index:3;left:4vw;top:56px;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
+.world-perf{position:absolute;z-index:3;left:4vw;top:56px;max-width:92vw;white-space:pre-wrap;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
 .world-loading{position:absolute;z-index:3;inset:0;display:grid;place-items:center;margin:0;background:#0b1016;color:#9ff0ff;font:900 28px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.1em}
