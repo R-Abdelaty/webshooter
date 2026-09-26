@@ -381,6 +381,18 @@
         z0: round2(pz - .2), z1: round2(pz + 1.4), rx: round2((rnd() - .5) * .5), rz: round2((rnd() - .5) * .5), color: Math.floor(rnd() * 3), collide: false });
     }
     for (n = 0; n < 5; n++) part('steel', yard.x0 + 2, yard.x0 + 14, n * .35, n * .35 + .35, yard.z1 - 6 + (n % 2) * .5, yard.z1 - 5.6 + (n % 2) * .5);
+    // A shipping container in the yard, end-on to the frame across the gap:
+    // the lookout the Venom fight is played from. It takes the first spot
+    // clear of everything else without drawing on the random stream, so adding
+    // it left the rest of the city exactly as it was.
+    var CW = 2.44, CL = 6.06, CH = 2.6, lookout = null, k;
+    for (k = 0; k < 24 && !lookout; k++) {
+      var lx0 = ox - 13 - Math.floor(k / 8) * 1.5, lzc = oz + 12 + (k % 8 % 2 ? 1 : -1) * Math.ceil(k % 8 / 2) * 1.5;
+      var cfp = { x0: lx0 - .6, x1: lx0 + CW + .6, z0: lzc - CL / 2 - .6, z1: lzc + CL / 2 + .6 };
+      if (parts.some(function (p) { return overlaps(p, cfp); })) continue;
+      part('container', lx0, lx0 + CW, 0, CH, lzc - CL / 2, lzc + CL / 2);
+      lookout = { x: round2(lx0 + CW / 2), z: round2(lzc), y: CH };
+    }
     // Tarps hung off the frame's open upper floors.
     [[frame.x0 + 1, frame.x0 + 9], [frame.x0 + 17, frame.x0 + 25]].forEach(function (span, k) {
       parts.push({ kind: 'tarp', x0: round2(span[0]), x1: round2(span[1]), y0: round2(4 * FL - 5), y1: round2(4 * FL - .5),
@@ -400,7 +412,8 @@
     // slab, so stand it all on top of that.
     parts.forEach(function (p) { p.y0 = round2(p.y0 + L.CURB); p.y1 = round2(p.y1 + L.CURB); });
     frame.base = L.CURB;
-    return { rect: r, ground: g, frame: frame, parts: parts, crane: crane, gate: { x: round2(gate), z: round2(fz1) } };
+    if (lookout) lookout.y = round2(lookout.y + L.CURB);
+    return { rect: r, ground: g, frame: frame, parts: parts, crane: crane, gate: { x: round2(gate), z: round2(fz1) }, lookout: lookout };
   }
 
   // --- the backdrop beyond the walkable city ------------------------------------

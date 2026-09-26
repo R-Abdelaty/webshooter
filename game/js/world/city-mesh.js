@@ -311,7 +311,7 @@
       steel: lambert(0x55606b), slab: worldMapped(lambert(0xffffff, { map: conc }), 3),
       fence: worldMapped(lambert(0xffffff, { map: ply }), 2.4), pallet: lambert(0x8f6f45), plank: lambert(0x9a7a4e),
       brick: worldMapped(lambert(0xffffff, { map: brickTex }), 1.2), scaffold: lambert(0x9aa1a7),
-      crane: lambert(0xd9a91e), counterweight: lambert(0x8d8c88), cabin: lambert(0xd9692b),
+      crane: lambert(0xd9a91e), counterweight: lambert(0x8d8c88), cabin: lambert(0xd9692b), container: lambert(0x3b6e8f),
       tarp: lambert(0xffffff, { side: T.DoubleSide })
     };
     var tarpColors = ['#2f5f9e', '#3a78b8', '#c4652b'];
