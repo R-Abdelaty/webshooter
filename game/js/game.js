@@ -157,8 +157,11 @@
  function card(title,button,action){
   var c=$('card'),i=$('card-inner');c.classList.remove('is-hidden');i.dataset.kind=title.toLowerCase().replace(/\s+/g,'-');
   var message=title==='INTRO'?'Thirty seconds. Hit the weak spots - it will dodge.':title==='PAUSED'?'The clock stops until you resume.':title==='DEFEAT'?'Out of time. The villain got away.':title==='VICTORY'?'One villain down. The city still needs you.':'The city is safe!';
-  i.innerHTML='<h2>'+title+'</h2><p>'+message+'</p><div class="card-actions"><button data-action="'+action+'">'+button+'</button><button data-action="menu">MENU</button></div>';
-  i.querySelectorAll('button').forEach(b=>b.onclick=()=>{var a=b.dataset.action;if(a==='menu')quit();else if(a==='retry')start(state.levelIndex);else if(a==='next')start(state.levelIndex<2?state.levelIndex+1:0);else{Combat.play(state);c.classList.add('is-hidden');last=performance.now();}});
+  // The classic intro also leads to the classic training, since the menu's
+  // TRAINING button now opens the 3D range.
+  var extra=title==='INTRO'?'<button data-action="train">TRAINING</button>':'';
+  i.innerHTML='<h2>'+title+'</h2><p>'+message+'</p><div class="card-actions"><button data-action="'+action+'">'+button+'</button>'+extra+'<button data-action="menu">MENU</button></div>';
+  i.querySelectorAll('button').forEach(b=>b.onclick=()=>{var a=b.dataset.action;if(a==='menu')quit();else if(a==='train')startTraining();else if(a==='retry')start(state.levelIndex);else if(a==='next')start(state.levelIndex<2?state.levelIndex+1:0);else{Combat.play(state);c.classList.add('is-hidden');last=performance.now();}});
  }
  function fire(pos){
   var z=layout();

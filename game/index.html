@@ -43,18 +43,21 @@
   <section id="world" class="is-hidden">
     <canvas id="world-canvas"></canvas>
     <canvas id="world-fx" aria-hidden="true"></canvas>
+    <div id="world-flash" class="world-flash" aria-hidden="true"></div>
     <header class="world-hud">
-      <span class="world-tag">FREE ROAM</span>
+      <div class="world-status">
+        <span id="world-tag" class="world-tag">FREE ROAM</span>
+        <div id="world-bar" class="world-bar is-hidden"><i id="world-barfill"></i></div>
+        <span id="world-info" class="world-info"></span>
+      </div>
+      <span id="world-timer" class="world-timer"></span>
       <button id="btn-world-quit" class="hud-quit" type="button">← MENU</button>
     </header>
     <div id="world-crosshair" class="crosshair" aria-hidden="true"></div>
     <pre id="world-perf" class="world-perf is-hidden" aria-hidden="true"></pre>
     <p id="world-loading" class="world-loading is-hidden">BUILDING THE CITY…</p>
     <footer class="hud-bottom world-hint">Wrist or mouse to look · Flick or click to shoot · WASD / arrows move · Shift sprint · Space jump · C recentre · Esc pause · P readout</footer>
-    <div id="world-card" class="card-wrap is-hidden"><div class="card" data-kind="paused">
-      <h2>PAUSED</h2><p>Take a breather. The city will wait.</p>
-      <div class="card-actions"><button id="btn-world-resume" type="button">RESUME</button><button id="btn-world-settings" type="button">SETTINGS</button><button id="btn-world-menu" type="button">MENU</button></div>
-    </div></div>
+    <div id="world-card" class="card-wrap is-hidden"><div class="card" id="world-card-inner" data-kind="paused"></div></div>
   </section>
   <div id="centre-cal" class="cal-wrap is-hidden" role="dialog" aria-modal="true" aria-labelledby="cal-title">
     <div class="cal-dot" aria-hidden="true"></div>
@@ -104,6 +107,12 @@
   <script src="js/world/world.js"></script>
   <script src="js/world/look.js"></script>
   <script src="js/world/webs.js"></script>
+  <script src="js/world/villain-sprites.js"></script>
+  <script src="js/world/aim-assist.js"></script>
+  <script src="js/world/encounters.js"></script>
+  <script src="js/world/fight.js"></script>
+  <script src="js/world/training3d.js"></script>
+  <script src="js/world/actors.js"></script>
   <script src="js/world/world-game.js"></script>
   <script src="js/game.js"></script>
   <script src="js/menu-aim.js"></script>

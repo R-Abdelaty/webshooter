@@ -27,7 +27,7 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 #world{position:fixed;inset:0;z-index:2;background:#b9cad8}
 #world-canvas{width:100%;height:100%;display:block}
 #world-fx{position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none}
-.world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:15px 4vw;pointer-events:none}
+.world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:15px 4vw;pointer-events:none}
 .world-hud .hud-quit{pointer-events:auto}
 .world-tag{padding:4px 10px;border:1px solid #5fe3ff;background:#04121acc;color:#9ff0ff;font:800 12px Arial,sans-serif;letter-spacing:.14em}
 /* The crosshair: dead centre for the mouse and DIRECT look, following the
@@ -38,8 +38,25 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 .crosshair::after{top:12px;left:0;width:26px;height:2px}
 .crosshair.is-turning::before,.crosshair.is-turning::after{background:#5fe3ff;box-shadow:0 0 4px #5fe3ff}
 .world-hint{pointer-events:none;font-size:13px}
+/* The fight HUD: what you're fighting, its health (or the thugs left, or your
+   training stats) and the clock. Session 4 restyles it with the minimap. */
+.world-status{display:grid;gap:6px;min-width:0;max-width:min(460px,60vw)}
+.world-status .world-tag{justify-self:start}
+.world-bar{height:6px;background:#04121acc;border:1px solid #5fe3ff66}
+.world-bar i{display:block;height:100%;width:0;background:#5fe3ff;box-shadow:0 0 6px #5fe3ff;transition:width .15s}
+.world-info{color:#e8fbff;font:800 12px Arial,sans-serif;letter-spacing:.08em;text-shadow:0 1px 2px #000c}
+.world-timer{margin-left:auto;padding:4px 10px;color:#9ff0ff;font:900 20px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.06em;font-variant-numeric:tabular-nums;text-shadow:0 1px 3px #000c}
+.world-timer:empty{display:none}
+.world-timer.is-low{color:#ff6a6a}
+/* A hit flashes the view; world-game.js sets the opacity and lets it fade. */
+.world-flash{position:absolute;inset:0;z-index:1;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(255,255,255,.1) 30%,rgba(255,236,210,.85))}
+/* Cards over the city let it show through; they hold four to seven buttons. */
+#world-card{background-color:rgba(4,4,6,.38)}
+#world-card .card{width:min(520px,100%)}
 #world-card .card-actions{grid-template-columns:1fr 1fr 1fr}
-@media(max-width:570px){#world-card .card-actions{grid-template-columns:1fr}}
+#world-card .card-actions[data-count="4"]{grid-template-columns:1fr 1fr}
+#world-card .card-actions button:last-child{background:#fff}
+@media(max-width:570px){#world-card .card-actions,#world-card .card-actions[data-count="4"]{grid-template-columns:1fr 1fr}}
 body.world-locked .world-hint{opacity:.55}
 .world-perf{position:absolute;z-index:3;left:4vw;top:56px;max-width:92vw;white-space:pre-wrap;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
 .world-loading{position:absolute;z-index:3;inset:0;display:grid;place-items:center;margin:0;background:#0b1016;color:#9ff0ff;font:900 28px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.1em}
