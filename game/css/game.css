@@ -60,3 +60,4 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 body.world-locked .world-hint{opacity:.55}
 .world-perf{position:absolute;z-index:3;left:4vw;top:56px;max-width:92vw;white-space:pre-wrap;margin:0;padding:6px 10px;background:#04121acc;border:1px solid #5fe3ff66;color:#9ff0ff;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;pointer-events:none}
 .world-loading{position:absolute;z-index:3;inset:0;display:grid;place-items:center;margin:0;background:#0b1016;color:#9ff0ff;font:900 28px Impact,Haettenschweiler,'Arial Narrow Bold',sans-serif;letter-spacing:.1em}
+.model-viewer{top:auto;bottom:56px;font-size:12px;max-height:40%;overflow:hidden}

@@ -20,7 +20,7 @@
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
   var mode = 'roam', fight = null, enc = null, range = null, shownEnd = null, endAt = 0, armed = false;
-  var shakeAt = -1e9, shakeAmp = 0, hud = {};
+  var shakeAt = -1e9, shakeAmp = 0, hud = {}, hooks = [];
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -218,6 +218,8 @@
     world.update(dt, eye, player.yaw, player.pitch);
     shake(now);
     Look.record(look, deviceTime(c, now), camera());
+    // Extras that draw into the world (the model viewer): (dt, now, paused).
+    for (var h = 0; h < hooks.length; h++) hooks[h](paused ? 0 : dt, now, paused);
     actors.drawFight(fight, VILLAINS, eye, now, fight && fight.mode === 'won' ? Math.max(0, 1 - (now - endAt) / 800) : 1);
     actors.drawTarget(range && range.target3, now);
     actors.showBeacons(mode === 'roam');
@@ -477,6 +479,7 @@
 
   window.WorldGame = {
     start: start, quit: quit, pause: pause, resume: resume, fire: fire,
+    onFrame: function (fn) { hooks.push(fn); },
     active: function () { return running; },
     paused: function () { return paused; },
     saved: function () { try { var s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.chapter ? s.chapter : 0; } catch (_) { return 0; } },

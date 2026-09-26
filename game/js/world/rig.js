@@ -141,7 +141,7 @@
   // an additive clip is layered on top; anything else is a one-shot that
   // cross-fades in over the base and hands back to it at its end - or holds
   // its last frame (opts.hold, for defeat). opts: { speed, fade, hold, loop,
-  // restart }. Returns the clip actually used, or null if there is none.
+  // restart, cut (a new base state ends the one-shot playing) }. Returns the clip actually used, or null if there is none.
   function play(m, want, opts) {
     opts = opts || {};
     var name = resolve(m.names, want);
@@ -154,8 +154,9 @@
     }
     if (opts.loop || isLoop(m, name)) {
       var f = opts.fade !== undefined ? opts.fade : m.fade.base;
-      // A new base state ends a held one-shot (getting up after a defeat).
-      if (shot && shot.hold) { fadeOut(shot, f); shot.ended = true; shot = null; if (base) { base.target = 1; base.rate = 1 / Math.max(1e-3, f); } }
+      // A new base state ends a held one-shot (getting up after a defeat),
+      // or any one-shot if asked to cut it short.
+      if (shot && (shot.hold || opts.cut)) { fadeOut(shot, f); shot.ended = true; shot = null; if (base) { base.target = 1; base.rate = 1 / Math.max(1e-3, f); } }
       if (base && base.name === name && !opts.restart) { base.speed = opts.speed || 1; return name; }
       if (base) fadeOut(base, f);
       // Coming back to a clip that is still fading out picks it up where it is.

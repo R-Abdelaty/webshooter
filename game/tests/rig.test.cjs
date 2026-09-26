@@ -135,6 +135,14 @@ test('machine: defeat holds its last frame until a new base state',()=>{
   Rig.play(m,'idle');run(m,1);
   assert.deepEqual(weights(m),{idle:1});
 });
+test('machine: a new base state can cut a one-shot short',()=>{
+  const m=mk();Rig.play(m,'roar');run(m,.3);
+  Rig.play(m,'fly');run(m,.3);
+  assert.equal(Rig.state(m).shot,'roar','without cut the roar plays on over the new base');
+  Rig.play(m,'walk',{cut:true});
+  assert.deepEqual(run(m,1),[],'a cut one-shot reports no end');
+  assert.deepEqual(weights(m),{walk:1});
+});
 test('machine: a clip the model lacks is refused, and remembered for one warning',()=>{
   const m=Rig.machine({clips:{idle:1},loops:['idle']});
   assert.equal(Rig.play(m,'attack'),null);Rig.play(m,'attack');
