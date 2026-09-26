@@ -22,7 +22,7 @@
   var SAVE_KEY = 'ws.save3d.v1';
   // How long the defeat (or the villain getting away) plays before its card.
   var END_MS = { won: 1800, lost: 900 };
-  var canvas = $('world-canvas'), fx = $('world-fx'), fxc = fx.getContext('2d'), cross = $('world-crosshair');
+  var canvas = $('world-canvas'), overlay = $('world-fx'), fxc = overlay.getContext('2d'), cross = $('world-crosshair');
   var world = null, city = null, spots = null, player = null, webs = null, actors = null, villains = null, look = Look.create(), strands = [];
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
@@ -56,7 +56,7 @@
   function layout() {
     world.resize();
     var r = window.devicePixelRatio || 1;
-    fx.width = Math.round(fx.clientWidth * r); fx.height = Math.round(fx.clientHeight * r);
+    overlay.width = Math.round(overlay.clientWidth * r); overlay.height = Math.round(overlay.clientHeight * r);
     fxc.setTransform(r, 0, 0, r, 0, 0);
   }
 
@@ -423,7 +423,7 @@
   // The strand from the wrist - the bottom right of the view - to where the web
   // landed, only for the instant of the shot, like the 2D game's.
   function drawStrands(now) {
-    var w = fx.clientWidth, h = fx.clientHeight;
+    var w = overlay.clientWidth, h = overlay.clientHeight;
     strands = strands.filter(function (s) { return now - s.time < STRAND_MS; });
     fxc.clearRect(0, 0, w, h);
     strands.forEach(function (s) {
@@ -456,7 +456,7 @@
     var e = world.project(g);
     if (e.front && e.x > .03 && e.x < .97 && e.y > .03 && e.y < .97) return;
     camPos.set(g.x, g.y, g.z).applyMatrix4(world.camera.matrixWorldInverse);
-    var w = fx.clientWidth, h = fx.clientHeight, ang = Math.atan2(-camPos.y, camPos.x);
+    var w = overlay.clientWidth, h = overlay.clientHeight, ang = Math.atan2(-camPos.y, camPos.x);
     if (Math.abs(camPos.x) < 1e-6 && Math.abs(camPos.y) < 1e-6) ang = 0;
     var dx = Math.cos(ang), dy = Math.sin(ang), m = 34;
     var k = Math.min((w / 2 - m) / Math.max(1e-6, Math.abs(dx)), (h / 2 - m) / Math.max(1e-6, Math.abs(dy)));
