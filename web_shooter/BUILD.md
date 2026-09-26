@@ -228,6 +228,26 @@ is typed rather than assumed.
 The page has to be opened from disk or over plain `http`. A page served over
 `https` is not allowed to open a `ws://` connection, and it fails silently.
 
+## Playing with it
+
+Once the page says it is aiming, set your centre (point at the dot, hold
+still, flick). In the 3D city the shooter does two jobs:
+
+- **Looking.** With **LOOK → Edge turn** (the default), the crosshair follows
+  your wrist over the screen, and pushing it past the edge of the middle box
+  turns the view that way, so you can turn all the way round with a wrist that
+  only turns about 80 degrees each way. **Direct** turns the view with the
+  wrist instead. `game/README.md` has the details.
+- **Firing.** A flick shoots a web where the crosshair was just before the
+  flick, from the view as it was then (the `shoot` packet's `preYaw`/`prePitch`
+  and the flagged flick packets are what make that work). The flick itself
+  never turns the view.
+
+The shooter can't walk you anywhere yet (that needs the analog stick in
+`docs/3D_PLAN.md`), so each fight puts you at a spot to fight it from. The
+cards (GO, RETRY, and so on) are pressed with a flick at the reticle, like the
+menu. CLASSIC, the original 2D game, works the same way on a fixed screen.
+
 ## Testing without the website
 
 In any browser, open devtools console on any page and run:
@@ -251,6 +271,7 @@ Flick your wrist and the events print in the console.
 | Fires constantly | `FLICK_ON` too low, or a loose IMU rattling in the breadboard |
 | Fires when you aim fast | Raise `FLICK_RISE_DPS`, set `FLICK_SIGN` to your flick's direction, or set `FLICK_MIN_G` to about 2.5 |
 | Never fires | Wrong `FLICK_AXIS` or `FLICK_SIGN`: watch `TUNE_MODE` while you flick. Or `FLICK_ON`/`FLICK_RISE_DPS` is too high |
+| In the 3D city the view keeps turning, or won't turn far enough | Press **C** (or CENTER AIM) to recentre with the wrist pointing at the screen. Lower or raise **TURN SPEED**, or try **LOOK → Direct** |
 | Reticle moves diagonally, or up/down and sideways are swapped | The game's HORIZONTAL/VERTICAL settings decide which board axis is the forearm; check them against how the board is strapped |
 | Calibration keeps printing `moving` | Put the board down or hold still. After 15 s it gives up and uses the stillest second |
 | Upload fails | Hold BOOT during "Connecting…", try a different USB cable (many are charge-only) |
