@@ -22,10 +22,10 @@ test('manifest: validation names what is wrong',()=>{
   assert.deepEqual(Rig.validate(null),['no "villains" object']);
   const m=copy(manifest);
   m.villains.goblin.height=0;m.villains.rhino.weakSpots[1].name='KNEE';m.villains.rhino.weakSpots[0].offset=[0,0];
-  m.villains.venom.body.push(['pelvis',2]);m.villains.venom.file='venom.fbx';m.villains.venom.speeds={walk:3,run:2};
+  m.villains.venom.body.push(['pelvis',2]);m.villains.rhino.body.push(['a','b',.1,[0,1]]);m.villains.goblin.airborne={feet:[],ankle:.1,clips:[]};m.villains.venom.file='venom.fbx';m.villains.venom.speeds={walk:3,run:2};
   m.villains.goblin.weakSpots[2].name='CHEST';
   const e=Rig.validate(m).join('\n');
-  for(const s of ['goblin: height','rhino: weakSpots[1] name','rhino: weakSpots[0] offset','venom: body[6]','venom: file','venom: speeds','goblin: weakSpots[2] CHEST twice'])
+  for(const s of ['goblin: height','rhino: weakSpots[1] name','rhino: weakSpots[0] offset','venom: body['+manifest.villains.venom.body.length+']','rhino: body['+manifest.villains.rhino.body.length+']','goblin: airborne','venom: file','venom: speeds','goblin: weakSpots[2] CHEST twice'])
     assert.ok(e.includes(s),'reports '+s+'\n'+e);
 });
 test('manifest: every bone it names is in its model, and every loop and event clip exists',()=>{
@@ -198,13 +198,24 @@ test('spots: a weak spot sits at its bone, offset along the bone\'s own axes in 
   assert.equal(s.spots.length,1,'a bone the model lacks is skipped');
   const c=s.spots[0];
   // Turned 90° about y, the bone's z axis points along world +x; the 2.1 scale doesn't stretch the offset.
-  near(c.x,1.2,1e-9);near(c.y,2.1,1e-9);near(c.z,3,1e-9);assert.equal(c.r,.3);assert.equal(c.name,'CHEST');
-  assert.deepEqual(s.capsules,[{a:{x:1,y:1,z:3},b:{x:1,y:2,z:3},r:.4}]);
+  near(c.x,1.2,1e-9);near(c.y,2.1,1e-9);near(c.z,3,1e-9);assert.equal(c.r,.3);assert.equal(c.name,'CHEST');assert.equal(c.bone,'spine');
+  assert.deepEqual(s.capsules,[{a:{x:1,y:1,z:3},b:{x:1,y:2,z:3},r:.4,bones:['hips','spine']}]);
 });
 test('spots: the result is plain data, so a fight snapshot can keep it',()=>{
   const s=Rig.sample(manifest.villains.venom,()=>mat(0,1,[0,1,0]));
   assert.equal(s.spots.length,3);assert.equal(s.capsules.length,manifest.villains.venom.body.length);
   assert.deepEqual(JSON.parse(JSON.stringify(s)),s);
+});
+test('capsules: one can reach past its second bone, along that bone\'s axes',()=>{
+  const s=Rig.sample({weakSpots:[],body:[['neck','head',.15,[0,.2,0]]]},b=>({neck:mat(0,1,[0,1.5,0]),head:mat(Math.PI/2,2,[0,1.7,0])})[b]);
+  const c=s.capsules[0];near(c.b.x,0,1e-9);near(c.b.y,1.9,1e-9,'the crown, 20 cm up the head bone, unscaled');near(c.b.z,0,1e-9);
+});
+test('body: a ray reports the first capsule it meets, how far along it, and where',()=>{
+  const caps=[{a:{x:0,y:0,z:0},b:{x:0,y:2,z:0},r:.5},{a:{x:-3,y:0,z:0},b:{x:-3,y:2,z:0},r:.5}];
+  const h=Rig.rayBody({x:-10,y:1.5,z:0},{x:1,y:0,z:0},caps);
+  assert.equal(h.index,1,'the nearer one');near(h.distance,6.5,1e-9);near(h.t,.75,1e-9);near(h.point.x,-3.5,1e-9);
+  assert.equal(Rig.rayBody({x:-10,y:1.5,z:2},{x:1,y:0,z:0},caps),null);
+  assert.equal(Rig.rayBody({x:0,y:0,z:0},{x:1,y:0,z:0},[]),null);
 });
 test('capsules: a ray enters the side, an end, or misses',()=>{
   const cap={a:{x:0,y:0,z:0},b:{x:0,y:2,z:0},r:.5};

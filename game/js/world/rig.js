@@ -37,6 +37,7 @@
   // --- the manifest --------------------------------------------------------------
   function isNum(x) { return typeof x === 'number' && isFinite(x); }
   function isStr(x) { return typeof x === 'string' && x.length > 0; }
+  function isVec(x) { return Array.isArray(x) && x.length === 3 && x.every(isNum); }
 
   // Everything wrong with a manifest, as sentences; [] when it is fine.
   function validate(man) {
@@ -67,14 +68,20 @@
         if (!w || WEAK_SPOTS.indexOf(w.name) < 0) err.push(wa + 'name must be one of ' + WEAK_SPOTS.join('/'));
         else if (names[w.name]) err.push(wa + w.name + ' twice'); else names[w.name] = true;
         if (!w || !isStr(w.bone)) err.push(wa + 'needs a bone');
-        if (!w || !Array.isArray(w.offset) || w.offset.length !== 3 || !w.offset.every(isNum)) err.push(wa + 'offset must be [x, y, z]');
+        if (!w || !isVec(w.offset)) err.push(wa + 'offset must be [x, y, z]');
         if (!w || !isNum(w.radius) || w.radius <= 0) err.push(wa + 'radius must be positive');
       });
       if (!Array.isArray(v.body)) err.push(at + 'body capsules missing');
       else v.body.forEach(function (c, i) {
-        if (!Array.isArray(c) || c.length !== 3 || !isStr(c[0]) || !isStr(c[1]) || !isNum(c[2]) || c[2] <= 0)
-          err.push(at + 'body[' + i + '] must be [boneA, boneB, radius]');
+        if (!Array.isArray(c) || (c.length !== 3 && c.length !== 4) || !isStr(c[0]) || !isStr(c[1]) || !isNum(c[2]) || c[2] <= 0 ||
+            (c.length === 4 && !isVec(c[3])))
+          err.push(at + 'body[' + i + '] must be [boneA, boneB, radius] or [boneA, boneB, radius, [x, y, z] past boneB]');
       });
+      if (v.airborne !== undefined) {
+        var a = v.airborne || {};
+        if (!Array.isArray(a.feet) || !a.feet.length || !a.feet.every(isStr) || !isNum(a.ankle) || !Array.isArray(a.clips) || !a.clips.every(isStr))
+          err.push(at + 'airborne needs feet (bones), ankle (metres) and clips');
+      }
     });
     return err;
   }
@@ -84,6 +91,7 @@
     var out = [];
     (entry.weakSpots || []).forEach(function (w) { if (out.indexOf(w.bone) < 0) out.push(w.bone); });
     (entry.body || []).forEach(function (c) { [c[0], c[1]].forEach(function (b) { if (out.indexOf(b) < 0) out.push(b); }); });
+    ((entry.airborne || {}).feet || []).forEach(function (b) { if (out.indexOf(b) < 0) out.push(b); });
     return out;
   }
   // What a loaded model is missing that its entry asks for: bones and clips.
@@ -298,20 +306,40 @@
   }
   // The weak spots and capsules of one manifest entry, from matrixOf(bone) ->
   // a 16-number world matrix (or null if the model has no such bone):
-  // { spots: [{ name, x, y, z, r }], capsules: [{ a, b, r }] } - plain data.
+  // { spots: [{ name, x, y, z, r, bone }], capsules: [{ a, b, r, bones: [a, b] }] }
+  // - plain data. A capsule runs from its first bone's origin to its second's,
+  // or past it by an offset along that bone's axes (the head's reaches up to
+  // the crown, not just the base of the skull).
   function sample(entry, matrixOf) {
     var spots = [], capsules = [];
     (entry.weakSpots || []).forEach(function (w) {
       var e = matrixOf(w.bone);
       if (!e) return;
       var p = pointOn(e, w.offset);
-      spots.push({ name: w.name, x: p.x, y: p.y, z: p.z, r: w.radius });
+      spots.push({ name: w.name, x: p.x, y: p.y, z: p.z, r: w.radius, bone: w.bone });
     });
     (entry.body || []).forEach(function (c) {
       var a = matrixOf(c[0]), b = matrixOf(c[1]);
-      if (a && b) capsules.push({ a: origin(a), b: origin(b), r: c[2] });
+      if (a && b) capsules.push({ a: origin(a), b: c[3] ? pointOn(b, c[3]) : origin(b), r: c[2], bones: [c[0], c[1]] });
     });
     return { spots: spots, capsules: capsules };
+  }
+  // How far along a capsule (0 at a, 1 at b) the point nearest p is.
+  function along(cap, p) {
+    var ba = sub(cap.b, cap.a), l = dot(ba, ba);
+    return l > 1e-12 ? Math.max(0, Math.min(1, dot(sub(p, cap.a), ba) / l)) : 0;
+  }
+  // The first capsule a ray (unit dir) meets: { index, distance, t (how far
+  // along the capsule), point }, or null.
+  function rayBody(o, d, capsules) {
+    var best = null;
+    (capsules || []).forEach(function (c, i) {
+      var t = rayCapsule(o, d, c);
+      if (t === null || (best && t >= best.distance)) return;
+      best = { index: i, distance: t, point: { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t } };
+    });
+    if (best) best.t = along(capsules[best.index], best.point);
+    return best;
   }
 
   function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
@@ -349,7 +377,7 @@
     WEAK_SPOTS: WEAK_SPOTS, STANDARD: STANDARD, FALLBACKS: FALLBACKS, ADDITIVE: ADDITIVE, FADE: FADE, LOCO: LOCO,
     validate: validate, bonesOf: bonesOf, check: check, resolve: resolve, missing: missing,
     machine: machine, play: play, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
-    updateEvery: updateEvery, pointOn: pointOn, sample: sample, rayCapsule: rayCapsule
+    updateEvery: updateEvery, pointOn: pointOn, sample: sample, rayCapsule: rayCapsule, rayBody: rayBody, along: along
   };
   if (typeof module !== 'undefined') module.exports = api;
   root.Rig = api;
