@@ -612,3 +612,33 @@ and anything the next session must know._
   - **For C3/C4.** The Goblin's bomb (`attack` + `release`) is still unused; no attacks at the player exist yet.
     Rhino `stun`, `idle_fidget` and Venom's `cling_*`/`crawl_*` are unused (the crawl/cling poses are for walls,
     not beam tops). The models are dark under the current light (Rhino especially); that is C4's.
+- 2026-09-26 — **Session C3 done: the thug wave is switched off, and all three fights are villain-only.** 143 tests
+  pass (141 old, several rewritten, plus 2 new). No characters were processed; no models changed.
+  - **The switch** is `Encounters.constants.THUGS.ENABLED` (`encounters.js`), `false`. Off, `venom()` places no
+    thugs (`thugs: []`), so `Fight.start` begins his fight at `arrive`, and his intro is a straight Venom one. On,
+    it places the old wave with the old intro. The thugs draw on their own random stream, so the switch changes
+    nothing else: with it on, Venom's encounter is byte-identical to before C3 (checked against a dump taken
+    before the change, and a test compares on/off apart from `thugs` and `intro`). Nothing else needed gating:
+    the `'thugs'` phase, the HUD's "THUGS · N LEFT"/WAVE, the off-screen pointer's thug goal and the thug
+    aim-assist all run only in that phase, which an encounter without thugs never enters. `actors.js` now hides
+    the three thug InstancedMeshes whenever there are none to draw, so they cost no draw calls (shadow pass
+    included). All the thug code is kept for Session H.
+  - **Tests.** `fight.test.cjs` builds `venomWave` with a test-only `withThugs()` override (restored after), and
+    the thug tests (placement and sight lines, clearing the wave before Venom, pause with a wave, winning through
+    it) run on that. New: the switch is off and Venom's fight starts in `arrive` with no thugs, every shot is a
+    villain shot; and switching on brings the same wave back with nothing else moved. The Venom tests that used
+    to clear the wave first now play the villain-only fight. `villain-anim.test.cjs` needed no change (its
+    `clearThugs` is a no-op without a wave).
+  - **README.** The Venom paragraph, the untimed-wave sentence, the web-on-a-thug note and the HUD line no longer
+    mention thugs.
+  - **Verified** in the pane over http (a new `game-c3` entry in the git-ignored `.claude/launch.json`, port 8138,
+    serving with a script in this session's scratchpad): Venom's INTRO shows the new text; GO goes to GET READY
+    (`arrive`) with no thugs, then his clock; the thug meshes are hidden with count 0 (47 draw calls). All three
+    fights were won through the real `WorldGame.fire` with body shots: Goblin 5 hits, Rhino 7, Venom 9, ending on
+    CITY SAVED. With the switch flipped on in the page, the old intro, "THUGS · 6 LEFT"/WAVE and the six thugs
+    came back; 9 hits cleared them and Venom dropped in. Console: only the known WebSocket noise.
+  - **Not verified.** The real shooter, and `file://` in the user's Chrome (nothing loading-related changed).
+  - **For the next session.** The Goblin's and Rhino's intro cards (`encounters.js`) still say "hit the weak
+    spots", which C2 removed from the 3D fights; they were left alone as out of C3's scope. Reword them like
+    Venom's when convenient. Session H turns the switch on and restores the thug text (the old intro is still
+    in `venom()`, used whenever there are thugs).
