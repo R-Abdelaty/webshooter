@@ -7,8 +7,9 @@
   //                 from the middle of that roof.
   //   Rhino         charges up and down an avenue; you fight from the edge of
   //                 a low roof above it.
-  //   Venom         leaps between the construction site's beams, after a wave
-  //                 of masked thugs; you fight from a container in the yard.
+  //   Venom         leaps between the construction site's beams; you fight
+  //                 from a container in the yard. A wave of masked thugs can
+  //                 come first (THUGS.ENABLED, off for now).
   //   Training      targets on the walls and roofs round a mid-height roof.
   //
   // Each has a vantage (where the fight puts you, facing the action), because
@@ -32,7 +33,10 @@
     // Venom: how far away a beam may be to leap to, how much beam his
     // sideways dodge needs and how far along one to look, and the thugs.
     LEAP: { RANGE: 28, HOP_MIN: 3, HOP_MAX: 13, SCALE: 50, DASH_ROOM: 2.5, BEAM_MAX: 4 },
-    THUGS: { COUNT: 6, MIN: 6, MAX: 30, SPACING: 2.5, SPREAD: 70 },
+    // ENABLED: the wave of thugs before Venom. Off for now - the game is the
+    // three villains - until the masked hitmen have a model (Session H in
+    // docs/CHARACTERS_PLAN.md). With it off his fight starts at his entrance.
+    THUGS: { ENABLED: false, COUNT: 6, MIN: 6, MAX: 30, SPACING: 2.5, SPREAD: 70 },
     // Training: roof heights to stand on, and target distances.
     RANGE: { ROOF_MIN: 28, ROOF_MAX: 60, NEAR: 12, FAR: 75, MAX_TARGETS: 60, SPACING: 6 }
   };
@@ -214,11 +218,13 @@
       if (head || !sightClear(city, eye, chest, 1.2)) continue;
       perches.push({ x: round2(x), y: round2(y), z: round2(z), beams: beamsFrom(city, x, y, z) });
     }
-    // The thugs stand in the gap between you and the frame, on its ground
-    // floor between the columns, and a couple on the first floor's edge.
+    // The thugs (when the wave is on) stand in the gap between you and the
+    // frame, on its ground floor between the columns, and a couple on the
+    // first floor's edge. They draw on their own random stream, so switching
+    // the wave on or off changes nothing else.
     var rnd = CityRef.mulberry32((city.seed ^ 0x5eed7) >>> 0), cands = [], thugs = [], i;
     function column(x) { var k = Math.round((x - f.x0) / 8); return k >= 0 && Math.abs(x - (f.x0 + k * 8)) < 1.2; }
-    for (x = v.x + 4; x <= f.x0 + 22; x += 1.5) for (z = f.z0 - 2; z <= f.z1 + 2; z += 1.5) {
+    if (T.ENABLED) for (x = v.x + 4; x <= f.x0 + 22; x += 1.5) for (z = f.z0 - 2; z <= f.z1 + 2; z += 1.5) {
       if (column(x)) continue;
       var floors = [groundAt(city, x, z, .6)];
       if (x > f.x0 + .5 && x < f.x0 + 3.5) floors.push(groundAt(city, x, z, f.floor + f.base + .6));
@@ -241,7 +247,8 @@
       id: 'venom', index: 2, level: 2, villain: 2, kind: 'leap',
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yaw, pitch: .1 },
       trigger: { x: site.gate.x, z: round2(site.gate.z + 2.5), y: 0 },
-      intro: 'Clear the masked thugs first - one or two hits each. Then Venom comes for you: thirty seconds.',
+      intro: thugs.length ? 'Clear the masked thugs first - one or two hits each. Then Venom comes for you: thirty seconds.' :
+        'He drops onto the steel frame and leaps from beam to beam. Hit him anywhere - he dashes along a beam when you shoot. Thirty seconds.',
       path: { perches: perches, hopMin: L.HOP_MIN, hopMax: L.HOP_MAX, scale: L.SCALE },
       thugs: thugs
     };

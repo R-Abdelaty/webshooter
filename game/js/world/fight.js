@@ -4,9 +4,11 @@
   // 20 damage a hit, the cooldown, the 30 second clock, the modes the cards
   // follow - intro, playing, paused, lost, won), with the 3D parts added:
   // where the villain is in the world, which way it faces and how it moves,
-  // what of him a shot can hit, and for Venom the wave of thugs that comes first.
+  // what of him a shot can hit, and the wave of thugs that can come first.
   //
-  // A fight goes: (thugs, for Venom) -> arrive -> villain. The arrival is the
+  // A fight goes: (thugs) -> arrive -> villain. There is a thug wave only if
+  // the encounter has thugs: Venom's, when Encounters.constants.THUGS.ENABLED
+  // is on (it is off for now, so every fight starts at `arrive`). The arrival is the
   // villain's entrance - the Goblin's taunt, the Rhino dropping onto the
   // avenue and flexing, Venom dropping onto a beam and roaring - and, like
   // the thug wave, it is untimed and he can't be hurt in it. The 30 seconds

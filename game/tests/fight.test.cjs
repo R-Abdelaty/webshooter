@@ -6,6 +6,10 @@ const Training3D=require('../js/world/training3d.js'),Combat=require('../js/comb
 const levels=require('../js/levels.js'),villains=require('../js/villains.js');
 
 const city=City.generate(20180907),spots=Encounters.build(city),[goblin,rhino,venom]=spots.fights;
+// The thug wave before Venom is switched off in the game for now (C3), but its
+// code stays for Session H, so its tests run with the switch on.
+function withThugs(fn){const T=Encounters.constants.THUGS,was=T.ENABLED;T.ENABLED=true;try{return fn();}finally{T.ENABLED=was;}}
+const venomWave=withThugs(()=>Encounters.build(city).fights[2]);
 const EYE=1.7,DEG=Math.PI/180;
 const eyeAt=v=>({x:v.x,y:v.y+EYE,z:v.z});
 function aimAt(from,to){const d=Math.hypot(to.x-from.x,to.y-from.y,to.z-from.z);return{x:(to.x-from.x)/d,y:(to.y-from.y)/d,z:(to.z-from.z)/d};}
@@ -79,9 +83,9 @@ test('encounters: you can see the rhino\'s avenue, venom\'s beams and every thug
     assert.ok(Encounters.sightClear(city,ve,{x:q.x,y:q.y+1.3,z:q.z},1.2),'perch hidden '+JSON.stringify(q));
     assert.ok(Math.hypot(q.x-ve.x,q.y-ve.y,q.z-ve.z)<=Encounters.constants.LEAP.RANGE);
   }
-  assert.equal(venom.thugs.length,Encounters.constants.THUGS.COUNT);
-  assert.deepEqual([...new Set(venom.thugs.map(t=>t.hp))].sort(),[1,2],'thugs should take one or two hits');
-  for(const t of venom.thugs)assert.ok(Encounters.sightClear(city,ve,Fight.thugSphere(t),.8),'thug hidden');
+  assert.equal(venomWave.thugs.length,Encounters.constants.THUGS.COUNT);
+  assert.deepEqual([...new Set(venomWave.thugs.map(t=>t.hp))].sort(),[1,2],'thugs should take one or two hits');
+  for(const t of venomWave.thugs)assert.ok(Encounters.sightClear(city,ve,Fight.thugSphere(t),.8),'thug hidden');
 });
 
 // --- the fight rules -------------------------------------------------------------
@@ -224,7 +228,7 @@ test('fight: the goblin circles you, the rhino keeps to his avenue, venom to his
     assert.ok(Math.abs(r.at.x-rp.x)<=rp.lane+1e-6);assert.ok(r.at.z>=rp.z0-1e-6&&r.at.z<=rp.z1+1e-6);assert.equal(r.at.y,rp.y);
   }
   assert.ok(Math.min(...zs)<rp.z0+1&&Math.max(...zs)>rp.z1-1,'the rhino did not charge the whole way');
-  const v=Fight.play(Fight.start(venom,levels)),ve=eyeAt(venom.vantage);clearThugs(v,ve);arrived(v);
+  const v=playing(venom);
   const perched=new Set();
   for(let n=0;n<290&&v.mode==='playing';n++){
     step(v,.1);
@@ -264,7 +268,7 @@ test('fight: the rhino turns, winds up once, runs, skids to a stop at each end a
   assert.ok(Math.abs(maxV-levels[1].moveSpeed*rhino.path.scale)<.01,'top speed '+maxV);
 });
 test('fight: venom crouches before each leap and lands facing the beam he will leap to next',()=>{
-  const s=Fight.play(Fight.start(venom,levels)),eye=eyeAt(venom.vantage);clearThugs(s,eye);arrived(s);
+  const s=playing(venom),eye=eyeAt(venom.vantage);
   let crouched=false,landings=0,wasFlying=false;
   for(let n=0;n<30*15;n++){
     if(s.m.crouch>0)crouched=true;
@@ -281,7 +285,7 @@ test('fight: venom crouches before each leap and lands facing the beam he will l
   assert.ok(landings>=4,'only '+landings+' leaps');
 });
 test('fight: venom dodges by dashing along a beam across his view, and leaps soon after',()=>{
-  const s=Fight.play(Fight.start(venom,levels)),eye=eyeAt(venom.vantage);clearThugs(s,eye);arrived(s);
+  const s=playing(venom),eye=eyeAt(venom.vantage);
   for(let n=0;n<300&&(s.m.flying||s.m.crouch>0||s.m.rest<.3);n++)step(s,1/30);
   assert.ok(!s.m.flying&&!(s.m.crouch>0),'venom never settled on a beam');
   const at={...s.at},L=Fight.left(s.face);
@@ -300,10 +304,10 @@ test('fight: venom dodges by dashing along a beam across his view, and leaps soo
   if(s.m.flying){Fight.fire(s,villains,shotAt(eye,{x:0,y:-1e4,z:0}));assert.equal(s.dodge.side,null);assert.equal(s.m.rush,true);}
 });
 test('fight: pausing holds everything exactly where it was, and resuming carries on',()=>{
-  for(const enc of spots.fights){
-    const s=enc.thugs?Fight.play(Fight.start(enc,levels)):playing(enc),eye=eyeAt(enc.vantage);
+  for(const enc of spots.fights.concat([venomWave])){
+    const wave=enc.thugs&&enc.thugs.length,s=wave?Fight.play(Fight.start(enc,levels)):playing(enc),eye=eyeAt(enc.vantage);
     step(s,1.3);
-    if(enc.thugs)Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(s.thugs[1])));
+    if(wave)Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(s.thugs[1])));
     else Fight.fire(s,villains,shotAt(eye,middle(s)));
     step(s,2.1);
     Fight.pause(s);assert.equal(s.mode,'paused');
@@ -318,11 +322,11 @@ test('fight: pausing holds everything exactly where it was, and resuming carries
     assert.ok(s.time>before.time,enc.id+' did not resume');
   }
 });
-test('fight: the thugs have to be cleared before venom shows, and his clock starts after his entrance',()=>{
-  const s=Fight.play(Fight.start(venom,levels)),eye=eyeAt(venom.vantage);
+test('fight: with the wave on, the thugs have to be cleared before venom shows, and his clock starts after his entrance',()=>{
+  const s=Fight.play(Fight.start(venomWave,levels)),eye=eyeAt(venomWave.vantage);
   assert.equal(s.phase,'thugs');assert.equal(s.at,null,'venom is there before the thugs are down');
   // Shooting where venom will perch does nothing to him.
-  const q=venom.path.perches[0];
+  const q=venomWave.path.perches[0];
   Fight.fire(s,villains,shotAt(eye,{x:q.x,y:q.y+1.3,z:q.z}));
   assert.equal(s.health,180);assert.equal(s.elapsed,0);
   Fight.tick(s,20);
@@ -339,7 +343,7 @@ test('fight: the thugs have to be cleared before venom shows, and his clock star
   assert.equal(Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(s.thugs[two]))).hit,false,'a thug who is down was hit again');
   clearThugs(s,eye);
   assert.equal(s.phase,'arrive');assert.ok(s.thugs.every(t=>t.down));assert.ok(s.at,'venom did not show');
-  const perch=venom.path.perches[s.m.at];
+  const perch=venomWave.path.perches[s.m.at];
   assert.ok(s.at.y>perch.y+10,'he drops in from high above his beam');
   step(s,Fight.constants.ENTRY);assert.equal(s.at.y,perch.y,'and lands on it');
   arrived(s);assert.equal(s.elapsed,0);assert.equal(s.health,180);
@@ -347,6 +351,33 @@ test('fight: the thugs have to be cleared before venom shows, and his clock star
   assert.ok(s.elapsed>1.9&&s.elapsed<2.01,'the clock did not start after his entrance');
   r=Fight.fire(s,villains,shotAt(eye,middle(s)));
   assert.equal(r.hit,true);assert.equal(s.health,160);
+});
+test('thugs off: the switch is off, and venom\'s fight has no wave - it starts with his entrance',()=>{
+  assert.equal(Encounters.constants.THUGS.ENABLED,false,'the game is the three villains only for now');
+  for(const enc of spots.fights)assert.deepEqual(enc.thugs||[],[],enc.id+' has thugs');
+  assert.doesNotMatch(venom.intro,/thug/i);
+  const s=Fight.play(Fight.start(venom,levels)),eye=eyeAt(venom.vantage);
+  assert.equal(s.phase,'arrive');assert.deepEqual(s.thugs,[]);assert.equal(Fight.standing(s),0);
+  const perch=venom.path.perches[s.m.at];
+  assert.ok(s.at&&s.at.y>perch.y+10,'he drops in from high above his beam straight away');
+  assert.deepEqual(Fight.snapshot(s).thugs,[]);
+  arrived(s);assert.equal(s.phase,'villain');assert.equal(s.elapsed,0);
+  // Every shot is at venom: a hit is a villain hit, and so is a miss.
+  const r=Fight.fire(s,villains,shotAt(eye,middle(s)));
+  assert.deepEqual([r.hit,r.kind],[true,'villain']);assert.equal(s.health,160);
+  step(s,Combat.COOLDOWN);
+  assert.equal(Fight.fire(s,villains,shotAt(eye,{x:0,y:-1e4,z:0})).kind,'villain');
+  assert.equal(s.thugHits,0);
+});
+test('thugs off: switching the wave on brings it back and changes nothing else',()=>{
+  const {thugs:a,intro:ia,...on}=venomWave,{thugs:b,intro:ib,...off}=venom;
+  assert.deepEqual(JSON.parse(JSON.stringify(on)),JSON.parse(JSON.stringify(off)),'the vantage, trigger or beams moved');
+  assert.equal(a.length,Encounters.constants.THUGS.COUNT);assert.deepEqual(b,[]);
+  assert.match(ia,/thugs/);assert.notEqual(ia,ib);
+  assert.deepEqual(JSON.parse(JSON.stringify(withThugs(()=>Encounters.build(City.generate(20180907))).fights)),
+    JSON.parse(JSON.stringify([goblin,rhino,venomWave])),'the wave is not the same every time');
+  assert.equal(Fight.start(venomWave,levels).phase,'thugs');
+  assert.equal(Encounters.constants.THUGS.ENABLED,false,'the override leaked');
 });
 test('fight: a shot is judged against the pose that was on screen when you aimed, not where it is now',()=>{
   const s=playing(goblin),eye=eyeAt(goblin.vantage);
@@ -361,12 +392,12 @@ test('fight: a shot is judged against the pose that was on screen when you aimed
   assert.equal(r.hit,true);assert.equal(s.health,80);
 });
 test('fight: five hits beat the goblin, and the rest of the fights need their 2D number of hits',()=>{
-  spots.fights.forEach((enc,i)=>{
+  spots.fights.concat([venomWave]).forEach(enc=>{
     const s=Fight.play(Fight.start(enc,levels)),eye=eyeAt(enc.vantage);
     clearThugs(s,eye);arrived(s);
     let n=0;
     while(s.mode==='playing'&&n<50){step(s,Combat.COOLDOWN);if(Fight.fire(s,villains,shotAt(eye,middle(s))).hit)n++;}
-    assert.equal(s.mode,'won',enc.id);assert.equal(n,levels[i].health/20);assert.equal(s.health,0);
+    assert.equal(s.mode,'won',enc.id);assert.equal(n,levels[enc.level].health/20);assert.equal(s.health,0);
   });
 });
 

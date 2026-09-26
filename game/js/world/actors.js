@@ -1,6 +1,7 @@
 (function (root) {
   'use strict';
-  // Draws what fight.js and training3d.js describe: the masked thugs, the
+  // Draws what fight.js and training3d.js describe: the masked thugs (when
+  // Venom's fight has its wave: Encounters.constants.THUGS.ENABLED), the
   // training target, and the light columns that mark where each fight starts when you are roaming. A
   // handful of draw calls in all. The villains themselves are animated models
   // (villain-view.js); only if one can't be loaded is it drawn here, as the
@@ -108,7 +109,7 @@
     var box = new T.BoxGeometry(1, 1, 1), parts = {};
     Object.keys(PARTS).forEach(function (k) {
       var m = new T.InstancedMesh(box, new T.MeshLambertMaterial({ color: COLORS[k] }), PARTS[k].length * MAX_THUGS);
-      m.castShadow = true; m.count = 0; m.frustumCulled = false;
+      m.castShadow = true; m.count = 0; m.visible = false; m.frustumCulled = false;
       m.instanceMatrix.setUsage(T.DynamicDrawUsage);
       parts[k] = m; group.add(m);
     });
@@ -168,7 +169,12 @@
           });
         });
       });
-      Object.keys(parts).forEach(function (k) { parts[k].count = counts[k]; parts[k].instanceMatrix.needsUpdate = true; });
+      // With no thugs (every fight while the wave is switched off) the meshes
+      // are hidden, so they cost no draw calls, shadow pass included.
+      Object.keys(parts).forEach(function (k) {
+        parts[k].count = counts[k]; parts[k].visible = counts[k] > 0;
+        if (counts[k]) parts[k].instanceMatrix.needsUpdate = true;
+      });
     }
 
     // The training target: the mark, with a pulsing ring round it.
