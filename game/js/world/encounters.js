@@ -329,7 +329,23 @@
     return null;
   }
 
-  var api = { build: build, triggered: triggered, sightClear: sightClear, segBox: segBox, standable: standable,
+  // Where a fight's action is: a centre and a radius that its villain keeps
+  // within - the goblin's circuit, the rhino's stretch of avenue, venom's
+  // beams. The render side aims the shadow at it and takes the city's
+  // reflection (the villains' environment map) from its centre.
+  function focus(enc) {
+    var p = enc.path, r;
+    if (enc.kind === 'glider') return { x: p.cx, y: round2(p.y + (p.h0 + p.h1) / 2), z: p.cz, r: p.r1 + 2 };
+    if (enc.kind === 'charge') return { x: p.x, y: 1.5, z: round2((p.z0 + p.z1) / 2), r: round2(Math.hypot((p.z1 - p.z0) / 2, p.lane) + 2) };
+    var P = p.perches, n = P.length || 1, c = { x: 0, y: 0, z: 0 };
+    P.forEach(function (q) { c.x += q.x / n; c.y += q.y / n; c.z += q.z / n; });
+    r = 0;
+    P.forEach(function (q) { r = Math.max(r, Math.hypot(q.x - c.x, q.y - c.y, q.z - c.z)); });
+    // His arcs rise above the beams, and his entrance drops from higher still.
+    return { x: round2(c.x), y: round2(c.y + 1.2), z: round2(c.z), r: round2(r + 4) };
+  }
+
+  var api = { build: build, triggered: triggered, focus: focus, sightClear: sightClear, segBox: segBox, standable: standable,
     groundAt: groundAt, yawToward: yawToward, pitchToward: pitchToward, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Encounters = api;

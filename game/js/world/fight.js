@@ -405,6 +405,16 @@
     }
     return h && h.distance < (Number.isFinite(shot.blocked) ? shot.blocked : Infinity) ? h : null;
   }
+  // The floor under the villain, for a contact shadow: the avenue under the
+  // rhino, the beam under venom (between two in mid-leap, where it fades out
+  // with the height anyway). Null when he has none - the goblin flies.
+  function ground(s) {
+    if (!s.at || s.phase === 'thugs' || s.kind === 'glider') return null;
+    if (s.kind === 'charge') return s.path.y;
+    var m = s.m, P = s.path.perches;
+    if (s.phase !== 'arrive' && m.flying && m.from && P[m.to]) return lerp(m.from.y, P[m.to].y, Math.min(1, m.t / m.dur));
+    return P[m.at] ? P[m.at].y : s.at.y;
+  }
   function thugSphere(t) { return { x: t.x, y: t.y + K.THUG_CHEST, z: t.z, r: K.THUG_R }; }
 
   // What was on screen at a moment, so a shot can be judged against what the
@@ -465,7 +475,7 @@
   }
 
   var api = { start: start, play: play, pause: pause, tick: tick, fire: fire, snapshot: snapshot,
-    billboard: billboard, onSprite: onSprite, bodyHit: bodyHit, onBody: onBody,
+    billboard: billboard, onSprite: onSprite, bodyHit: bodyHit, onBody: onBody, ground: ground,
     thugSphere: thugSphere, standing: standing, left: left, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Fight = api;
