@@ -707,3 +707,145 @@ anything the next session must know._
     - `you.sample()` gives his capsules in the hang pose while he's on a line (the drawn body, turned about the hands).
   - **For P5.** The Rhino's ram needs "perched on that building": `swing.perch` has `{x, y, z, yaw}`, and `City.query` at that
     point finds the box under it.
+- 2026-09-28 — **Session P4 done: player health, no clock, one HARD level, and the Goblin fights back.** 242 tests pass (222 old,
+  some 3D ones rewritten for the new rules, plus 4 new in `fight`/`hud`/`villain-anim` and 16 in the new
+  `game/tests/attacks.test.cjs`). No CLASSIC file or test changed (`levels.js`, `combat.js`, `villains.js`, `game.js`,
+  `training.js`, `menu-aim.js`, `menu.js`, `audio.js`, `menu.css`, `game.test.cjs`); CLASSIC still starts with its 30 seconds.
+  The `game.css` edits are all in its 3D HUD section. **Nothing is pushed.**
+  - **What exists.**
+    - Logic (UMD, tested):
+      - `world/difficulty.js` (`Difficulty.HARD`, `get`, `span`). Every number that sets how hard it is lives here: villain HP 300,
+        your shot 20, player HP 100, cadence 3–5 s, damage 15–30, `big` 25, `knockOff` 22, telegraph 0.9 s, recover 0.8 s,
+        invulnerable 0.6 s, first attack 1.5 s after the entrance.
+      - `world/attacks.js` (`Attacks`), the framework and the Goblin's two moves.
+        - The framework is `create`/`step`/`cancel`: wait → telegraph → active → recover, with the fairness rules.
+        - The geometry is `segSeg`, `gap`, `hitCity` (City boxes and the street), and `standIn`, a stand-in body.
+        - Bombs: `throwBomb`, `bombAt`, `stepBomb`, `blastDamage`, `push` and `aimBomb`.
+        - Guns: `track`, `burst`, `stepRound`, `onLine` and `gunDamage`.
+      - **The 3D rules layer is in `fight.js`.** It calls `Combat.start`/`judge` and never `Combat.clock`.
+        - `Fight.start(enc, levels, diff)` sets HARD's health for all three, `s.you` (your health) and `s.timeLimit = null`.
+          `elapsed` now only counts the fight proper.
+        - `Fight.tick(s, dt, ctx)`: ctx is `{you, body, state, onScreen, city}`. It runs the hunt, the attacks and what's in flight.
+        - The rest of the API: `Fight.hurt(s, dmg, {kind, from, push})` (with invulnerability; 0 → `lost`), `aimBomb`,
+          `shootBomb`, `bombAhead` and `drain`. `drain` returns the events: `telegraph`, `throw`, `round`, `blast` and `hurt`.
+        - `snapshot` now keeps the bombs, so a flick at one is lag-compensated too.
+      - Also:
+        - `Hud.status` puts you on the left and the villain on the right (`right.foe`), with no clock. `Hud.threat` is new.
+        - `PlayerCamera`: `hurtShake`, `vignette` and `slump`.
+        - `Swing.decide` checks `aim.bomb` first.
+        - `VillainAnim.create(kind, clips, events)` plays `attack` on a bomb's wind-up, at the speed that puts its release frame
+          (0.7 s, from the manifest) at the wind-up's end.
+        - `SoundCues` no longer snorts on the Goblin's `attack`.
+    - Render:
+      - `world/attack-view.js` (`WorldAttacks`) draws the bombs, lasers and tracers:
+        - bombs: a pool of 4 `bomb.glb` clones, tumbling, the fuse light blinking faster, with an orange glow;
+        - lasers: a tapered red beam from each glider gun, stopping 1.2 m short of you, with a red dot;
+        - tracers: streaks.
+      - `world/attack-audio.js` (`AttackAudio`) makes the sounds, on its own AudioContext as `SwingAudio` does:
+        - the guns' charge and the bomb's fizz as they wind up;
+        - fuse beeps from the bomb;
+        - the blast, the rounds, your hits and going down.
+      - `fx.js` gains `blast` (fire, sparks, smoke, a flash capped by distance) and `muzzle`. `hitfx.js` gains `fire`/`smoke`
+        and `HitFx.blast`.
+      - Changes to `hud-view.js`, `index.html` (`#wh-foe`, `#world-hurt`, the new scripts), `game.css`, `villain-view.js` and
+        `world-game.js`. `WorldGame.attacks` is new.
+    - **Manifest.** The Goblin has a new `attacks` block: the bomb from `ValveBiped.Bip01_R_Hand`, and the guns from the glider's
+      `Glider_Gun_L/R`. `villain-view.js` samples these into `fight.body.points` (`hand`, `guns`) each frame. `manifest.js`
+      was regenerated (`embed-models.cjs bomb`; `bomb.js` came out byte-identical).
+  - **Decisions to know about.**
+    1. **The Rhino and Venom have HARD's health but no attacks yet** (`Attacks.MOVES.charge/leap` are empty; P5 fills them).
+       Their fights can't be lost until then. Their intro cards say there is no clock but **don't** say they fight back, because
+       they don't yet. P5 should add that line. The Goblin's card describes his attacks.
+    2. **Cadence runs from the start of one attack to the start of the next.** After his entrance he waits 1.5 s.
+       - While he is more than `ATTACK_RANGE` (40 m) from you, he doesn't start one: you swung away and he's closing in.
+       - "Never two in a row from off-screen": if the last one started with him out of view, the next **waits until he is in
+         view**. Look away forever and he never attacks again; the red chevron shows where he is.
+    3. **The body attacks hit** is `you.sample()`, the player model's capsules as drawn (hanging from a line, crouched on a
+       perch), in both views. `Attacks.standIn` is used until the model loads.
+    4. **Bombs.**
+       - Flight is 1.05–1.7 s by distance, aimed at your chest where you'll be (lead 0.8 of the flight, at most 9 m).
+       - One goes off on your body, on the city or street, or at its 2.6 s fuse.
+       - The blast does 30 within 1.2 m, falling to 15 at 5 m, and nothing beyond. A direct hit does 30.
+       - The blast throws you (up to 8 m/s) unless you're perched or zipping.
+       - A web at a bomb (its own 3° cone, judged on the snapshot) sets it to go off when the web arrives. It still blasts where it
+         is, so shooting one down right next to you would hurt. It's a web shot (the cooldown applies), but not a shot at him: he
+         doesn't dodge it and it isn't counted.
+    5. **Guns.**
+       - The laser follows your chest (eased at 2.5/s, so moving fast makes it trail) through the 0.9 s wind-up, then locks.
+       - 6 rounds, 65 ms apart, at 120 m/s. A round hits if it passes within 0.22 m of your body.
+       - A burst does 20, once: invulnerability swallows the other rounds.
+       - Only heavy hits (≥ `knockOff`, e.g. a bomb's) knock you off a swing line, so a burst doesn't.
+    6. **The Goblin hunts you.** His circuit's centre (`s.hunt`) follows you at up to 22 m/s, and its height follows yours at up to
+       20 m/s. He keeps 1.5 m over any roof under him (or where he'll be in 0.5 s), rising at up to 16 m/s. The shadow box follows
+       his circuit. His reflections stay the first roof's (`lightFight` runs once). He faces you while winding up and throwing.
+    7. **Hit feedback.** The plan put the red vignette under POV only; it shows in third person too, because the model's flinch is
+       small from 3.5 m. The shake is 0.0009 rad per point of damage, at most 0.022 rad, and halved by REDUCED. A blast that misses
+       you still shakes and flashes when it's close.
+    8. **Going down.**
+       - Your input stops: no look, no moving, no shots or lines. A line you're on is let go.
+       - The view sinks 1.15 m, tips 0.45 rad down and leans 0.12 over 1.2 s. In third person it only tips a little.
+       - The death clips play. DEFEAT comes after 2.6 s. RETRY re-enters the fight with both bars full.
+    9. **HUD.**
+       - `SEGMENTS_MAX` is now 15, so his bar has a segment per hit. Yours has 10 segments of 10 HP.
+       - Your bar flashes for 0.45 s after a hit and is red at 30% or less.
+       - The clock is gone from fights; `#world-timer` still shows training's streak.
+       - The PAUSED card says "The fight holds until you resume". DEFEAT says "You went down. X is still out there."
+    10. **Particles now fade out within 0.5–2.5 m of the camera** (`fx.js` points shader). A blast on you filled the view with smoke.
+        This applies to every particle kind.
+  - **Measured** in headless Chrome on the **Intel UHD at 1920×1080, MED**, over http. The Goblin fight, looking at him, with his
+    attacks going (made invulnerable so it never ended), 3 × 3 s: **first person 82/88/93 fps, third person 91/95/98**, 71–96
+    draw calls (bombs and tracers add a few). P2 measured 91–121 there before attacks; this is within its noise band. It holds 60.
+  - **Verified** in headless Chrome (the app's pane was hidden again). The driver is `cdp.cjs` plus `p4.js`/`snap.js`/`death.js`/
+    `play.js`/`perf.js` in this session's scratchpad.
+    - Every attack's pieces were seen in both views:
+      - the bomb wind-up (the `attack` clip at full weight), the throw, the bomb in flight with its glow, and a blast on you;
+      - the laser wind-up and the tracers;
+      - the red chevron when he winds up behind you.
+    - Being hit: the HUD flash, the vignette, and the `fp_hit`/`hit_big` flinches.
+    - Going down: the slump, the DEFEAT card, and RETRY back to 300/100.
+    - **Shooting a bomb down with the real `WorldGame.fire`**: it went off 'shot', did no damage and didn't count as a shot.
+    - **Knocked off a swing line** by a heavy hit, in the Rhino's street: swing → fly, the line let go.
+    - **The Goblin fight won** through `WorldGame.fire`, in both views:
+      - with perfect aim in 6 s;
+      - at a human pace (a shot every 1.2 s, 30% of them missed) in 34 s, with no damage taken: every bomb was shot down and
+        every burst was sidestepped with the real A/D keys.
+    - **Lost**, standing still.
+    - The Rhino and Venom fights won at 300 HP with `timeLimit` null.
+    - The Goblin followed the player to a roof 150 m away, arriving in about 8 s. He held his attacks until he was within 40 m.
+    - From **`file://`**: the fight, the bomb model drawn, and the HUD.
+    - The console showed only the r159 deprecation warning.
+    - Shots: `docs/reference/p4_pov_bomb.png`, `p4_pov_laser.png`, `p4_pov_threat.png`, `p4_pov_down.png` and `p4_third_blast.png`.
+  - **Not verified.**
+    - The real wrist shooter. **Ask the user to play the Goblin with it, in both camera modes.** In particular: can a flick hit a
+      bomb in flight (3° cone, 20 cm bomb with a 1.3 m glow)? Can a wind-up be read and dodged?
+    - A real Chrome window with vsync (press P in the Goblin fight).
+    - The new sounds by ear. `AttackAudio.constants` are guesses, and the whine, fuse, boom and hurt levels need headphones.
+    - Pointer lock.
+  - **Known and deliberate.**
+    - The blast's flash sprite doesn't depth-test (as the hit flash didn't), so a blast behind a wall glows through it.
+    - Bombs and rounds in flight vanish when he's beaten or you go down.
+    - The minimap doesn't show bombs.
+    - Rounds that hit the city just stop, with no spark.
+  - **Constants to tune** (P6):
+    - `Difficulty.HARD`;
+    - `Attacks.constants`: `BOMB_T`, `BOMB_T_PER_M`, `LEAD`, `LEAD_MAX`, `FUSE`, `TOUCH`, `BLAST_R`, `BLAST_INNER`, `PUSH`,
+      `BOMB_CONE`, `GUN_TRACK`, `GUN_ROUNDS`, `GUN_EVERY`, `GUN_SPEED`, `GUN_R`, `GUN_SHARE`, `PREFER`;
+    - `Fight.constants`: `HUNT_SPEED`, `HUNT_EASE`, `HUNT_CLIMB`, `CLEAR`, `LOOK_AHEAD`, `LIFT_RATE`, `ATTACK_RANGE`, `CHEST`;
+    - `PlayerCamera.constants`: `SHAKE_PER`, `SHAKE_MAX`, `VIGNETTE_T`, `LOW_HP`, `LOW_TINT`, `SLUMP_*`;
+    - `Hud.constants`: `YOU_SEGMENT`, `HURT`, `LOW_HP`;
+    - `attack-view.js`: `GLOW`, `LASER`, `TRACER`;
+    - `fx.js`: `POINT_COLOR`, `MUZZLE`; `HitFx` `fire`/`smoke`/`BLAST`;
+    - `END_MS.lost` in `world-game.js`.
+  - **For P5.**
+    - **A new move** needs three things:
+      1. its name in `Attacks.MOVES[kind]`, and a weight in `PREFER` if it depends on your state;
+      2. a branch in `strike()` in `fight.js` (what leaves him, and when);
+      3. a hit test that calls `hurt(s, dmg, {kind, from, push})`, from `flying()` or its own step.
+      The framework already gives the telegraph, cadence, off-screen rule, entrance hold and range hold. The render side reads
+      `fight.attack` (`phase`, `move`, `t`, `aim`) and the fight's events.
+    - `Attacks.cancel(a)` is the interrupt: it goes straight to recover. That is the stagger for Rhino/Venom. Hits during a
+      wind-up are `Attacks.winding(a)` plus `s.hits` changing.
+    - `ctx.state` is `ground` / `perch` / `swing` / `fly` / `zip`. `s.foe` is your last position. `hurt`'s `push` throws you and
+      `knock` (≥ 22) lets go of your line. For Venom's lash, pass a damage of at least `knockOff`, or add a `knock: true` option to `hurt`.
+    - Add "he fights back" to the Rhino's and Venom's intro cards, and their attack clips to `VillainAnim` (the Goblin's `attack`
+      handling is the pattern), and their cues to `fightEvents` in `world-game.js`.
