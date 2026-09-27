@@ -39,7 +39,14 @@
     // KICK_V to KICK_V1 m/s, at most KICK degrees; first person also rolls
     // into the arc, at most ROLL radians, and shows speed lines from LINES_V.
     // REDUCED halves the kick and has no roll and no lines. Never a flip.
-    KICK: 10, KICK_V: 12, KICK_V1: 34, ROLL: .07, ROLL_V: 12, LINES_V: [18, 34], FX_EASE: 4
+    KICK: 10, KICK_V: 12, KICK_V1: 34, ROLL: .07, ROLL_V: 12, LINES_V: [18, 34], FX_EASE: 4,
+    // Being hit (P4): a shake of SHAKE_PER radians a point of damage, at
+    // most SHAKE_MAX, settling over SHAKE_T s (REDUCED halves it); the red
+    // vignette fades over VIGNETTE_T, and a LOW_TINT of it stays below LOW_HP.
+    SHAKE_PER: .0009, SHAKE_MAX: .022, SHAKE_T: .3, VIGNETTE_T: .8, LOW_HP: .3, LOW_TINT: .35,
+    // Going down: over SLUMP_T s the eye sinks SLUMP_DROP m, tips SLUMP_PITCH
+    // radians down and leans SLUMP_ROLL.
+    SLUMP_T: 1.2, SLUMP_DROP: 1.15, SLUMP_PITCH: .45, SLUMP_ROLL: .12
   };
 
   var DEFAULTS = { camera: 'first', cameraMotion: 'full' };
@@ -191,8 +198,34 @@
     return { x: eye.x + r.x * side, y: eye.y + up + dip, z: eye.z + r.z * side };
   }
 
+  // --- being hit, and going down (P4) ------------------------------------------------
+  // A hit's shake: radians, by damage (a heavy hit shakes most), never more
+  // than SHAKE_MAX, halved by REDUCED; it settles over SHAKE_T.
+  function hurtShake(damage, motion) {
+    var a = Math.min(K.SHAKE_MAX, K.SHAKE_PER * Math.max(0, damage || 0));
+    return { amp: motion === 'reduced' ? a * .5 : a, ms: K.SHAKE_T * 1000 };
+  }
+  // The red at the edges of the view: its strength (0..1) `t` seconds after a
+  // hit of `damage`, fading over VIGNETTE_T, plus a steady tinge while your
+  // health is low (frac: what's left, 0..1).
+  function vignette(damage, t, frac) {
+    var hit = t >= 0 && t < K.VIGNETTE_T ? Math.min(1, .35 + (damage || 0) / 40) * (1 - t / K.VIGNETTE_T) : 0;
+    var low = frac < K.LOW_HP ? K.LOW_TINT * (1 - frac / K.LOW_HP) : 0;
+    return Math.min(1, Math.max(hit, low));
+  }
+  // Going down: `t` seconds after the killing hit the view sinks toward the
+  // ground and tips down, with a slight lean - eased, once, never a spin.
+  // Third person just tips the boom down a little. Returns { drop (metres
+  // off the eye), pitch (radians to add, down is negative), roll }.
+  function slump(t, third) {
+    var u = sstep(0, K.SLUMP_T, t > 0 ? t : 0);
+    if (third) return { drop: 0, pitch: -K.SLUMP_PITCH * .4 * u, roll: 0 };
+    return { drop: K.SLUMP_DROP * u, pitch: -K.SLUMP_PITCH * u, roll: K.SLUMP_ROLL * u };
+  }
+
   var api = { settings: settings, load: load, save: save, KEY: KEY, DEFAULTS: DEFAULTS, axes: axes, pivot: pivot, boom: boom,
-    rayBox: rayBox, cast: cast, allowed: allowed, ease: ease, create: create, third: third, first: first, swingFx: swingFx, constants: K };
+    rayBox: rayBox, cast: cast, allowed: allowed, ease: ease, create: create, third: third, first: first, swingFx: swingFx,
+    hurtShake: hurtShake, vignette: vignette, slump: slump, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.PlayerCamera = api;
 })(typeof window === 'undefined' ? globalThis : window);

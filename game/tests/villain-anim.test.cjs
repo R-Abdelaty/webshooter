@@ -13,13 +13,15 @@ function clipsOf(file){
   const c={};(j.animations||[]).forEach(a=>{c[a.name]=Math.max(...a.samplers.map(s=>j.accessors[s.input].max[0]));});return c;
 }
 const CLIPS={glider:clipsOf('goblin.glb'),charge:clipsOf('rhino.glb'),leap:clipsOf('venom.glb')};
+const MANIFEST=require('../assets/models/characters.json'),GOBLIN_EVENTS=MANIFEST.villains.goblin.events;
+const EVENTS={glider:GOBLIN_EVENTS,charge:MANIFEST.villains.rhino.events,leap:MANIFEST.villains.venom.events};
 const eyeAt=v=>({x:v.x,y:v.y+1.7,z:v.z});
 function aimAt(o,p){const d=Math.hypot(p.x-o.x,p.y-o.y,p.z-o.z);return{x:(p.x-o.x)/d,y:(p.y-o.y)/d,z:(p.z-o.z)/d};}
 const shotAt=(o,p)=>({origin:o,dir:aimAt(o,p),blocked:Infinity});
 // A fight and its animation, run a frame at a time; every clip asked for is
 // logged with the fight time it was asked for at.
 function run(enc){
-  const s=Fight.play(Fight.start(enc,levels)),a=VillainAnim.create(enc.kind,CLIPS[enc.kind]),log=[],speeds=[];
+  const s=Fight.play(Fight.start(enc,levels)),a=VillainAnim.create(enc.kind,CLIPS[enc.kind],EVENTS[enc.kind]),log=[],speeds=[];
   const r={s,a,log,speeds,out:null,
     frame(){Fight.tick(s,DT);const o=VillainAnim.step(a,s,DT);r.out=o;o.play.forEach(([c,opts])=>log.push({c,opts,t:s.time,arriveT:s.arriveT,state:s.m.state,m:{...s.m}}));if(o.speed!==null)speeds.push([o.speed,s.m.v]);return o;},
     until(fn,max){for(let n=0;n<(max||3000)&&!fn();n++)r.frame();assert.ok(fn(),'never happened: '+fn);return r;},
@@ -108,13 +110,25 @@ test('anim: a dodge plays the side it went, a hit flinches, the last one before 
   assert.deepEqual(d.filter(c=>/dodge/.test(c)),[r.s.dodge.side==='l'?'dodge_l':'dodge_r']);
   const clips=[];
   while(r.s.mode==='playing'){n=r.log.length;const h=hitHim(r,eye);r.frame();if(h.hit)clips.push(r.log.slice(n).map(e=>e.c).filter(c=>/hit|defeat/.test(c)));}
-  assert.deepEqual(clips,[['hit'],['hit'],['hit'],['hit_big'],['defeat']]);
+  assert.deepEqual(clips,Array(r.s.maxHealth/20-2).fill(['hit']).concat([['hit_big'],['defeat']]));
   const def=r.log.find(e=>e.c==='defeat');assert.equal(def.opts.hold,true,'defeat holds its last frame');
 });
-test('anim: running out of time, he roars',()=>{
+test('anim: when you go down, he roars over you - and time alone never ends it',()=>{
   const r=run(rhino);r.until(()=>r.s.phase==='villain');
-  r.until(()=>r.s.mode==='lost',30*40);r.for(.2);
-  assert.equal(r.clips().at(-1),'roar');
+  r.for(40);assert.equal(r.s.mode,'playing','no clock');
+  Fight.hurt(r.s,1000);r.for(.2);
+  assert.equal(r.s.mode,'lost');assert.equal(r.clips().at(-1),'roar');
+});
+test('anim: the goblin winds up a bomb with his throw, timed so it leaves his hand as the wind-up ends',()=>{
+  const r=run(goblin),you={x:goblin.vantage.x,y:goblin.vantage.y,z:goblin.vantage.z,vx:0,vy:0,vz:0};
+  r.until(()=>r.s.phase==='villain');
+  const ctx={you,body:null,state:'ground',onScreen:true};
+  const start=r.log.length;
+  for(let n=0;n<30*20&&!(r.s.attack.move==='bomb'&&r.s.attack.phase==='active');n++){Fight.tick(r.s,DT,ctx);r.out=VillainAnim.step(r.a,r.s,DT);r.out.play.forEach(([c,opts])=>r.log.push({c,opts,t:r.s.time}));}
+  const throws=r.log.slice(start).filter(e=>e.c==='attack');
+  assert.equal(throws.length,1,'one throw for the wind-up');
+  const tel=r.s.attack.d.telegraph,rel=GOBLIN_EVENTS.attack.release_seconds;
+  assert.ok(Math.abs(throws[0].opts.speed*tel-rel)<1e-9,'the release frame lands at the end of the wind-up: '+throws[0].opts.speed);
 });
 test('anim: which way each clip squares the chest is measured, so the root can take it back out',()=>{
   const near=(a,b,m)=>assert.ok(Math.abs(a-b)<1e-9,m+': '+a+' vs '+b);

@@ -42,6 +42,9 @@
     var at = { x: f.at.x, y: f.at.y + 1.2, z: f.at.z };
     (plays || []).forEach(function (p) {
       var s = CLIPS[p[0]];
+      // The goblin's attack is a throw, not a snort: its wind-up has its own
+      // cue (attack-audio.js).
+      if (p[0] === 'attack' && c.kind === 'glider') return;
       if (s) out.cues.push({ name: s[0], at: at, delay: s[1], gain: s[2], voice: c.kind });
     });
     // The rhino's feet: a footfall every stride while he runs.

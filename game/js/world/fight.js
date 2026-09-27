@@ -1,18 +1,37 @@
 (function (root) {
   'use strict';
-  // The rules of a fight in the 3D city. The state IS a Combat state (health,
-  // 20 damage a hit, the cooldown, the 30 second clock, the modes the cards
+  // The rules of a fight in the 3D city. The state IS a Combat state (the
+  // villain's health, 20 damage a hit, the cooldown, the modes the cards
   // follow - intro, playing, paused, lost, won), with the 3D parts added:
   // where the villain is in the world, which way it faces and how it moves,
-  // what of him a shot can hit, and the wave of thugs that can come first.
+  // what of him a shot can hit, the wave of thugs that can come first - and
+  // (docs/PLAYER_PLAN.md, P4) the 3D game's own rules on top of Combat's,
+  // which CLASSIC never sees:
+  //
+  //  - one level, Difficulty.HARD, for all three: his health (300, fifteen
+  //    of your hits), yours (100, in `s.you`), how often he attacks and how
+  //    hard;
+  //  - NO CLOCK: it ends when he reaches 0 (won) or you do (lost). Combat's
+  //    30 seconds are CLASSIC's; its clock is never run here;
+  //  - he fights back (attacks.js): a telegraphed attack every few seconds,
+  //    tested against your body where it lands, and a moment after each hit
+  //    on you (`invulnerable`) when nothing else can hurt you;
+  //  - the Goblin hunts you: his circuit follows you round the roofs at a
+  //    stand-off, rather than circling the roof the fight started on.
   //
   // A fight goes: (thugs) -> arrive -> villain. There is a thug wave only if
   // the encounter has thugs: Venom's, when Encounters.constants.THUGS.ENABLED
   // is on (it is off for now, so every fight starts at `arrive`). The arrival is the
   // villain's entrance - the Goblin's taunt, the Rhino dropping onto the
   // avenue and flexing, Venom dropping onto a beam and roaring - and, like
-  // the thug wave, it is untimed and he can't be hurt in it. The 30 seconds
-  // start when it ends.
+  // the thug wave, he can't be hurt in it and doesn't attack.
+  //
+  // tick(s, dt, ctx) is told about you: ctx = { you: { x, y, z, vx, vy, vz }
+  // (your feet), body: your capsules (the model's, or Attacks.standIn),
+  // state: 'ground' | 'perch' | 'swing' | 'fly' | 'zip', onScreen: whether he
+  // is in your view, city }. Without it (older tests) he neither hunts nor
+  // attacks. What happens goes on s.events - telegraph, throw, round, blast,
+  // hurt - for the render side to show and empty.
   //
   // There are no targets on him: a shot that hits him anywhere does the 20
   // damage. The villain is an animated model (world/villain-view.js draws
@@ -32,6 +51,9 @@
   var CombatRef = need('Combat', '../combat.js');
   var Aim = need('AimAssist', './aim-assist.js');
   var RigRef = need('Rig', './rig.js');
+  var DiffRef = need('Difficulty', './difficulty.js');
+  var AttacksRef = need('Attacks', './attacks.js');
+  var CityRef = need('City', './city.js');
 
   var K = {
     THUG_CHEST: 1.2, THUG_R: .5,   // a thug is one sphere, from his knees to his head
@@ -54,7 +76,14 @@
     // how far and how fast he dashes along a beam to dodge.
     // From LAND_TURN of the way through a leap he turns to face the beam after.
     PERCH_MIN: .8, PERCH_MAX: 1.8, RUSH_REST: .15, CROUCH: .23, DASH: 1.8, DASH_T: .6, LAND_TURN: .55,
-    ENTRY: 1.1, ENTRY_DROP: 14      // his drop onto a beam, from this high, once the thugs are down
+    ENTRY: 1.1, ENTRY_DROP: 14,     // his drop onto a beam, from this high, once the thugs are down
+    // The Goblin hunting you: his circuit's centre follows you at up to
+    // HUNT_SPEED m/s (easing at HUNT_EASE a second) and its height your feet
+    // at up to HUNT_CLIMB m/s; he keeps CLEAR over any roof under him, or
+    // under where he'll be LOOK_AHEAD seconds on, rising at up to LIFT_RATE.
+    HUNT_SPEED: 22, HUNT_EASE: 1.2, HUNT_CLIMB: 20, CLEAR: 1.5, LOOK_AHEAD: .5, LIFT_RATE: 16, LIFT_EASE: 1.5,
+    CHEST: 1.1,                     // metres over your feet his attacks aim at
+    ATTACK_RANGE: 40                // further from you than this he's closing in, not attacking
   };
 
   function num(v) { return Number.isFinite(v) ? Math.max(0, v) : 0; }
@@ -67,8 +96,16 @@
 
   // --- starting ---------------------------------------------------------------
   // enc is one of Encounters.build(city).fights.
-  function start(enc, levels) {
-    var s = CombatRef.start(enc.level, levels), p = enc.path, v = enc.vantage;
+  // diff: a Difficulty level (HARD when left out). His speeds are still his
+  // own (levels.js); his health, yours and his attacks are the level's.
+  function start(enc, levels, diff) {
+    var s = CombatRef.start(enc.level, levels), p = enc.path, v = enc.vantage, D = diff || DiffRef.get('HARD');
+    // The 3D rules: the level's health for every villain, yours, no clock.
+    s.rules = D; s.health = s.maxHealth = D.villainHp; s.timeLimit = null; s.elapsed = 0;
+    s.you = { hp: D.playerHp, maxHp: D.playerHp, safeUntil: 0, hits: 0, big: false, hitAt: -1e9, last: null };
+    s.attack = AttacksRef.create(enc.kind, D, (enc.index + 1) * 104729);
+    s.bombs = []; s.rounds = []; s.events = []; s.nextId = 1; s.foe = null;
+    s.hunt = enc.kind === 'glider' ? { cx: p.cx, cz: p.cz, y: p.y } : null;
     s.encounter = enc.index; s.kind = enc.kind; s.villain = enc.villain; s.path = p;
     s.time = 0; s.thugHits = 0; s.arriveT = 0;
     s.eye = { x: v.x, y: v.y + 1.7, z: v.z };
@@ -80,7 +117,7 @@
     s.body = null;                      // the model's bones, sampled by the render side
     s.dodge = { n: 0, side: null };     // the last dodge, for the render side's clips
     if (s.kind === 'glider') {
-      s.m = { ang: p.start || 0, dir: 1, r: (p.r0 + p.r1) / 2, h: (p.h0 + p.h1) / 2, rWant: 0, hWant: 0 };
+      s.m = { ang: p.start || 0, dir: 1, r: (p.r0 + p.r1) / 2, h: (p.h0 + p.h1) / 2, rWant: 0, hWant: 0, lift: 0 };
       wantGlide(s);
     } else if (s.kind === 'charge') {
       s.m = { u: .5, dir: 1, lane: 0, laneWant: 0, rest: 0, v: 0, state: 'turn', next: 'windup', turn: 1 };
@@ -210,7 +247,7 @@
   function place(s) {
     var m = s.m, p = s.path;
     if (s.phase === 'thugs') { s.at = null; return; }
-    if (s.kind === 'glider') s.at = { x: p.cx + Math.cos(m.ang) * m.r, y: p.y + m.h, z: p.cz + Math.sin(m.ang) * m.r };
+    if (s.kind === 'glider') { var c = s.hunt || p; s.at = { x: c.cx + Math.cos(m.ang) * m.r, y: c.y + m.h + (m.lift || 0), z: c.cz + Math.sin(m.ang) * m.r }; }
     else if (s.kind === 'charge') s.at = { x: p.x + m.lane * p.lane, y: p.y, z: lerp(p.z0, p.z1, m.u) };
     else if (!p.perches.length) s.at = null;
     else if (s.phase === 'arrive') {
@@ -233,7 +270,9 @@
   function faceWanted(s, cur) {
     var m = s.m, at = s.at;
     if (!at) return cur;
-    if (s.phase === 'arrive') return yawTo(at, s.eye);
+    if (s.phase === 'arrive') return yawTo(at, s.foe || s.eye);
+    // Winding up an attack, and throwing it: at you.
+    if (s.foe && s.attack && (s.attack.phase === 'telegraph' || s.attack.phase === 'active')) return yawTo(at, s.foe);
     if (s.kind === 'charge') {
       if (m.state === 'turn' || m.state === 'windup') return runYaw(s);
       if (Math.hypot(s.vel.x, s.vel.z) > .3) return Math.atan2(s.vel.x, s.vel.z);
@@ -305,36 +344,140 @@
   }
   function standing(s) { return s.thugs.filter(function (t) { return !t.down; }).length; }
 
-  // --- the clock ----------------------------------------------------------------
+  // --- the Goblin hunting you -----------------------------------------------------
+  // His circuit's centre follows you, eased and at most HUNT_SPEED; he flies
+  // his 3-9 m over your feet, but never lower than CLEAR over a roof he is
+  // over or about to be over.
+  function hunt(s, dt, ctx) {
+    var h = s.hunt, m = s.m;
+    if (!h || !(dt > 0)) return;
+    if (ctx && ctx.you) {
+      var y = ctx.you, dx = y.x - h.cx, dz = y.z - h.cz, d = Math.hypot(dx, dz), k = 1 - Math.exp(-K.HUNT_EASE * dt);
+      var mv = Math.min(d * k, K.HUNT_SPEED * dt);
+      if (d > 1e-6) { h.cx += dx / d * mv; h.cz += dz / d * mv; }
+      var dy = (y.y - h.y) * k;
+      h.y += Math.max(-K.HUNT_CLIMB * dt, Math.min(K.HUNT_CLIMB * dt, dy));
+    }
+    var city = ctx && ctx.city;
+    if (!city || !CityRef || !s.at) return;
+    var base = h.y + m.h, want = 0;
+    [0, K.LOOK_AHEAD].forEach(function (ahead) {
+      var x = s.at.x + (s.vel.x || 0) * ahead, z = s.at.z + (s.vel.z || 0) * ahead, R = 1.6;
+      CityRef.query(city, x - R, z - R, x + R, z + R).forEach(function (c) {
+        if (c.x1 < x - R || c.x0 > x + R || c.z1 < z - R || c.z0 > z + R) return;
+        want = Math.max(want, c.y1 + K.CLEAR - base);
+      });
+    });
+    // Up at once if he is into something, otherwise eased; down eased.
+    var cur = m.lift || 0, floor = 0;
+    CityRef.query(city, s.at.x - .5, s.at.z - .5, s.at.x + .5, s.at.z + .5).forEach(function (c) {
+      if (s.at.x >= c.x0 - .5 && s.at.x <= c.x1 + .5 && s.at.z >= c.z0 - .5 && s.at.z <= c.z1 + .5) floor = Math.max(floor, c.y1 + .3 - base);
+    });
+    if (want > cur) cur = Math.min(want, cur + K.LIFT_RATE * dt);
+    else cur += (want - cur) * (1 - Math.exp(-K.LIFT_EASE * dt));
+    m.lift = Math.max(0, cur, floor);
+  }
+
+  // --- he fights back ---------------------------------------------------------------
+  function chest(y) { return { x: y.x, y: y.y + K.CHEST, z: y.z }; }
+  // A point on the model the render side sampled (villain-view.js puts the
+  // manifest's attack bones in body.points), or `or`.
+  function point(s, name, or) { var p = s.body && s.body.points && s.body.points[name]; return p || or; }
+  function attacking(s, dt, ctx) {
+    var a = s.attack, you = ctx.you;
+    if (!a) return;
+    // Still closing in on you (you swung off): no wind-ups until he's near.
+    if (a.phase === 'wait' && Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z) > K.ATTACK_RANGE) return;
+    var ev = AttacksRef.step(a, dt, { onScreen: ctx.onScreen !== false, state: ctx.state, rand: function () { return rand(s); } });
+    // The guns' laser follows you through their wind-up.
+    if (a.phase === 'telegraph' && a.move === 'guns') a.aim = AttacksRef.track(a.aim, chest(you), dt);
+    ev.forEach(function (e) {
+      if (e.type === 'telegraph') {
+        a.aim = e.move === 'guns' ? chest(you) : null;
+        s.events.push({ type: 'telegraph', move: e.move, off: e.off, at: copy(s.at) });
+      } else if (e.type === 'strike') strike(s, e.move, ctx);
+    });
+  }
+  function strike(s, move, ctx) {
+    var a = s.attack, you = ctx.you, up = { x: s.at.x, y: s.at.y + 1.3, z: s.at.z };
+    if (move === 'bomb') {
+      var from = point(s, 'hand', up), b = AttacksRef.throwBomb(from, chest(you), { x: you.vx || 0, z: you.vz || 0 }, s.nextId++);
+      s.bombs.push(b);
+      s.events.push({ type: 'throw', from: copy(from), id: b.id });
+    } else if (move === 'guns') {
+      var L = left(s.face), guns = point(s, 'guns', null) || [{ x: s.at.x + L.x * .4, y: s.at.y + .1, z: s.at.z + L.z * .4 }, { x: s.at.x - L.x * .4, y: s.at.y + .1, z: s.at.z - L.z * .4 }];
+      s.rounds = s.rounds.concat(AttacksRef.burst(guns, a.aim || chest(you), s.time, function () { return rand(s); }));
+    }
+  }
+  // Bombs in flight and rounds on their way: what they hit, when they get there.
+  function flying(s, dt, ctx) {
+    var caps = ctx && ctx.body, city = ctx && ctx.city;
+    s.bombs = s.bombs.filter(function (b) {
+      var r = AttacksRef.stepBomb(b, dt, s.time, city, caps);
+      if (!r) return true;
+      var dmg = caps && caps.length ? AttacksRef.blastDamage(r.at, caps, s.rules, r.why) : 0;
+      s.events.push({ type: 'blast', at: copy(r.at), why: r.why, id: b.id, damage: dmg });
+      if (dmg > 0) hurt(s, dmg, { kind: 'bomb', from: r.at, push: AttacksRef.push(r.at, caps, dmg, s.rules) });
+      return false;
+    });
+    s.rounds = s.rounds.filter(function (r) {
+      var was = r.fired, out = AttacksRef.stepRound(r, s.time, city, caps);
+      if (r.fired && !was) s.events.push({ type: 'round', from: copy(r.from), dir: copy(r.dir), gun: r.gun });
+      if (out === 'body') { hurt(s, AttacksRef.gunDamage(s.rules), { kind: 'guns', from: r.from }); return false; }
+      return !out;
+    });
+  }
+  // You're hit for `dmg`: unless you were hit a moment ago (invulnerable),
+  // it comes off your health, and at 0 the fight is lost. o: { kind, from,
+  // push }. Returns the 'hurt' event (also on s.events), or { hit: false }.
+  function hurt(s, dmg, o) {
+    var y = s.you, D = s.rules;
+    o = o || {};
+    if (!y || s.mode !== 'playing' || y.hp <= 0 || !(dmg > 0)) return { hit: false };
+    if (s.time < y.safeUntil) return { hit: false, safe: true };
+    dmg = Math.round(dmg);
+    y.hp = Math.max(0, y.hp - dmg); y.safeUntil = s.time + D.invulnerable; y.hits++; y.big = dmg >= D.big; y.hitAt = s.time;
+    var e = { type: 'hurt', hit: true, damage: dmg, big: y.big, knock: dmg >= D.knockOff, kind: o.kind || null,
+      from: copy(o.from), push: o.push || null, dead: y.hp === 0, hp: y.hp };
+    y.last = e;
+    s.events.push(e);
+    if (y.hp === 0) { s.mode = 'lost'; stopAttacks(s); }
+    return e;
+  }
+  function stopAttacks(s) { s.bombs = []; s.rounds = []; if (s.attack) AttacksRef.cancel(s.attack); }
+
+  // --- the fight's time -------------------------------------------------------------
   // Nothing moves and no time passes unless the fight is being played: the
-  // INTRO card, PAUSED, and the end cards all hold it exactly as it is. The
-  // 30 seconds only start once the villain has made his entrance - the thug
-  // wave and the entrance are untimed.
-  function tick(s, dt) {
+  // INTRO card, PAUSED, and the end cards all hold it exactly as it is.
+  // There is no clock: `elapsed` only counts how long the fight proper has
+  // gone on. The thug wave and the entrance come before it.
+  function tick(s, dt, ctx) {
     if (s.mode !== 'playing') return s;
     dt = num(dt);
     s.time += dt;
+    if (ctx && ctx.you) s.foe = copy(ctx.you);
     moveThugs(s);
     if (s.phase === 'thugs') {
       s.cooldownRemaining = Math.max(0, s.cooldownRemaining - dt);
       return s;
     }
     var old = s.at;
+    s.cooldownRemaining = Math.max(0, s.cooldownRemaining - dt);
     if (s.phase === 'arrive') {
-      s.cooldownRemaining = Math.max(0, s.cooldownRemaining - dt);
       s.arriveT += dt;
       if (s.arriveT >= (K.ARRIVE[s.kind] || 0)) begin(s);
     } else {
-      CombatRef.clock(s, dt);
-      if (s.mode !== 'playing') return s;
+      s.elapsed += dt;
       s.dodgeRemaining = Math.max(0, s.dodgeRemaining - dt);
-      if (s.kind === 'glider') moveGlider(s, dt);
+      if (s.kind === 'glider') { hunt(s, dt, ctx); moveGlider(s, dt); }
       else if (s.kind === 'charge') moveCharge(s, dt);
       else moveLeap(s, dt);
     }
     place(s);
     if (old && s.at && dt > 0) s.vel = { x: (s.at.x - old.x) / dt, y: (s.at.y - old.y) / dt, z: (s.at.z - old.z) / dt };
     turnFace(s, dt);
+    if (s.phase === 'villain' && ctx && ctx.you) attacking(s, dt, ctx);
+    flying(s, dt, ctx);
     return s;
   }
 
@@ -422,7 +565,8 @@
   // (world-game.js keeps one of these with each frame's camera). The body is
   // a fresh sample each frame, so keeping it by reference is safe.
   function snapshot(s) {
-    return { villain: copy(s.at), body: s.body || null, thugs: s.thugs.map(function (t) { return { x: t.x, y: t.y, z: t.z }; }) };
+    return { villain: copy(s.at), body: s.body || null, thugs: s.thugs.map(function (t) { return { x: t.x, y: t.y, z: t.z }; }),
+      bombs: (s.bombs || []).map(function (b) { return { id: b.id, x: b.x, y: b.y, z: b.z }; }) };
   }
 
   // The level way from a shot's line to the villain's middle.
@@ -469,14 +613,49 @@
     var r = CombatRef.judge(s, !!body);
     if (!r.accepted) return r;
     if (s.mode === 'playing') dodge(s, at && awayFrom(s, shot, at));
+    else if (s.mode === 'won') stopAttacks(s);          // his bombs in the air go with him
     r.kind = 'villain'; r.body = body;
     if (body) r.point = body.point;
     return r;
   }
 
+  // --- a web at a bomb ----------------------------------------------------------------
+  // Which bomb in flight a shot is aimed at (its own small cone, before any
+  // villain - Swing.decide's order): judged against where the bombs were when
+  // you aimed if `seen` has them. Its id, or null.
+  function aimBomb(s, shot, seen) {
+    if (!s.bombs || !s.bombs.length || s.mode !== 'playing') return null;
+    var live = s.bombs.filter(function (b) { return b.popAt === null; });
+    var list = live.map(function (b) {
+      var was = seen && seen.bombs && seen.bombs.filter(function (q) { return q.id === b.id; })[0];
+      return was || b;
+    });
+    var i = AttacksRef.aimBomb(shot.origin, shot.dir, list, AttacksRef.constants.BOMB_CONE, shot.blocked);
+    return i >= 0 ? live[i].id : null;
+  }
+  // Shoot it down: it goes off when the web gets there, `delay` seconds on.
+  // A web shot like any other (the cooldown), but not a shot at him: he
+  // doesn't dodge it and it isn't counted.
+  function shootBomb(s, id, delay) {
+    if (s.mode !== 'playing' || s.cooldownRemaining > 0) return { accepted: false };
+    var b = (s.bombs || []).filter(function (q) { return q.id === id && q.popAt === null; })[0];
+    if (!b) return { accepted: false };
+    s.cooldownRemaining = CombatRef.COOLDOWN;
+    b.popAt = s.time + Math.max(0, delay || 0);
+    return { accepted: true, hit: true, kind: 'bomb', id: id, point: { x: b.x, y: b.y, z: b.z } };
+  }
+  // Where a bomb will be `delay` seconds on (for the web flying to it).
+  function bombAhead(s, id, delay) {
+    var b = (s.bombs || []).filter(function (q) { return q.id === id; })[0];
+    return b ? AttacksRef.bombAt(b, b.t + Math.max(0, delay || 0)) : null;
+  }
+  // What the fight's events since last asked were (and forget them).
+  function drain(s) { var e = s.events || []; s.events = []; return e; }
+
   var api = { start: start, play: play, pause: pause, tick: tick, fire: fire, snapshot: snapshot,
     billboard: billboard, onSprite: onSprite, bodyHit: bodyHit, onBody: onBody, ground: ground,
-    thugSphere: thugSphere, standing: standing, left: left, constants: K };
+    thugSphere: thugSphere, standing: standing, left: left, hurt: hurt, aimBomb: aimBomb, shootBomb: shootBomb,
+    bombAhead: bombAhead, drain: drain, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Fight = api;
 })(typeof window === 'undefined' ? globalThis : window);

@@ -37,9 +37,11 @@
     GRAVITY: 9.8
   };
 
-  function create(kind, clips) {
-    return { kind: kind, clips: clips || {}, started: false, seen: null, base: null,
-      roll: 0, pitch: 0, turning: 0, flights: 0, landed: -1, arrived: {} };
+  // events: the manifest's clip events ({ attack: { release_seconds } }), so
+  // a throw's wind-up can be timed to end on its release.
+  function create(kind, clips, events) {
+    return { kind: kind, clips: clips || {}, events: events || {}, started: false, seen: null, base: null,
+      roll: 0, pitch: 0, turning: 0, flights: 0, landed: -1, arrived: {}, attacks: 0 };
   }
   function dur(a, c) { return a.clips[c] || 0; }
 
@@ -54,7 +56,7 @@
     if (!s.at) return out;
     if (!was || !a.started) { a.started = true; was = { hits: now.hits, dodge: now.dodge, mode: now.mode, phase: null }; }
 
-    // The end: beaten, or the clock ran out and he got away.
+    // The end: beaten, or you went down and he roars over you.
     if (s.mode === 'won') { if (was.mode !== 'won') { a.base = null; play('defeat', { hold: true, fade: .1 }); } return settle(a, s, dt, out, true); }
     if (s.mode === 'lost') { if (was.mode !== 'lost') play('roar'); return settle(a, s, dt, out, true); }
 
@@ -63,6 +65,16 @@
       if (a.kind === 'glider') glider(a, s, base);
       else if (a.kind === 'charge') charge(a, s, was, now, base, play, out);
       else leaper(a, s, was, now, base, play);
+    }
+    // Winding up a throw (P4, attacks.js): the attack clip, slowed or sped so
+    // its release frame - where the bomb leaves his hand - ends the wind-up.
+    var at = s.attack;
+    if (at && at.n > a.attacks) {
+      a.attacks = at.n;
+      if (at.phase === 'telegraph' && at.move === 'bomb' && a.clips.attack) {
+        var rel = (a.events.attack && a.events.attack.release_seconds) || a.clips.attack / 2, tel = (at.d && at.d.telegraph) || .9;
+        play('attack', { speed: rel / tel, fade: .12 });
+      }
     }
     // Shot at: a hit flinches (the last hit before the end staggers him), a
     // dodge shows which way he went.

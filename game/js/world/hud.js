@@ -1,10 +1,12 @@
 (function (root) {
   'use strict';
   // The sums behind the 3D HUD, with no DOM and no Three.js; hud-view.js
-  // draws it. The HUD is the first clip's: thin and cyan, the villain and his
-  // health top left, the objective and the clock top right, a square minimap
-  // bottom left, and an arrow at the edge of the screen toward the villain
-  // when he is out of view.
+  // draws it. The HUD is the first clip's: thin and cyan. In a fight your
+  // health is top left, a segmented bar that flashes when you're hit, and
+  // the villain's is top right with the objective (there is no clock: P4). A
+  // square minimap sits bottom left, and an arrow at the edge of the screen
+  // points toward the villain when he is out of view - red when he's
+  // winding up an attack out there.
   //
   //   Hud.status(game)               what each part of the HUD says, for the
   //                                  mode you are in
@@ -19,8 +21,10 @@
   var K = {
     MAP_RANGE: 160,           // metres from you to the minimap's edge
     MAP_ROOF: 60,             // the minimap zooms out this much higher up a roof
-    LOW: 10,                  // seconds left when the clock turns red
-    SEGMENTS_MAX: 12          // a health bar never has more segments than this
+    SEGMENTS_MAX: 15,         // a health bar never has more segments than this
+    YOU_SEGMENT: 10,          // health points in each segment of yours
+    HURT: .45,                // seconds your bar flashes after a hit
+    LOW_HP: .3                // your bar turns red at this share of your health or less
   };
 
   // --- the minimap ------------------------------------------------------------------
@@ -77,41 +81,64 @@
     var frac = max > 0 ? Math.max(0, Math.min(1, health / max)) : 0;
     return { count: n, lit: Math.max(0, Math.ceil(frac * n - 1e-9)), frac: frac };
   }
-  function clock(sec) { return Math.max(0, sec).toFixed(1); }
-
   // game: { mode: 'fight'|'train'|'roam', fight, enc, range, villain: {name},
   //         damage, accuracy (0..1, training) }
-  // Returns { left: { title, sub, health, segments, value } | null,
-  //           right: { title, text, timer, low, frac } }
-  // `health` is null when there is no bar; `frac` is how much of the clock
-  // (or anything else the right-hand bar shows) is left, or null.
+  // Returns { left: { title, sub, health, segments, value, hurt, low },
+  //           right: { title, text, timer, low, frac, foe } }
+  // left is you in a fight (else what mode you're in); `health` is null when
+  // there is no bar, `hurt` says the bar should flash (you were just hit),
+  // `low` that it is red. right.foe is the villain's bar in a fight, else
+  // null: { title, health, segments, value }. `frac` is the thin bar under
+  // the objective (training's accuracy), or null. There is no clock.
   function status(g) {
     var f = g.fight, r = g.range;
     if (g.mode === 'fight' && f && g.enc) {
-      var name = g.villain.name, seg = segments(f.health, f.maxHealth, g.damage), en = 'ENCOUNTER ' + (g.enc.index + 1);
-      var left = { title: name, sub: en, health: seg.frac, segments: seg, value: f.health };
+      var name = g.villain.name, en = 'ENCOUNTER ' + (g.enc.index + 1), y = f.you;
+      var left = { title: 'SPIDER-MAN', sub: en, health: null, segments: null, value: null, hurt: false, low: false };
+      if (y) {
+        var ys = segments(y.hp, y.maxHp, K.YOU_SEGMENT);
+        left.health = ys.frac; left.segments = ys; left.value = y.hp;
+        left.hurt = f.time - y.hitAt < K.HURT; left.low = ys.frac <= K.LOW_HP;
+      }
+      var seg = segments(f.health, f.maxHealth, g.damage);
+      var foe = { title: name, health: seg.frac, segments: seg, value: f.health };
       if (f.phase === 'thugs') {
         var up = 0, all = f.thugs.length;
         f.thugs.forEach(function (t) { if (!t.down) up++; });
-        return { left: { title: 'MASKED THUGS', sub: en, health: all ? up / all : 0, segments: { count: Math.min(K.SEGMENTS_MAX, all), lit: up, frac: all ? up / all : 0 }, value: up },
-          right: { title: 'OBJECTIVE', text: 'Clear the thugs · ' + up + ' left', timer: 'WAVE', low: false, frac: null } };
+        return { left: left, right: { title: 'OBJECTIVE', text: 'Clear the thugs · ' + up + ' left', timer: 'WAVE', low: false, frac: null,
+          foe: { title: 'MASKED THUGS', health: all ? up / all : 0, segments: { count: Math.min(K.SEGMENTS_MAX, all), lit: up, frac: all ? up / all : 0 }, value: up } } };
       }
-      if (f.phase === 'arrive') return { left: left, right: { title: 'OBJECTIVE', text: 'Get ready: ' + name + ' is coming', timer: clock(f.timeLimit), low: false, frac: 1 } };
-      var rem = Math.max(0, f.timeLimit - f.elapsed);
-      var text = f.mode === 'won' ? name + ' is down' : f.mode === 'lost' ? name + ' got away' : 'Web up ' + name + ' before the clock runs out';
-      return { left: left, right: { title: 'OBJECTIVE', text: text, timer: clock(rem), low: f.mode === 'playing' && rem <= K.LOW, frac: f.timeLimit > 0 ? rem / f.timeLimit : 0 } };
+      var text = f.phase === 'arrive' ? 'Get ready: ' + name + ' is coming' :
+        f.mode === 'won' ? name + ' is down' : f.mode === 'lost' ? 'You went down' : 'Take down ' + name + ' · he fights back';
+      return { left: left, right: { title: 'OBJECTIVE', text: text, timer: '', low: false, frac: null, foe: foe } };
     }
     if (g.mode === 'train' && r) {
       var acc = Math.round((g.accuracy || 0) * 100);
-      return { left: { title: 'TRAINING', sub: 'THE RANGE', health: null, segments: null, value: null },
+      return { left: { title: 'TRAINING', sub: 'THE RANGE', health: null, segments: null, value: null, hurt: false, low: false },
         right: { title: 'HIT THE TARGETS', text: r.hits + ' hit / ' + r.shots + ' shot · ' + acc + '% · best streak ' + r.best,
-          timer: 'STREAK ' + r.streak, low: false, frac: acc / 100 } };
+          timer: 'STREAK ' + r.streak, low: false, frac: acc / 100, foe: null } };
     }
-    return { left: { title: 'FREE ROAM', sub: 'THE CITY', health: null, segments: null, value: null },
-      right: { title: 'OBJECTIVE', text: 'Walk into a light column to start a fight · Esc to pick one', timer: '', low: false, frac: null } };
+    return { left: { title: 'FREE ROAM', sub: 'THE CITY', health: null, segments: null, value: null, hurt: false, low: false },
+      right: { title: 'OBJECTIVE', text: 'Walk into a light column to start a fight · Esc to pick one', timer: '', low: false, frac: null, foe: null } };
   }
 
-  var api = { toMap: toMap, edge: edge, range: range, pointer: pointer, onScreen: onScreen, segments: segments, status: status, constants: K };
+  // What the red threat chevron points at, if anything: the villain while he
+  // winds up an attack out of your view, else a bomb in flight out of it.
+  // visible(p): is world point p on the screen. Returns { x, y, z, kind:
+  // 'villain' | 'bomb' } or null.
+  function threat(f, visible) {
+    if (!f || f.mode !== 'playing' || !f.at) return null;
+    var mid = { x: f.at.x, y: f.at.y + 1.2, z: f.at.z };
+    if (f.attack && f.attack.phase === 'telegraph' && !visible(mid)) { mid.kind = 'villain'; return mid; }
+    var bombs = f.bombs || [];
+    for (var i = 0; i < bombs.length; i++) {
+      var b = bombs[i];
+      if (b.popAt === null && !visible(b)) return { x: b.x, y: b.y, z: b.z, kind: 'bomb' };
+    }
+    return null;
+  }
+
+  var api = { toMap: toMap, edge: edge, range: range, pointer: pointer, onScreen: onScreen, segments: segments, status: status, threat: threat, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Hud = api;
 })(typeof window === 'undefined' ? globalThis : window);

@@ -4,6 +4,8 @@ const City=require('../js/world/city.js'),Encounters=require('../js/world/encoun
 const Fight=require('../js/world/fight.js'),AimAssist=require('../js/world/aim-assist.js');
 const Training3D=require('../js/world/training3d.js'),Combat=require('../js/combat.js');
 const levels=require('../js/levels.js'),villains=require('../js/villains.js');
+const Difficulty=require('../js/world/difficulty.js');
+const HP=Difficulty.HARD.villainHp;
 
 const city=City.generate(20180907),spots=Encounters.build(city),[goblin,rhino,venom]=spots.fights;
 // The thug wave before Venom is switched off in the game for now (C3), but its
@@ -116,29 +118,64 @@ const yawTo=(a,b)=>Math.atan2(b.x-a.x,b.z-a.z);
 // Close in front of the villain, where the aim-assist cone is small.
 function closeEye(s,d){const f={x:Math.sin(s.face),z:Math.cos(s.face)};return{x:s.at.x+f.x*(d||6),y:s.at.y+1.4,z:s.at.z+f.z*(d||6)};}
 
-test('fight: each encounter keeps its 2D health, 20 damage, cooldown and 30 second clock',()=>{
-  spots.fights.forEach((enc,i)=>{
+test('fight: HARD for all three - the same villain health, your health, 20 damage a hit, and no clock',()=>{
+  const H=Difficulty.HARD;
+  assert.equal(H.villainHp,300);assert.equal(H.playerHp,100);assert.equal(H.shotDamage,Combat.DAMAGE);
+  spots.fights.forEach(enc=>{
     const s=Fight.start(enc,levels);
-    assert.equal(s.mode,'intro');assert.equal(s.health,levels[i].health);assert.equal(s.timeLimit,30);
-    Fight.tick(s,5);assert.equal(s.elapsed,0,'the clock ran before GO');
+    assert.equal(s.mode,'intro');assert.equal(s.health,H.villainHp,enc.id);assert.equal(s.maxHealth,H.villainHp);
+    assert.deepEqual([s.you.hp,s.you.maxHp],[H.playerHp,H.playerHp]);
+    assert.equal(s.timeLimit,null,enc.id+' has a clock');
+    assert.equal(s.attack.d.telegraph,H.telegraph);assert.deepEqual(s.attack.d.cadence,H.cadence);
   });
+  // An hour of fighting ends nothing: only his health or yours can.
   const s=playing(goblin),eye=eyeAt(goblin.vantage);
-  assert.equal(s.elapsed,0,'the entrance is untimed');assert.equal(s.phase,'villain');
-  Fight.tick(s,29.99);assert.equal(s.mode,'playing');
-  Fight.tick(s,.02);assert.equal(s.mode,'lost');
-  assert.equal(Fight.fire(s,villains,shotAt(eye,s.at)).accepted,false);
+  for(let n=0;n<3600;n++)Fight.tick(s,1);
+  assert.equal(s.mode,'playing');assert.ok(s.elapsed>=3599);
+  assert.equal(Fight.fire(s,villains,shotAt(eye,middle(pose(s)))).hit,true);assert.equal(s.health,H.villainHp-20);
+  // CLASSIC's rules are its own: Combat still starts its levels with their 30 seconds.
+  assert.equal(Combat.start(0,levels).timeLimit,30);assert.equal(Combat.start(0,levels).health,levels[0].health);
 });
-test('fight: the entrance is untimed and he can\'t be hurt in it, but a web still lands on him',()=>{
+test('fight: you win when he reaches 0, and lose when you do - with his health left as it was',()=>{
+  const s=playing(rhino);
+  s.health=40;
+  const e=Fight.hurt(s,30,{kind:'test'});
+  assert.deepEqual([e.hit,e.damage,e.hp,e.dead],[true,30,70,false]);assert.equal(s.mode,'playing');
+  Fight.tick(s,Difficulty.HARD.invulnerable+.01);
+  Fight.hurt(s,30);Fight.tick(s,Difficulty.HARD.invulnerable+.01);
+  const last=Fight.hurt(s,45);
+  assert.equal(last.dead,true);assert.equal(s.you.hp,0);assert.equal(s.mode,'lost');assert.equal(s.health,40);
+  assert.deepEqual(Fight.fire(s,villains,shotAt(closeEye(s),middle(s))),{accepted:false},'a lost fight takes shots');
+  assert.equal(Fight.hurt(s,10).hit,false,'hurt after the end');
+  // A retry is a fresh start: both back to full.
+  const again=Fight.start(rhino,levels);
+  assert.deepEqual([again.health,again.you.hp],[Difficulty.HARD.villainHp,Difficulty.HARD.playerHp]);
+});
+test('fight: a moment after a hit you can\'t be hurt again, then you can',()=>{
+  const s=playing(goblin),I=Difficulty.HARD.invulnerable;
+  assert.equal(Fight.hurt(s,20).hit,true);
+  Fight.tick(s,I*.9);
+  const e=Fight.hurt(s,20);assert.deepEqual([e.hit,e.safe],[false,true]);assert.equal(s.you.hp,80);
+  Fight.tick(s,I*.2);
+  assert.equal(Fight.hurt(s,20).hit,true);assert.equal(s.you.hp,60);
+  assert.equal(s.you.hits,2);
+  const big=Fight.hurt(Fight.tick(s,I+.01),Difficulty.HARD.big);
+  assert.deepEqual([big.big,big.knock],[true,Difficulty.HARD.big>=Difficulty.HARD.knockOff]);
+  assert.equal(Fight.hurt(Fight.tick(s,I+.01),Difficulty.HARD.damage[0]).big,false);
+  // Each hit is on the events for the render side, once.
+  assert.equal(Fight.drain(s).filter(e=>e.type==='hurt').length,4);assert.deepEqual(Fight.drain(s),[]);
+});
+test('fight: he can\'t be hurt during his entrance, but a web still lands on him',()=>{
   for(const enc of [goblin,rhino]){
     const s=pose(Fight.play(Fight.start(enc,levels))),eye=eyeAt(enc.vantage);
     assert.equal(s.phase,'arrive');assert.ok(s.at,enc.id+' is not there for his entrance');
     const r=Fight.fire(s,villains,shotAt(eye,middle(s)));
     assert.deepEqual([r.accepted,r.hit,r.early],[true,false,true]);
-    assert.equal(s.health,levels[enc.level].health);assert.equal(s.shots,0);
+    assert.equal(s.health,HP);assert.equal(s.shots,0);
     assert.ok(r.body&&r.body.capsule===0,'the web sticks to his body');
     step(s,Fight.constants.ARRIVE[enc.kind]-.1);assert.equal(s.phase,'arrive');assert.equal(s.elapsed,0);
     step(s,.2);assert.equal(s.phase,'villain');
-    step(s,.5);assert.ok(Math.abs(s.elapsed-.5)<.11,enc.id+' clock after the entrance: '+s.elapsed);
+    step(s,.5);assert.ok(Math.abs(s.elapsed-.5)<.11,enc.id+' fight time after the entrance: '+s.elapsed);
   }
 });
 test('fight: a hit anywhere on him does 20 damage - body, head or leg - and says where it landed',()=>{
@@ -150,7 +187,7 @@ test('fight: a hit anywhere on him does 20 damage - body, head or leg - and says
     // rounded ends come first.
     const c=s.body.capsules[i],tt=i===0?.5:.75,p={x:c.a.x+(c.b.x-c.a.x)*tt,y:c.a.y+(c.b.y-c.a.y)*tt,z:c.a.z+(c.b.z-c.a.z)*tt},r=Fight.fire(s,villains,shotAt(eye,p));
     assert.deepEqual([r.accepted,r.hit,r.kind],[true,true,'villain'],'capsule '+i);
-    assert.equal(s.health,140-20*(n+1));
+    assert.equal(s.health,HP-20*(n+1));
     assert.equal(r.body.capsule,i,'it knows which part it hit');
     assert.ok(Math.abs(r.body.t-tt)<.25,'where along it: '+r.body.t);
     assert.ok(Math.hypot(r.point.x-p.x,r.point.y-p.y,r.point.z-p.z)<c.r+.2,'the web lands on him');
@@ -166,10 +203,10 @@ test('fight: a shot just past his edge still counts (aim assist), one further of
   const eye=closeEye(s),mid=middle(s),to=aimAt(eye,mid),d=Math.hypot(mid.x-eye.x,mid.y-eye.y,mid.z-eye.z);
   const edge=Math.asin(mid.r/d)/DEG,tol=AimAssist.TOLERANCE_DEG;
   let r=Fight.fire(s,villains,{origin:eye,dir:turned(to,edge+tol+.4),blocked:Infinity});
-  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,140);assert.equal(r.body,null);
+  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,HP);assert.equal(r.body,null);
   step(s,Combat.COOLDOWN);
   r=Fight.fire(s,villains,{origin:eye,dir:turned(aimAt(eye,middle(s)),edge+tol-.4),blocked:Infinity});
-  assert.deepEqual([r.accepted,r.hit],[true,true]);assert.equal(s.health,120);
+  assert.deepEqual([r.accepted,r.hit],[true,true]);assert.equal(s.health,HP-20);
   step(s,Combat.COOLDOWN);
   assert.equal(Fight.fire(s,villains,shotAt(eye,{x:eye.x,y:eye.y+100,z:eye.z})).hit,false,'a clean miss');
   assert.equal(s.shots,3);assert.equal(s.hits,1);
@@ -197,7 +234,7 @@ test('fight: he cannot be hit through a wall',()=>{
   const s=playing(goblin),eye=eyeAt(goblin.vantage),w=middle(s);
   const d=Math.hypot(w.x-eye.x,w.y-eye.y,w.z-eye.z);
   const r=Fight.fire(s,villains,{origin:eye,dir:aimAt(eye,w),blocked:d/2});
-  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,100);assert.equal(r.body,null);
+  assert.deepEqual([r.accepted,r.hit],[true,false]);assert.equal(s.health,HP);assert.equal(r.body,null);
 });
 test('fight: being shot at makes it dodge, faster than it drifts, and says which side it went',()=>{
   for(const enc of [goblin,rhino]){
@@ -327,15 +364,15 @@ test('fight: pausing holds everything exactly where it was, and resuming carries
     assert.ok(s.time>before.time,enc.id+' did not resume');
   }
 });
-test('fight: with the wave on, the thugs have to be cleared before venom shows, and his clock starts after his entrance',()=>{
+test('fight: with the wave on, the thugs have to be cleared before venom shows, and the fight proper starts after his entrance',()=>{
   const s=Fight.play(Fight.start(venomWave,levels)),eye=eyeAt(venomWave.vantage);
   assert.equal(s.phase,'thugs');assert.equal(s.at,null,'venom is there before the thugs are down');
   // Shooting where venom will perch does nothing to him.
   const q=venomWave.path.perches[0];
   Fight.fire(s,villains,shotAt(eye,{x:q.x,y:q.y+1.3,z:q.z}));
-  assert.equal(s.health,180);assert.equal(s.elapsed,0);
+  assert.equal(s.health,HP);assert.equal(s.elapsed,0);
   Fight.tick(s,20);
-  assert.equal(s.elapsed,0,'the 30 seconds ran during the thug wave');assert.equal(s.mode,'playing');
+  assert.equal(s.elapsed,0,'the fight proper started during the thug wave');assert.equal(s.mode,'playing');
   // One- and two-hit thugs.
   const two=s.thugs.findIndex(t=>t.hp===2);
   let r=Fight.fire(s,villains,shotAt(eye,Fight.thugSphere(s.thugs[two])));
@@ -351,11 +388,11 @@ test('fight: with the wave on, the thugs have to be cleared before venom shows, 
   const perch=venomWave.path.perches[s.m.at];
   assert.ok(s.at.y>perch.y+10,'he drops in from high above his beam');
   step(s,Fight.constants.ENTRY);assert.equal(s.at.y,perch.y,'and lands on it');
-  arrived(s);assert.equal(s.elapsed,0);assert.equal(s.health,180);
+  arrived(s);assert.equal(s.elapsed,0);assert.equal(s.health,HP);
   step(s,2);
-  assert.ok(s.elapsed>1.9&&s.elapsed<2.01,'the clock did not start after his entrance');
+  assert.ok(s.elapsed>1.9&&s.elapsed<2.01,'the fight proper did not start after his entrance');
   r=Fight.fire(s,villains,shotAt(eye,middle(s)));
-  assert.equal(r.hit,true);assert.equal(s.health,160);
+  assert.equal(r.hit,true);assert.equal(s.health,HP-20);
 });
 test('thugs off: the switch is off, and venom\'s fight has no wave - it starts with his entrance',()=>{
   assert.equal(Encounters.constants.THUGS.ENABLED,false,'the game is the three villains only for now');
@@ -369,7 +406,7 @@ test('thugs off: the switch is off, and venom\'s fight has no wave - it starts w
   arrived(s);assert.equal(s.phase,'villain');assert.equal(s.elapsed,0);
   // Every shot is at venom: a hit is a villain hit, and so is a miss.
   const r=Fight.fire(s,villains,shotAt(eye,middle(s)));
-  assert.deepEqual([r.hit,r.kind],[true,'villain']);assert.equal(s.health,160);
+  assert.deepEqual([r.hit,r.kind],[true,'villain']);assert.equal(s.health,HP-20);
   step(s,Combat.COOLDOWN);
   assert.equal(Fight.fire(s,villains,shotAt(eye,{x:0,y:-1e4,z:0})).kind,'villain');
   assert.equal(s.thugHits,0);
@@ -394,15 +431,15 @@ test('fight: a shot is judged against the pose that was on screen when you aimed
   const now=JSON.parse(JSON.stringify(s));
   assert.equal(Fight.fire(now,villains,shotAt(eye,w)).hit,false,'moved on, the old aim should miss');
   const r=Fight.fire(s,villains,shotAt(eye,w),seen);
-  assert.equal(r.hit,true);assert.equal(s.health,80);
+  assert.equal(r.hit,true);assert.equal(s.health,HP-20);
 });
-test('fight: five hits beat the goblin, and the rest of the fights need their 2D number of hits',()=>{
+test('fight: fifteen hits beat each of them (HARD), however the fight began',()=>{
   spots.fights.concat([venomWave]).forEach(enc=>{
     const s=Fight.play(Fight.start(enc,levels)),eye=eyeAt(enc.vantage);
     clearThugs(s,eye);arrived(s);
     let n=0;
-    while(s.mode==='playing'&&n<50){step(s,Combat.COOLDOWN);if(Fight.fire(s,villains,shotAt(eye,middle(s))).hit)n++;}
-    assert.equal(s.mode,'won',enc.id);assert.equal(n,levels[enc.level].health/20);assert.equal(s.health,0);
+    while(s.mode==='playing'&&n<80){step(s,Combat.COOLDOWN);if(Fight.fire(s,villains,shotAt(eye,middle(s))).hit)n++;}
+    assert.equal(s.mode,'won',enc.id);assert.equal(n,HP/20);assert.equal(s.health,0);
   });
 });
 

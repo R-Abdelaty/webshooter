@@ -58,19 +58,41 @@ test('hud: the health bar has a segment per hit, lit for what is left',()=>{
   assert.equal(Hud.segments(10,100,20).lit,1,'a part-segment still shows');
   assert.equal(Hud.segments(1000,1000,20).count,Hud.constants.SEGMENTS_MAX);
 });
-test('hud: a fight shows the villain\'s health left and the clock right, red for the last ten seconds',()=>{
+test('hud: a fight shows your health top left and his top right, and no clock',()=>{
   const city=City.generate(20180907),enc=Encounters.build(city).fights[1],f=Fight.start(enc,levels);
   const g=()=>({mode:'fight',fight:f,enc:enc,villain:VILLAINS[enc.villain],damage:20});
   let s=Hud.status(g());
-  assert.equal(s.left.title,VILLAINS[enc.villain].name);assert.equal(s.left.sub,'ENCOUNTER 2');
-  assert.equal(s.left.health,1);assert.equal(s.left.segments.count,f.maxHealth/20);
+  assert.equal(s.left.title,'SPIDER-MAN');assert.equal(s.left.sub,'ENCOUNTER 2');
+  assert.equal(s.left.health,1);assert.equal(s.left.value,100);assert.equal(s.left.segments.count,100/Hud.constants.YOU_SEGMENT);
+  assert.equal(s.right.foe.title,VILLAINS[enc.villain].name);
+  assert.equal(s.right.foe.health,1);assert.equal(s.right.foe.segments.count,f.maxHealth/20,'a segment per hit of his');
   Fight.play(f);
   // Past his entrance, into the fight proper.
   for(let k=0;k<400&&f.phase!=='villain';k++)Fight.tick(f,1/30);
-  s=Hud.status(g());assert.equal(s.right.timer,f.timeLimit.toFixed(1));assert.ok(!s.right.low&&s.right.frac===1);
-  f.health-=20;f.elapsed=f.timeLimit-4;
-  s=Hud.status(g());assert.equal(s.left.segments.lit,s.left.segments.count-1);assert.ok(s.right.low);assert.equal(s.right.timer,'4.0');
-  assert.ok(near(s.right.frac,4/f.timeLimit));
+  Fight.tick(f,60);
+  s=Hud.status(g());assert.equal(s.right.timer,'');assert.equal(s.right.frac,null);assert.doesNotMatch(s.right.text,/clock/i);
+  assert.match(s.right.text,/fights back/);
+  f.health-=20;
+  s=Hud.status(g());assert.equal(s.right.foe.segments.lit,s.right.foe.segments.count-1);assert.equal(s.right.foe.value,f.maxHealth-20);
+  // You're hit: your bar drops, and flashes for a moment.
+  assert.equal(s.left.hurt,false);
+  Fight.hurt(f,25);
+  s=Hud.status(g());assert.equal(s.left.value,75);assert.equal(s.left.segments.lit,8);assert.equal(s.left.hurt,true);assert.equal(s.left.low,false);
+  Fight.tick(f,Hud.constants.HURT+.01);
+  s=Hud.status(g());assert.equal(s.left.hurt,false);
+  Fight.tick(f,1);Fight.hurt(f,50);
+  s=Hud.status(g());assert.equal(s.left.low,true,'red when low');
+});
+test('hud: the red threat chevron points at him winding up out of view, else at a bomb out of view',()=>{
+  const f={mode:'playing',at:{x:0,y:0,z:0},attack:{phase:'wait'},bombs:[]},all=()=>true,none=()=>false;
+  assert.equal(Hud.threat(f,none),null,'nothing coming');
+  f.attack.phase='telegraph';
+  assert.equal(Hud.threat(f,all),null,'in view, no chevron');
+  assert.deepEqual(Hud.threat(f,none),{x:0,y:1.2,z:0,kind:'villain'});
+  f.attack.phase='active';f.bombs=[{x:5,y:3,z:1,popAt:null}];
+  assert.deepEqual(Hud.threat(f,none),{x:5,y:3,z:1,kind:'bomb'});
+  f.bombs[0].popAt=1;assert.equal(Hud.threat(f,none),null,'a bomb already shot down');
+  f.mode='lost';f.attack.phase='telegraph';assert.equal(Hud.threat(f,none),null);
 });
 test('hud: training and free roam have no health bar, and say what to do',()=>{
   const t=Hud.status({mode:'train',range:{hits:3,shots:4,best:2,streak:1},accuracy:.75});

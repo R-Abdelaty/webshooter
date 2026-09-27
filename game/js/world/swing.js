@@ -5,6 +5,7 @@
   // calls it and player-view.js / web-lines.js draw what it says.
   //
   // A flick or a click is judged by decide() in the order the plan fixes:
+  //   0. a bomb in flight near the aim (its own small cone) -> 'bomb' (shot down)
   //   1. a villain (or the training target) near the aim  -> 'shot'
   //   2. a building wall within RANGE and not below you    -> 'attach' (a line to swing on)
   //   3. a roof edge or roof top within RANGE              -> 'zip' (pulled up to it, perched)
@@ -215,11 +216,14 @@
     return { kind: 'zip', point: copy(pt), perch: perch };
   }
 
-  // The rules for a flick or a click. aim: { target (a villain or the
+  // The rules for a flick or a click. aim: { bomb (the id of a bomb in
+  // flight near the aim - Fight.aimBomb - or null), target (a villain or the
   // training target is within SHOT_CONE of the aim), hit (world.raycast's,
   // or null), player, city, villains (capsules) }; s: this module's state.
-  //   -> { act: 'shot' | 'attach' | 'zip' | 'release' | 'none', anchor, perch, point, why }
+  //   -> { act: 'bomb' | 'shot' | 'attach' | 'zip' | 'release' | 'none', bomb, anchor, perch, point, why }
   function decide(aim, s) {
+    // A bomb in flight near the aim (P4) comes first: it's shot down.
+    if (aim.bomb !== undefined && aim.bomb !== null) return { act: 'bomb', bomb: aim.bomb };
     if (aim.target) return { act: 'shot' };
     var c = aim.hit && aim.city && aim.player ? classify(aim.city, aim.hit, aim.player, aim) : { kind: null, why: 'nothing' };
     if (c.kind === 'wall') return { act: 'attach', anchor: c.point };

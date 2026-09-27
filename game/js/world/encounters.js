@@ -138,7 +138,9 @@
       id: 'goblin', index: 0, level: 0, villain: 0, kind: 'glider',
       vantage: { x: spot.x, y: spot.y, z: spot.z, yaw: yaw, pitch: .06 },
       trigger: footOf(city, tower),
-      intro: 'He is circling your roof on his glider. Turn with him and hit him anywhere - he veers away when you shoot.',
+      intro: 'He hunts you across the rooftops on his glider, and he fights back: pumpkin bombs, and his glider guns. ' +
+        'When he winds up, get moving - swing out of the red laser\'s line, and shoot the bombs out of the air. ' +
+        'Hit him anywhere. No clock: it ends when he goes down, or you do.',
       path: { cx: spot.x, cz: spot.z, y: t.y1, r0: G.R0, r1: G.R1, h0: G.H0, h1: G.H1, scale: G.SCALE,
         // He starts in front of you.
         start: Math.atan2(-Math.cos(yaw), -Math.sin(yaw)) }
@@ -179,7 +181,8 @@
       id: 'rhino', index: 1, level: 1, villain: 1, kind: 'charge',
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yawToward(eye, mid), pitch: round2(pitchToward(eye, mid) * .75) },
       trigger: { x: round2(s.edge + s.side * 2), z: round2(s.z), y: 0 },
-      intro: 'He is charging up and down the avenue below. Hit him anywhere - he swerves when you shoot.',
+      intro: 'He is charging up and down the avenue below. Hit him anywhere - he swerves when you shoot. ' +
+        'He is tough: no clock, it ends when he goes down.',
       path: { x: s.ax, z0: round2(s.z0), z1: round2(s.z1), y: 0, lane: C.LANE, scale: C.SCALE }
     };
   }
@@ -247,8 +250,9 @@
       id: 'venom', index: 2, level: 2, villain: 2, kind: 'leap',
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yaw, pitch: .1 },
       trigger: { x: site.gate.x, z: round2(site.gate.z + 2.5), y: 0 },
-      intro: thugs.length ? 'Clear the masked thugs first - one or two hits each. Then Venom comes for you: thirty seconds.' :
-        'He drops onto the steel frame and leaps from beam to beam. Hit him anywhere - he dashes along a beam when you shoot. Thirty seconds.',
+      intro: thugs.length ? 'Clear the masked thugs first - one or two hits each. Then Venom comes for you.' :
+        'He drops onto the steel frame and leaps from beam to beam. Hit him anywhere - he dashes along a beam when you shoot. ' +
+        'He is tough: no clock, it ends when he goes down.',
       path: { perches: perches, hopMin: L.HOP_MIN, hopMax: L.HOP_MAX, scale: L.SCALE },
       thugs: thugs
     };
