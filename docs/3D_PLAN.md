@@ -176,6 +176,10 @@ packets must never turn the camera. **C** or *Center Aim* recentres. The off-scr
 
 ## Session 5 (optional) — Web-zip traversal with the shooter
 
+> **Replaced (2026-09-27): do not run this session.** Web-swinging and zipping are now **Session P3 in
+> `docs/PLAYER_PLAN.md`**, which also adds a playable Spider-Man, player health and villains that attack.
+> The text below is kept for reference only.
+
 This gives the hardware-only player a way to move before the analog stick exists. When the aim ray hits a
 building surface or roof edge within about 120 m and no enemy is in the aim cone, a flick **web-zips** the
 player along an arc to that point (roughly 0.6–1.2 s) and perches them on the ledge or roof. Add a strand
@@ -450,3 +454,5 @@ real-hardware tuning, and anything the next session must know._
   - **For Session 5.** Web-zips should aim at `world.raycast`, which already ignores the traffic. A zip that
     lands on the street will land among cars that pass through the player. The minimap and arrow need nothing
     new for zipping.
+- 2026-09-27 — **Next work is in `docs/PLAYER_PLAN.md`** (playable Spider-Man, first/third person, swinging, player
+  health, villains that attack, one HARD level, no timer). It replaces Session 5. CLASSIC is frozen by user decision.

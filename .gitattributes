@@ -6,3 +6,4 @@ game/assets-src/**/*.png filter=lfs diff=lfs merge=lfs -text
 # Generated: base64 models and sprites (tools/embed-*.cjs); no text diffs
 game/js/world/models/*.js -diff linguist-generated
 game/js/world/villain-sprites.js -diff linguist-generated
+game/assets-src/**/*.jpg filter=lfs diff=lfs merge=lfs -text
