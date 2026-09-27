@@ -24,6 +24,11 @@
           "release_seconds": 0.7
         }
       },
+      "attacks": {
+        "_about": "Where his attacks leave from (docs/PLAYER_PLAN.md P4): the bomb from `bone` on him at attack's release; the guns' laser and tracers from `bones` on the `prop` (the glider). villain-view.js samples these into fight.body.points.",
+        "bomb": { "bone": "ValveBiped.Bip01_R_Hand" },
+        "guns": { "prop": "glider", "bones": ["Glider_Gun_L", "Glider_Gun_R"] }
+      },
       "notes": "Never leaves the glider except in defeat, so no clip moves the pelvis: move and bank the whole rig (goblin + glider) in code, and blend fly_turn_l/r by turn rate. defeat knocks him ~1.5 m back and 2 m down while tumbling; keep him falling after it ends.",
       "weakSpots": [
         { "name": "CHEST", "bone": "TreyarchBiped.Bip01_Spine03", "offset": [0.19, 0.09, 0], "radius": 0.19 },

@@ -44,6 +44,7 @@
     <canvas id="world-canvas"></canvas>
     <canvas id="world-fx" aria-hidden="true"></canvas>
     <div id="world-flash" class="world-flash" aria-hidden="true"></div>
+    <div id="world-hurt" class="world-hurt" aria-hidden="true"></div>
     <header class="world-hud">
       <div class="hud-who">
         <i class="hud-emblem" aria-hidden="true"></i>
@@ -54,6 +55,10 @@
         </div>
       </div>
       <div class="hud-goal">
+        <div id="wh-foe" class="hud-foe is-hidden">
+          <strong id="wh-foe-name" class="hud-title"></strong>
+          <div class="hud-health"><span id="wh-foe-hp" class="hud-hp"></span><div id="wh-foe-segs" class="hud-segs"></div></div>
+        </div>
         <div class="hud-objective">
           <span id="wh-objtitle" class="hud-objtitle">OBJECTIVE</span>
           <span id="wh-objtext" class="hud-objtext"></span>
@@ -140,6 +145,8 @@
   <script src="js/world/aim-assist.js"></script>
   <script src="js/world/encounters.js"></script>
   <script src="js/world/rig.js"></script>
+  <script src="js/world/difficulty.js"></script>
+  <script src="js/world/attacks.js"></script>
   <script src="js/world/fight.js"></script>
   <script src="js/world/villain-anim.js"></script>
   <script src="js/world/training3d.js"></script>
@@ -149,6 +156,8 @@
   <script src="js/world/villain-view.js"></script>
   <script src="js/world/player-view.js"></script>
   <script src="js/world/swing-audio.js"></script>
+  <script src="js/world/attack-view.js"></script>
+  <script src="js/world/attack-audio.js"></script>
   <script src="js/world/world-game.js"></script>
   <script src="js/world/model-viewer.js"></script>
   <script src="js/game.js"></script>

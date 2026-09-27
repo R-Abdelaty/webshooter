@@ -1,16 +1,18 @@
 (function (root) {
   'use strict';
-  // The 3D game's HUD, drawn: the first clip's thin cyan look. Top left, who
-  // you're up against and a segmented health bar (a segment a hit); top
-  // right, the objective, the clock and a bar of the time left; bottom left,
-  // a square minimap that turns with you, with the city's blocks, you, and
-  // where the fights are - or, in one, where the villain is; and at the edge
-  // of the view an arrow toward the villain when he is out of it. The sums
-  // are Hud's (hud.js); this only draws. The minimap is a picture of the
-  // whole city drawn once, then cut out, turned and marked each frame.
+  // The 3D game's HUD, drawn: the first clip's thin cyan look. In a fight,
+  // top left, your health as a segmented bar that flashes when you're hit
+  // and goes red when low; top right, the villain's (a segment a hit) and
+  // the objective - there is no clock (P4). Bottom left, a square minimap
+  // that turns with you, with the city's blocks, you, and where the fights
+  // are - or, in one, where the villain is; and at the edge of the view an
+  // arrow toward the villain when he is out of it, red while he winds up an
+  // attack out there (or a bomb is coming from there). The sums are Hud's
+  // (hud.js); this only draws. The minimap is a picture of the whole city
+  // drawn once, then cut out, turned and marked each frame.
 
   var T = root.THREE, $ = function (id) { return document.getElementById(id); };
-  var CYAN = '#5fe3ff', PX = 1.2;         // the base map: pixels per metre
+  var CYAN = '#5fe3ff', RED = '#ff4a4a', PX = 1.2;   // the base map: pixels per metre
 
   // --- the city, from above, once -------------------------------------------------
   function baseMap(city) {
@@ -43,7 +45,7 @@
   }
 
   function create(city, spots, colors) {
-    var mapCanvas = $('wh-map'), mc = mapCanvas.getContext('2d'), base = baseMap(city), cache = {}, segEls = [];
+    var mapCanvas = $('wh-map'), mc = mapCanvas.getContext('2d'), base = baseMap(city), cache = {}, segEls = {};
     var cam = new T.Vector3();
 
     function show(el, on) { el.classList.toggle('is-hidden', !on); }
@@ -54,20 +56,29 @@
       if (cache[id + '.w'] !== w) { cache[id + '.w'] = w; $(id).style.width = w; }
     }
 
+    // A segmented bar: `segs` the box of segments, `hp` the number beside it.
+    function bar(segs, hpId, seg, value) {
+      var els = segEls[segs] || [];
+      if (els.length !== seg.count) {
+        var box = $(segs); box.textContent = ''; els = segEls[segs] = [];
+        for (var i = 0; i < seg.count; i++) { var el = document.createElement('i'); box.appendChild(el); els.push(el); }
+        cache[segs + '.lit'] = -1;
+      }
+      if (cache[segs + '.lit'] !== seg.lit) { cache[segs + '.lit'] = seg.lit; els.forEach(function (el, i) { el.classList.toggle('is-lit', i < seg.lit); }); }
+      put(hpId, String(value));
+    }
+
     // The text and bars, from Hud.status.
     function update(s) {
       put('wh-sub', s.left.sub); put('wh-title', s.left.title);
       var hp = s.left.segments;
       flag('wh-health', 'is-hidden', !hp);
-      if (hp) {
-        if (segEls.length !== hp.count) {
-          var box = $('wh-segs'); box.textContent = ''; segEls = [];
-          for (var i = 0; i < hp.count; i++) { var el = document.createElement('i'); box.appendChild(el); segEls.push(el); }
-          cache.lit = -1;
-        }
-        if (cache.lit !== hp.lit) { cache.lit = hp.lit; segEls.forEach(function (el, i) { el.classList.toggle('is-lit', i < hp.lit); }); }
-        put('wh-hp', String(s.left.value));
-      }
+      if (hp) bar('wh-segs', 'wh-hp', hp, s.left.value);
+      flag('wh-health', 'is-hurt', !!s.left.hurt);
+      flag('wh-health', 'is-low', !!s.left.low);
+      var foe = s.right.foe;
+      flag('wh-foe', 'is-hidden', !foe);
+      if (foe) { put('wh-foe-name', foe.title); bar('wh-foe-segs', 'wh-foe-hp', foe.segments, foe.value); }
       put('wh-objtitle', s.right.title); put('wh-objtext', s.right.text);
       flag('wh-clockbar', 'is-hidden', s.right.frac === null);
       if (s.right.frac !== null) width('wh-clockfill', s.right.frac);
@@ -118,21 +129,24 @@
     // --- the off-screen arrow ---
     // On the overlay canvas g (CSS pixels w x h): an arrow at the edge of the
     // view toward `goal` when it is out of the view, with how far it is.
-    function drawPointer(g, w, h, camera, project, goal, eye, color) {
+    // threat: draw it red, larger and pulsing (an attack coming from there);
+    // now (ms) drives the pulse.
+    function drawPointer(g, w, h, camera, project, goal, eye, threat, now) {
       if (!goal || Hud.onScreen(project(goal))) return;
       cam.set(goal.x, goal.y, goal.z).applyMatrix4(camera.matrixWorldInverse);
       var p = Hud.pointer(cam, w, h, { t: Math.min(200, h * .22), r: 46, b: Math.min(120, h * .14), l: 46 }), dist = Math.hypot(goal.x - eye.x, goal.y - eye.y, goal.z - eye.z);
+      var edge = threat ? RED : CYAN, k = threat ? 1.25 + .15 * Math.sin((now || 0) / 55) : 1;
       g.save(); g.translate(p.x, p.y);
-      g.save(); g.rotate(p.angle);
-      g.shadowColor = CYAN; g.shadowBlur = 10;
-      g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = CYAN; g.fillStyle = color || 'rgba(4,18,26,.8)';
+      g.save(); g.rotate(p.angle); g.scale(k, k);
+      g.shadowColor = edge; g.shadowBlur = threat ? 16 : 10;
+      g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = edge; g.fillStyle = threat ? 'rgba(60,4,4,.85)' : 'rgba(4,18,26,.8)';
       // A chevron, and a second, fainter one behind it.
       g.beginPath(); g.moveTo(18, 0); g.lineTo(-6, -15); g.lineTo(0, 0); g.lineTo(-6, 15); g.closePath(); g.fill(); g.stroke();
       g.globalAlpha = .55; g.beginPath(); g.moveTo(-2, 0); g.lineTo(-18, -11); g.moveTo(-2, 0); g.lineTo(-18, 11); g.stroke();
       g.restore();
       // The distance, inside the arrow's side of the screen.
       g.font = '800 11px Arial,sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = '#9ff0ff'; g.shadowColor = '#000'; g.shadowBlur = 3;
+      g.fillStyle = threat ? '#ffb0b0' : '#9ff0ff'; g.shadowColor = '#000'; g.shadowBlur = 3;
       g.fillText(Math.round(dist) + ' M', -Math.cos(p.angle) * 34, -Math.sin(p.angle) * 30);
       g.restore();
     }

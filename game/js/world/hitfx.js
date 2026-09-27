@@ -25,8 +25,14 @@
     sparks: { n: 22, v0: 5, v1: 11, cone: 80, life0: .22, life1: .5, size0: .02, size1: .04, drag: .6, g: 9.8, streak: .035 },
     symbiote: { n: 16, v0: 2, v1: 5.5, cone: 75, life0: .5, life1: .9, size0: .07, size1: .16, drag: 1, g: 9.8 },
     // The web wrapping round a beaten villain: slow, rising strands.
-    wrap: { n: 30, v0: .6, v1: 2, cone: 85, life0: .6, life1: 1.1, size0: .06, size1: .12, drag: 2, g: -.6 }
+    wrap: { n: 30, v0: .6, v1: 2, cone: 85, life0: .6, life1: 1.1, size0: .06, size1: .12, drag: 2, g: -.6 },
+    // A pumpkin bomb going off (P4): a ball of fire thrown out every way, and
+    // smoke that lingers and rises.
+    fire: { n: 40, v0: 3, v1: 11, cone: 180, life0: .18, life1: .45, size0: .35, size1: .8, drag: 4, g: -1 },
+    smoke: { n: 18, v0: .8, v1: 3, cone: 180, life0: .9, life1: 1.8, size0: .7, size1: 1.5, drag: 1.5, g: -1.2 }
   };
+  // A blast: which kinds it throws, and its flash (colour and size in metres).
+  var BLAST = { kinds: ['fire', 'sparks', 'smoke'], flash: [5, 2.6, .9], size: 5 };
   // Per villain: the particles of a hit, and the flash's colour (linear, and
   // above 1, so it tone-maps to a hot white core) and size in metres.
   var STYLES = {
@@ -101,7 +107,14 @@
     return u * u * (3 - 2 * u);
   }
 
-  var api = { HITSTOP_MS: HITSTOP_MS, DISSOLVE: DISSOLVE, KINDS: KINDS, STYLES: STYLES, style: style, inCone: inCone,
+  // All of a blast at `point` (the kinds go every way from it).
+  function blast(point, opts) {
+    var out = [];
+    BLAST.kinds.forEach(function (k) { out = out.concat(burst(k, point, { x: 0, y: 1, z: 0 }, opts)); });
+    return out;
+  }
+
+  var api = { HITSTOP_MS: HITSTOP_MS, DISSOLVE: DISSOLVE, KINDS: KINDS, STYLES: STYLES, BLAST: BLAST, blast: blast, style: style, inCone: inCone,
     burst: burst, hit: hit, step: step, alpha: alpha, stopUntil: stopUntil, stopped: stopped, dissolve: dissolve };
   if (typeof module !== 'undefined') module.exports = api;
   root.HitFx = api;

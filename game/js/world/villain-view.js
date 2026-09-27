@@ -188,7 +188,7 @@
       if (!f) return;
       var it = items[VILLAINS[f.villain].id];
       if (!it) return;
-      it.kind = f.kind; it.anim = VillainAnim.create(f.kind, it.clips);
+      it.kind = f.kind; it.anim = VillainAnim.create(f.kind, it.clips, it.rig.entry.events);
       it.rig.play(f.kind === 'glider' ? 'fly' : 'idle', { cut: true, restart: true, fade: 0 });
       if (it.glider) {
         if (it.glider.root.parent !== it.craft) it.craft.add(it.glider.root);
@@ -235,7 +235,24 @@
       flash(it, now);
       c.updateMatrixWorld(true);
       f.body = it.rig.sample();
+      f.body.points = attackPoints(it);
       return true;
+    }
+    // Where his attacks leave from, from the manifest's `attacks` (P4): the
+    // bomb from his hand, the guns' rounds from the glider's guns. Plain
+    // points, for fight.js.
+    function attackPoints(it) {
+      var A = it.rig.entry.attacks, out = {};
+      if (!A) return out;
+      function at(bone) { v3.setFromMatrixPosition(bone.matrixWorld); return { x: v3.x, y: v3.y, z: v3.z }; }
+      var hand = A.bomb && A.bomb.bone && it.rig.bone(A.bomb.bone);
+      if (hand) out.hand = at(hand);
+      var prop = A.guns && (A.guns.prop === 'glider' ? it.glider : null);
+      if (prop && prop.root.visible) {
+        var guns = A.guns.bones.map(function (n) { return prop.bone(n); }).filter(Boolean).map(at);
+        if (guns.length) out.guns = guns;
+      }
+      return out;
     }
 
     // The goblin's glider flutters under him; when he is beaten it spins away.

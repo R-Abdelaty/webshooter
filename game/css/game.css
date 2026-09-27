@@ -27,9 +27,9 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 #world{position:fixed;inset:0;z-index:2;background:#b9cad8}
 #world-canvas{width:100%;height:100%;display:block}
 #world-fx{position:absolute;inset:0;z-index:1;width:100%;height:100%;pointer-events:none}
-/* The HUD, in the first clip's style: thin, cyan, glowing. Who you're up
-   against top left, the objective and clock top right, the minimap bottom
-   left. hud-view.js fills it in. */
+/* The HUD, in the first clip's style: thin, cyan, glowing. In a fight your
+   health top left, the villain's and the objective top right (no clock); the
+   minimap bottom left. hud-view.js fills it in. */
 .world-hud{position:absolute;z-index:2;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:16px 3vw;pointer-events:none;
   --hud:#5fe3ff;--hud-hi:#9ff0ff;--hud-ink:#e8fbff;--hud-bg:#04121ab3;--hud-glow:0 0 6px #5fe3ffaa;font-family:Arial,sans-serif}
 .world-hud .hud-quit{pointer-events:auto;align-self:flex-end;padding:4px 10px;font-size:11px;border-width:1px;border-color:#5fe3ff99;background:#04121a99;color:#9ff0ff}
@@ -50,6 +50,14 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 .hud-clockbar{width:min(220px,40vw);height:4px;border:1px solid #5fe3ff66;background:var(--hud-bg);transform:skewX(20deg)}
 .hud-clockbar i{display:block;height:100%;width:100%;margin-left:auto;background:var(--hud);box-shadow:var(--hud-glow);transition:width .15s}
 .hud-clockbar.is-low i{background:#ff6a6a;box-shadow:0 0 6px #ff6a6a}
+/* In a fight (P4): your health top left - it flashes when you're hit and goes
+   red when low - and the villain's top right, skewed the other way. */
+.hud-foe{display:grid;justify-items:end;gap:3px}
+.hud-foe .hud-segs{transform:skewX(20deg)}
+.hud-health.is-hurt .hud-segs{animation:hud-hurt .45s ease-out}
+.hud-health.is-low .hud-segs i.is-lit{background:#ff6a6a;box-shadow:0 0 6px #ff6a6a}
+.hud-health.is-low .hud-hp{color:#ff9a9a}
+@keyframes hud-hurt{0%,40%{border-color:#fff;box-shadow:0 0 14px #ff4a4a,inset 0 0 8px #ff4a4a;background:#5a0a0acc}100%{border-color:#5fe3ff88;box-shadow:none;background:var(--hud-bg)}}
 /* The minimap: square, cyan-framed, tilted back a little like the clip's. */
 .hud-map{position:absolute;z-index:2;left:3vw;bottom:62px;width:180px;height:180px;pointer-events:none;border:1px solid #5fe3ffcc;background:#04121acc;
   box-shadow:0 0 10px #5fe3ff55,inset 0 0 18px #5fe3ff33;transform:perspective(520px) rotateX(18deg);transform-origin:50% 100%}
@@ -71,6 +79,8 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 .world-timer.is-low{color:#ff6a6a}
 /* A hit flashes the view; world-game.js sets the opacity and lets it fade. */
 .world-flash{position:absolute;inset:0;z-index:1;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(255,255,255,.1) 30%,rgba(255,236,210,.85))}
+/* You're hit: red at the edges, as strong as the hit; world-game.js sets the opacity. */
+.world-hurt{position:absolute;inset:0;z-index:1;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,rgba(160,0,0,0) 42%,rgba(170,0,0,.45) 75%,rgba(120,0,0,.9))}
 /* Cards over the city let it show through; they hold four to seven buttons. */
 #world-card{background-color:rgba(4,4,6,.38)}
 #world-card .card{width:min(520px,100%)}

@@ -41,6 +41,18 @@
   // camera kicks wider with speed and, in first person, rolls into the arc
   // and shows speed lines (CAMERA MOTION: REDUCED tones them down); wind
   // and the line's creak are swing-audio.js's.
+  //
+  // And the fights are a real fight (P4): one HARD level for all three
+  // (difficulty.js), your health as well as his, and no clock - it ends when
+  // he goes down or you do. The Goblin hunts you and attacks (attacks.js,
+  // run by fight.js): every attack is telegraphed - a wind-up clip, a sound,
+  // the guns' red laser, and a red chevron at the screen's edge when he's
+  // out of view - and tested against your body where it lands. A web at one
+  // of his bombs in flight shoots it down. Hit, the view shakes (capped) and
+  // reddens at the edges, the hands or the body flinch, a heavy hit knocks
+  // you off a swing line; at 0 you go down, the view slumps, and DEFEAT
+  // offers a RETRY. attack-view.js draws the bombs, lasers and tracers;
+  // attack-audio.js makes their sounds.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -49,7 +61,7 @@
   var SHAKE = .012, SHAKE_MS = 260; // a hit's screen shake: radians, and how long it takes to settle
   var SAVE_KEY = 'ws.save3d.v1';
   // How long the defeat (or the villain getting away) plays before its card.
-  var END_MS = { won: 1800, lost: 900 };
+  var END_MS = { won: 1800, lost: 2600 };
   var canvas = $('world-canvas'), overlay = $('world-fx'), fxc = overlay.getContext('2d'), cross = $('world-crosshair');
   var world = null, city = null, spots = null, player = null, webs = null, actors = null, villains = null, look = Look.create(), lines = null, due = [];
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
@@ -61,6 +73,7 @@
   var HORN_EVERY = 16;             // seconds between horns, on average, down among the traffic
   var you = null, anim = PlayerAnim.create(), pcam = PlayerCamera.create(), view = null, shots = [], lastState = 'idle';
   var swing = Swing.create(), held = null, fxv = { fov: 0, roll: 0, lines: 0 };
+  var attacksView = null, hurtAt = -1e9, hurtDmg = 0, deadAt = null, shakeMs = SHAKE_MS, beeps = {}, popped = {};
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -81,6 +94,7 @@
     villains = WorldVillains.create(world.scene, world);
     villains.preload();
     fx = WorldFx.create(world.scene);
+    attacksView = WorldAttacks.create(world.scene);
     // A beaten villain dissolves as the web wraps him.
     villains.onWrap = function (caps) { fx.wrap(caps, Player.eye(player)); };
     traffic = Traffic.create(city);
@@ -117,7 +131,7 @@
     var f = Encounters.focus(enc);
     world.setShadowFocus(f);
     world.update(0, Player.eye(player), player.yaw, player.pitch);
-    var env = world.environment(f, world.tier.env, [villains.group, fx.group, life.group, you.group, lines.group]);
+    var env = world.environment(f, world.tier.env, [villains.group, fx.group, life.group, you.group, lines.group, attacksView.group]);
     villains.setEnvironment(env);
     you.setEnvironment(env);
   }
@@ -166,7 +180,7 @@
     leaving = true; running = false; paused = false;
     unlock();
     WSAudio.hum && WSAudio.hum(null); WSAudio.ambience && WSAudio.ambience(0);
-    SwingAudio.stop();
+    SwingAudio.stop(); AttackAudio.stop();
     show($('world-card'), false); show($('world'), false); show($('menu'), true);
     document.dispatchEvent(new CustomEvent('webshooter:quit'));
   }
@@ -178,6 +192,8 @@
     look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear(); stopUntil = 0;
     anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null;
     swing = Swing.create(); held = null; fxv = { fov: 0, roll: 0, lines: 0 };
+    hurtAt = -1e9; hurtDmg = 0; deadAt = null; beeps = {}; popped = {};
+    $('world-hurt').style.opacity = '0';
   }
   function enterRoam(fromSpawn) {
     mode = 'roam'; fight = null; enc = null; range = null; cues = null;
@@ -279,7 +295,7 @@
     if (mode === 'roam') list = list.concat([['GOBLIN', 'fight0'], ['RHINO', 'fight1'], ['VENOM', 'fight2'], ['TRAINING', 'train']]);
     else list.push(['FREE ROAM', 'roam']);
     list.push(['MENU', 'menu']);
-    card('paused', 'PAUSED', mode === 'fight' ? 'The clock stops until you resume.' :
+    card('paused', 'PAUSED', mode === 'fight' ? 'The fight holds until you resume.' :
       mode === 'roam' ? 'Take a breather - or pick a fight.' : 'Take a breather. The city will wait.', list);
   }
   function resume() { if (running && paused) act('resume'); }
@@ -361,24 +377,32 @@
       hold: paused, rebase: rebase
     }, dt);
     rebase = false; lastLook = r;
-    var moves = { state: anim.state, body: [], arms: [], speed: player.speed, armSpeed: 1 };
+    var moves = { state: anim.state, body: [], arms: [], speed: player.speed, armSpeed: 1 }, down = isDown();
     if (!paused) {
-      Player.look(player, r.dyaw, r.dpitch);
+      // Down, you don't look, walk or swing any more: the view slumps.
+      if (!down) Player.look(player, r.dyaw, r.dpitch);
       // swing.js moves you while it has you; otherwise Player walks you.
-      var input = { move: Move.vector(), buttons: Move.buttons(), yaw: player.yaw }, vy0 = player.vy, air0 = !player.grounded;
+      var input = down ? { move: { x: 0, z: 0 }, buttons: {}, yaw: player.yaw } : { move: Move.vector(), buttons: Move.buttons(), yaw: player.yaw };
+      var vy0 = player.vy, air0 = !player.grounded;
       var sw = Swing.step(swing, player, input, dt, city);
       if (!sw.active) Player.step(player, input, dt, city);
       swingEvents(sw.events, now);
       if (air0 && player.grounded && !sw.active && vy0 < -9) landed(player, -vy0);
-      if (fight) Fight.tick(fight, fdt);
+      // The fight, told where you are, what you're doing and whether he's in
+      // view; then what his attacks did.
+      if (fight) { Fight.tick(fight, fdt, fightCtx()); fightEvents(Fight.drain(fight), now); fuses(fight, now); }
       if (range) Training3D.tick(range, dt);
       if (mode === 'roam') triggers();
-      moves = PlayerAnim.step(anim, player, dt, Swing.anim(swing));
+      moves = PlayerAnim.step(anim, player, dt, extras());
     }
     SwingAudio.update({ speed: Swing.speed(player), load: swing.load, taut: swing.taut, on: !paused && Swing.airborne(swing) },
       S.muted ? 0 : (Number.isFinite(+S.sfx) ? +S.sfx : 80) / 100);
     viewPlace(moves.state, paused ? 0 : dt);
+    // Gone down: the view sinks and tips (PlayerCamera.slump).
+    var slump = deadAt !== null ? PlayerCamera.slump((now - deadAt) / 1000, camMode().camera === 'third') : null;
+    if (slump) view.eye = { x: view.eye.x, y: view.eye.y - slump.drop, z: view.eye.z };
     var eye = view.eye;
+    AttackAudio.frame(eye, player.yaw, player.pitch, paused || S.muted ? 0 : (Number.isFinite(+S.sfx) ? +S.sfx : 80) / 100);
     // The villain's model: its clips move on while the fight is played, and
     // through its defeat even once the card is up. Its bones are sampled into
     // the fight now, before the camera below records what this frame shows.
@@ -389,9 +413,14 @@
     var blobbed = world.tier.blob && fight && modelShown && villains.shown();
     fx.setBlob(blobbed ? fight.at : null, blobbed ? Fight.ground(fight) : null, fight ? VILLAINS[fight.villain].height : 0);
     ending(now);
+    // The Goblin hunts you round the city: the fight's shadow goes with him.
+    if (fight && fight.hunt) {
+      var P = enc.path, H = fight.hunt;
+      world.setShadowFocus({ x: H.cx, y: H.y + (P.h0 + P.h1) / 2 + (fight.m.lift || 0), z: H.cz, r: P.r1 + 2 });
+    }
     world.setFov(fov() + fxv.fov);
-    world.update(dt, eye, player.yaw, player.pitch);
-    world.camera.rotation.z = fxv.roll;
+    world.update(dt, eye, player.yaw, player.pitch + (slump ? slump.pitch : 0));
+    world.camera.rotation.z = fxv.roll + (slump ? slump.roll : 0);
     shake(now);
     world.camera.updateMatrixWorld();
     // You, as the camera now sees you, with the shots taken since last frame.
@@ -410,6 +439,7 @@
     cross.style.left = r.crosshair.x * 100 + '%'; cross.style.top = r.crosshair.y * 100 + '%';
     cross.classList.toggle('is-turning', r.turning);
     webs.update(now);
+    attacksView.update(fight, now);
     fx.update(paused && !(fight && (fight.mode === 'won' || fight.mode === 'lost')) ? 0 : fdt, now, world.camera, canvas.height);
     // The traffic and walkers near you, moving on while nothing is paused.
     nearCars = life.update(paused ? 0 : dt, eye, world.tier);
@@ -418,10 +448,91 @@
     you.render();
     fxc.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
     speedLines(fxc, overlay.clientWidth, overlay.clientHeight, fxv.lines, now);
-    hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, goal(), eye);
+    // The arrow to the villain off the view - red, at him or at a bomb, when
+    // an attack is coming from out there.
+    var threat = fight && !paused ? Hud.threat(fight, visible) : null;
+    hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, threat || goal(), eye, !!threat, now);
+    hurtEdge(now);
     drawHud(now, eye);
     if (perf) readout(now, c, S);
     requestAnimationFrame(frame);
+  }
+
+  // --- he fights back (P4) --------------------------------------------------------
+  // You've gone down in this fight.
+  function isDown() { return !!(fight && fight.you && fight.you.hp <= 0); }
+  // What the fight needs to know about you this frame: where your feet are
+  // and how you're moving, your body (the model's capsules, as it's drawn -
+  // hanging from a line, crouched on a perch - or a stand-in until it
+  // loads), what you're doing, and whether he's in your view.
+  function fightCtx() {
+    var b = you && you.ready ? you.sample() : null, caps = b && b.capsules && b.capsules.length ? b.capsules : Attacks.standIn(player, swing.mode === 'perch');
+    var mid = fight.at && { x: fight.at.x, y: fight.at.y + 1.2, z: fight.at.z };
+    return { you: { x: player.x, y: player.y, z: player.z, vx: player.vx, vy: player.vy, vz: player.vz }, body: caps,
+      state: swing.mode === 'none' ? (player.grounded ? 'ground' : 'fly') : swing.mode, onScreen: !!mid && visible(mid), city: city };
+  }
+  function visible(p) { return Hud.onScreen(world.project(p)); }
+  // What PlayerAnim needs besides Player: the swing's (line, zip, perch) and
+  // the fight's (hits taken, the last one heavy, down).
+  function extras() {
+    var x = Swing.anim(swing), y = fight && fight.you;
+    if (y) { x.hits = y.hits; x.big = y.big; x.dead = y.hp <= 0; }
+    return x;
+  }
+  // What his attacks did this frame (Fight.drain): the sounds, flashes and
+  // blasts, and what a hit does to you.
+  function fightEvents(ev, now) {
+    var up = function (p) { return p && { x: p.x, y: p.y + 1.2, z: p.z }; }, motion = camMode().cameraMotion;
+    ev.forEach(function (e) {
+      if (e.type === 'telegraph') {
+        AttackAudio.warn(up(e.at), e.move, fight.rules.telegraph);
+        // Reaching for a bomb, he cackles.
+        if (e.move === 'bomb' && WSAudio.roar) WSAudio.roar(up(e.at), 'glider', .45);
+      } else if (e.type === 'throw') { if (WSAudio.whoosh) WSAudio.whoosh(e.from, .6); }
+      else if (e.type === 'round') { fx.muzzle(e.from, now); AttackAudio.round(e.from); }
+      else if (e.type === 'blast') {
+        popped[e.id] = e.at;
+        fx.blast(e.at, now, view ? view.eye : Player.eye(player));
+        AttackAudio.boom(e.at, e.why !== 'shot');
+        // Close by, you feel it even when it misses.
+        var d = dist(e.at, Player.eye(player));
+        if (d < 25 && !e.damage) kick(now, PlayerCamera.hurtShake(12 * (1 - d / 25), motion));
+        if (d < 12) flash(.25 * (1 - d / 12));
+      } else if (e.type === 'hurt') hurt(e, now, motion);
+    });
+  }
+  // You're hit: the flinch is PlayerAnim's (extras), the rest is here - the
+  // red edge, a capped shake, the sound; a heavy one knocks you off your
+  // line, and a blast throws you. At 0, down you go.
+  function hurt(e, now, motion) {
+    hurtAt = now; hurtDmg = e.damage;
+    AttackAudio.hurt(e.damage);
+    kick(now, PlayerCamera.hurtShake(e.damage, motion));
+    if ((e.knock || e.dead) && swing.mode === 'swing') { Swing.release(swing, player); letGo(now); }
+    if (e.push && swing.mode !== 'perch' && swing.mode !== 'zip') {
+      player.vx += e.push.x; player.vz += e.push.z;
+      if (e.push.y > 0) { player.vy = Math.max(player.vy, e.push.y); player.grounded = false; }
+    }
+    if (e.dead) { deadAt = now; AttackAudio.down(); letGo(now); }
+  }
+  function kick(now, s) { shakeAt = now; shakeAmp = s.amp; shakeMs = s.ms; }
+  // A bomb's fuse beeps as it flies, quicker as it runs down, from where it is.
+  function fuses(f, now) {
+    var F = Attacks.constants.FUSE, live = {};
+    f.bombs.forEach(function (b) {
+      live[b.id] = true;
+      if (b.popAt !== null) return;
+      var every = .08 + .32 * Math.max(0, F - b.t) / F;
+      if (beeps[b.id] === undefined || b.t >= beeps[b.id]) { beeps[b.id] = b.t + every; AttackAudio.fuse(b); }
+    });
+    Object.keys(beeps).forEach(function (k) { if (!live[k]) delete beeps[k]; });
+  }
+  // The red at the edges of the view: the last hit's, fading, and a tinge
+  // while you're low.
+  function hurtEdge(now) {
+    var y = fight && fight.you, v = y ? PlayerCamera.vignette(hurtDmg, (now - hurtAt) / 1000, y.hp / y.maxHp) : 0;
+    v = Math.round(v * 100) / 100;
+    if (hurtEdge.last !== v) { hurtEdge.last = v; $('world-hurt').style.opacity = String(v); }
   }
 
   // Walking into a light column starts its fight (or the range).
@@ -444,7 +555,7 @@
     if (shownEnd !== fight.mode || now - endAt < END_MS[fight.mode]) return;
     shownEnd = fight.mode + '-card';
     if (fight.mode === 'lost') {
-      card('defeat', 'DEFEAT', 'Out of time. ' + VILLAINS[enc.villain].name + ' got away.', [['RETRY', 'retry'], ['FREE ROAM', 'roam'], ['MENU', 'menu']]);
+      card('defeat', 'DEFEAT', 'You went down. ' + VILLAINS[enc.villain].name + ' is still out there.', [['RETRY', 'retry'], ['FREE ROAM', 'roam'], ['MENU', 'menu']]);
     }
     if (fight.mode === 'won') {
       var lastOne = enc.index >= 2;
@@ -455,7 +566,7 @@
   }
 
   function shake(now) {
-    var k = Math.max(0, 1 - (now - shakeAt) / SHAKE_MS);
+    var k = Math.max(0, 1 - (now - shakeAt) / shakeMs);
     if (!k) return;
     var a = shakeAmp * k * k;
     world.camera.rotation.x += (Math.random() - .5) * 2 * a;
@@ -475,7 +586,7 @@
   // the crosshair was, however far the view or the villain has moved since.
   // A click has neither and shoots from where things are now.
   function fire(at, p) {
-    if (!running || paused || !world || !player) return null;
+    if (!running || paused || !world || !player || isDown()) return null;
     var c = ctl(), S = settings(), wrist = wristLooks(c);
     var aim = at && p ? Look.crosshair(at, S.lookMode, wrist) : look.crosshair;
     var cam = (p && Look.cameraAt(look, Look.shotTime(p))) || camera();
@@ -483,7 +594,11 @@
     var hit = world.raycast(cam.eye, dir, RANGE), now = performance.now();
     var shot = { origin: cam.eye, dir: dir, blocked: hit ? hit.distance : Infinity };
     // A shot at him, a line to swing on, a zip, or letting go (swing.js).
-    var d = Swing.decide({ target: aimed(shot, cam), hit: hit, player: player, city: city, villains: villainCaps() }, swing);
+    // A bomb in flight near the aim (judged where it was when you aimed) is
+    // shot down; else a shot at him, a line to swing on, a zip, or letting go.
+    var bomb = fight ? Fight.aimBomb(fight, shot, cam.seen) : null;
+    var d = Swing.decide({ bomb: bomb, target: aimed(shot, cam), hit: hit, player: player, city: city, villains: villainCaps() }, swing);
+    if (d.act === 'bomb') return shootDown(d.bomb, aim, now);
     if (d.act !== 'shot') return swingAct(d, hit, now);
     // Cooling down, or a fight not being played: the shot doesn't happen.
     if (fight && (fight.mode !== 'playing' || fight.cooldownRemaining > 0)) return null;
@@ -513,7 +628,7 @@
           var st = stickToVillain(r.body, from(), t);
           // Particles and a flash where it met him, and the hit-stop.
           if (st) { fx.hit(vid, st.point, st.normal, t); stopUntil = HitFx.stopUntil(t, stopUntil); }
-          actors.flash(t); villains.flash(t); flash(.32); shakeAt = t; shakeAmp = SHAKE;
+          actors.flash(t); villains.flash(t); flash(.32); shakeAt = t; shakeAmp = SHAKE; shakeMs = SHAKE_MS;
           // Heard where it landed on him.
           WSAudio.crunch(st ? st.point : f.at);
         };
@@ -522,7 +637,7 @@
         land = function (t) {
           webs.add(r.point, back(dir), dist(from(), r.point), t, actors.thugAnchor(r.thug), .9);
           fx.web(r.point, back(dir));
-          flash(.2); shakeAt = t; shakeAmp = SHAKE * (r.down ? .9 : .5);
+          flash(.2); shakeAt = t; shakeAmp = SHAKE * (r.down ? .9 : .5); shakeMs = SHAKE_MS;
           WSAudio.crunch(r.point); if (r.down && WSAudio.impact) WSAudio.impact(r.point);
         };
       } else {
@@ -543,7 +658,7 @@
       // The web sticks to the wall or roof behind the target.
       land = function (t) {
         splat(t);
-        if (tr.hit) { flash(.18); shakeAt = t; shakeAmp = SHAKE * .5; WSAudio.crunch(tr.point); } else WSAudio.thunk(hit && hit.point);
+        if (tr.hit) { flash(.18); shakeAt = t; shakeAmp = SHAKE * .5; shakeMs = SHAKE_MS; WSAudio.crunch(tr.point); } else WSAudio.thunk(hit && hit.point);
       };
     } else {
       land = function (t) { splat(t); if (hit) WSAudio.thunk(hit.point); };
@@ -553,6 +668,28 @@
     later(ws.arrive, land);
     return out;
   }
+  // A web at a bomb in flight: it flies to where the bomb will be when it
+  // gets there, and the bomb goes off then (Fight.shootBomb). The line
+  // follows the bomb until it does.
+  function shootDown(id, aim, now) {
+    if (fight.mode !== 'playing' || fight.cooldownRemaining > 0) return null;
+    var sh = PlayerAnim.shoot(anim), hand = sh.hand, f = fight;
+    var from = function () { return you.wrist(hand) || viewEye(); };
+    var launch = now + WebShot.snap(camMode().camera) * 1000;
+    var guess = WebShot.shot({ from: from(), to: Fight.bombAhead(f, id, (launch - now) / 1000), launch: launch });
+    var delay = (guess.arrive - now) / 1000, r = Fight.shootBomb(f, id, delay);
+    if (!r.accepted) return null;
+    shots.push(sh);
+    later(launch, function () { WSAudio.thwip(); });
+    var meet = Fight.bombAhead(f, id, delay) || r.point;
+    var to = function () {
+      var b = f.bombs.filter(function (q) { return q.id === id; })[0];
+      return b ? { x: b.x, y: b.y, z: b.z } : popped[id] || meet;
+    };
+    lines.add(WebShot.shot({ from: from(), to: meet, launch: launch }), from, to);
+    return { act: 'bomb', view: aim, hit: true, bomb: id, hand: hand, point: meet };
+  }
+
   // --- swinging ---------------------------------------------------------------
   // Is a villain (his body as it was when you aimed), a thug or the
   // training target near enough the aim that it's a shot, not a swing?
@@ -760,7 +897,7 @@
     if (!locked && running && !paused && !leaving) pause();
   });
   document.addEventListener('mousemove', function (e) {
-    if (!locked || paused || !player || !(e.movementX || e.movementY)) return;
+    if (!locked || paused || !player || isDown() || !(e.movementX || e.movementY)) return;
     // Moving the mouse takes the look from the wrist, and puts the wrist's aim
     // in the middle, which is where it picks up again when you turn it.
     var c = ctl();
@@ -798,6 +935,6 @@
     get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
     get villains() { return villains; }, get fx() { return fx; }, get life() { return life; }, get hud() { return hudView; }, get traffic() { return traffic; },
     get you() { return you; }, get anim() { return anim; }, get view() { return view; }, setCamera: setCamera,
-    get swing() { return swing; }, get held() { return held; }, get fxv() { return fxv; }
+    get swing() { return swing; }, get held() { return held; }, get fxv() { return fxv; }, get attacks() { return attacksView; }
   };
 })();
