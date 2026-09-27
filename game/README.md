@@ -69,7 +69,7 @@ Both have the same look: a colour grade towards the first reference clip's warm 
 
 ## Character models
 
-The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If one can't be loaded, its fight still plays with the classic game's picture of it instead, and the console says so once. You can look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino and Venom stand in a row in front of you at their real size, facing you. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
+The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If one can't be loaded, its fight still plays with the classic game's picture of it instead, and the console says so once. You can look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino, Venom, and the player's Spider-Man (the full body, then the first-person arms at his eye height) stand in a row in front of you at their real size, facing you. Spider-Man isn't playable yet: his models are built and loaded, and the next sessions of `docs/PLAYER_PLAN.md` put him in the game. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
 
 | Key | Does |
 | --- | --- |
@@ -77,7 +77,8 @@ The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If 
 | , . | Play its previous / next clip (one-shots repeat) |
 | H | A hit, layered on whatever it is doing |
 | L | Walk and run by speed: stopped, walk, between, run, faster |
-| O | Body capsules (green, what a shot can hit) and the unused weak spots (coloured spheres), then weak spots only, then neither |
+| O | Body capsules (green, what a shot can hit), the unused weak spots (coloured spheres) and Spider-Man's wrists where his webs leave (orange), then without the capsules, then none |
+| V | Put the first-person arms on your camera, as you will see them when playing; again to put them back. Step through their `fp_` clips with , . |
 | / | Freeze the clips |
 | M | Close (it forms again in front of you next time) |
 
