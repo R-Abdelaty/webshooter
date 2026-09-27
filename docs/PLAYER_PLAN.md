@@ -599,3 +599,111 @@ anything the next session must know._
     `GLINT`); `PlayerAnim.constants.SHOOT`, `TURN_AIM`; `THWIP` in `spiderman.py`.
   - **For P3.** A swing line is held, not shot: give it its own look rather than `WebShot`'s release and reel-in. Its fibre
     fan (`WebShot.point`) is reusable for the line.
+- 2026-09-28 — **Session P3 done: web-swinging, zips and perches, in both camera modes and in the fights.** 222 tests pass
+  (202 old + 20 new in `game/tests/swing.test.cjs`). No CLASSIC file or test changed; neither did `menu.js` or `audio.js`.
+  **Nothing is pushed.**
+  - **What exists.**
+    - Logic (UMD, tested): `world/swing.js` (`Swing`).
+      - `decide(aim, state)` → `shot` / `attach` / `zip` / `release` / `none`. `aim` is `{ target, hit, player, city, villains }`:
+        `target` says whether a villain, a thug or the training target is near the aim; `hit` is `world.raycast`'s.
+      - `classify` sorts the hit into a wall, a zip (with its perch) or nothing, with a reason: `far`, `below`, `villain`,
+        `not a building`, `street`, `low`, `slope` or `no room`.
+      - `attach`, `release`, `zip` and `step` run the physics. `step` returns `{ active, events }`, with events `taut`,
+        `land`, `perch` and `drop`. `anim(state)` gives `PlayerAnim.step`'s extra; `airborne`, `inCone`, `cast`, `grip` and
+        `speed` are helpers.
+      - The state's `mode` is `none` (Player walks you, as before), `swing`, `fly` (let go), `zip` or `perch`.
+    - `player-camera.js`: `swingFx` (the FOV kick, roll and speed lines, capped and eased), a trail on `third(..., {moving})`,
+      and a crouch on `first(..., crouch)`. `player-anim.js` counts time on a line or a zip as time in the air, so landing
+      after a swing plays `land`, and diving off a perch is a `jump`. `web-shot.js` has `WebShot.line`/`letGo`, a held line.
+      `Look.ray` honours `cam.roll`. `player.js` now also exports `resolveWalls`, `ceiling` and `clampToWalk`.
+    - Render: `world/swing-audio.js` (`SwingAudio`), plus changes to `player-view.js` (two-bone IK and the hang tilt),
+      `web-lines.js` (held lines follow the hand) and `world-game.js`. `WorldGame` also exposes `swing`, `held` and `fxv`.
+  - **How a flick or a click is judged** (`world-game.js` `fire`): the camera and aim are rewound as before, then `aimed()` asks
+    whether he is within `SHOT_CONE` (4°) of the ray, using the body as it was when you aimed. If so, it is a shot, judged by
+    the old rules (1.5° cone, cooldown, dodge, lag compensation). Otherwise `Swing.decide` picks a line, a zip or a release.
+    The fight's cooldown gates only shots, so swinging is never blocked by it.
+  - **The physics.**
+    - A rope, not a rod, holding the hands (`GRIP` 2.1 m above the feet) to the anchor. It is slack when you are nearer than
+      its length. When taut it projects you onto its sphere and removes the outward speed. It is integrated at 120 Hz with
+      Player's gravity.
+    - On attach it reels in (`REEL` 18 m/s) until the bottom of the arc is `LOW` (30%) of the anchor's height above the street.
+      While your feet are within `CLEAR` of what's under you it reels in faster. Without this every arc bottomed out on the
+      street.
+    - The plan's "gentle shortening past the bottom" is `SHORTEN`: 22% of the length per second within `BOTTOM` of straight down,
+      keeping angular momentum, and at most `PUMP_MAX` of the length. The tests check that a pendulum climbs past its start
+      with it and not without it.
+    - Speed is capped at 36 m/s. Letting go keeps your velocity; near the top of the forward arc you get up to `BOOST` ahead and
+      `BOOST_UP`. Flight has no air brakes (Player's air control would stop you), and landing hands you back to Player.
+    - A line from standing or a perch yanks you toward it, up to `YANK` (never more, however often you do it).
+    - Walls push you out and take the velocity going into them, so you slide along. A wall holding you out pays the line out.
+      A floor lands you. No fall damage.
+  - **Decisions to know about.**
+    1. **You swing where you look (`LOOK_TURN` .9 rad/s on a line, `LOOK_FLY` .5 in the air).** The level velocity turns toward the
+       view's heading. The plan only had `Move.vector()` steering, which is still there (`STEER`/`FLY_STEER`), but the wrist
+       alone has no stick. Without this the side-wall pendulums flung the player into the cross streets.
+    2. **`SHOT_CONE` 4° for the decision, wider than the 1.5° hit cone.** Aim near him and it's a shot that can miss (so he
+       still dodges, and training still counts misses), not a line to the wall behind him. A flick further off than that,
+       at nothing, lets go of your line, as decision 4 says. That can drop you if you aim loosely at a villain: see P6.
+    3. **Hand over hand.** On a line, the next line goes to the free hand. From standing, it goes to the hand on the anchor's
+       side. Shots while on a line use the free hand (P2's rule), and the line stays attached.
+    4. **The physics attaches at the flick.** The line itself leaves at the snap (60/75 ms) and flies out, so the pull is
+       instant and the picture follows a moment later.
+    5. **Zips.** A wall hit within `EDGE_DROP` (2.5 m) of its top is its roof edge. A top within `EDGE_SNAP` (3 m) of an edge
+       snaps to that edge. The perch is centred on the parapet if one is there, otherwise just in from the edge. The zip is
+       an eased quadratic Bézier (0.35–1.1 s) that comes over the edge from outside; there is no collision during it, and
+       `resolveWalls` has the last word at the end. Perched, the **body** faces out (third person), and the first-person eye
+       drops 0.55 m to the crouch. **The first-person camera is never turned for you**, so after a zip you look where you
+       aimed. Ask the user whether they want the view turned to face out as well.
+    6. **Space** lets go of a line, and dives off a perch (7 m/s forward and a jump). Walking steps off a perch.
+    7. **The comfort effects.** FULL gives a kick of up to 10° (from 12 to 34 m/s), a roll of up to 4° into the arc (first
+       person only), and speed lines (first person only). REDUCED halves the kick and has no roll and no lines. The roll is
+       recorded with each camera, so rewound shots aim through the rolled view correctly. Third person trails your velocity
+       by up to 2.2 m and rises 0.8 m at speed.
+    8. **The IK** (`player-view.js`) is two-bone, on the arm's local rotations after the clip, blended in and out at `IK_EASE`.
+       In first person the hand aims at the anchor as the arms' camera would show it, but never within `FP_OFF` (0.72 rad) of
+       the view's centre and never far across to the other side. Aimed straight at the anchor, the arm filled the screen and
+       hid its own line. In third person the body turns about the hands (`HANG` 2.15 m) so its up runs along the line, legs
+       trailing (`TRAIL`), never more than `TILT_MAX` (60°) from upright.
+    9. **Sound.** The thwip (`WSAudio.thwip`) plays at the snap, and `WSAudio.thud` plays on landings over 6 m/s and on
+       perches. Wind by speed and the line's creak by load are `SwingAudio`, on **its own AudioContext**, because `audio.js` is
+       shared with the frozen CLASSIC. It follows Settings' EFFECTS volume and mute, and stops on pause and quit.
+  - **Measured** in headless Chrome on the **Intel UHD at 1920×1080, MED**, over http. Swinging down the avenue: 77–78 fps in both
+    views (76–81 standing), 93–98 draw calls (76–82 standing; each line's splat and the held line add a few). In the Rhino
+    fight with a line out: 88–92 fps, 57–60 calls. The only per-flick cost is the one `world.raycast` that was already there.
+  - **Verified** in headless Chrome (the app's pane was hidden again), with drivers in this session's scratchpad (`cdp.cjs`,
+    `chain.js`, `flick.js`, `zip.js`, `fight.js`):
+    - **30 s chains down the avenue at x −488 from 40 m up, never inside a building, in both views.** By clicks through the
+      real `WorldGame.fire`: about 1,000 m (first person) and 870 m (third). By **scripted flicks** (100 Hz still-wrist
+      packets, flagged flick packets, then `Controller.shot` → `WorldGame.fire`, as `menu.js` does): 969 m and 616 m.
+    - A zip from the street to a roof edge by flick: perched on the parapet at 28.8 m, facing out over the avenue, not
+      pushed by any wall, state `perch`.
+    - **Shooting the Rhino mid-swing** by flick, in both views: 20 damage from the free hand, the line still held.
+    - From `file://`. The console shows only the r159 deprecation warning.
+    - Shots are in `docs/reference/p3_pov_swing.png`, `p3_third_swing.png` and `p3_perch.png`.
+  - **Not verified.**
+    - The real wrist shooter. **Ask the user to try swinging with it in both camera modes.**
+    - A real Chrome window with vsync (press P while swinging).
+    - The wind and creak by ear. Their levels in `SwingAudio.constants` are guesses.
+    - Pointer lock.
+  - **Known and deliberate.**
+    - The ±75° pitch limit means you can't aim straight down at a villain you're swinging right over.
+    - Hanging still on a short line against a wall is possible; let go with Space or a flick at the sky.
+    - Swinging through a fight's light column at street level in free roam starts that fight, as walking into it does.
+  - **Constants to tune** (P6).
+    - `Swing.constants`: `RANGE`, `BELOW`, `EDGE_DROP`, `EDGE_SNAP`, `SHOT_CONE`, `GRIP`, `LOW`, `REEL`, `CLEAR`, `CLEAR_RATE`,
+      `SHORTEN`, `BOTTOM`, `PUMP_MAX`, `MAX_SPEED`, `STEER`, `FLY_STEER`, `LOOK_TURN`, `LOOK_FLY`, `BOOST`, `BOOST_UP`,
+      `TOP_ARC`, `YANK`, `YANK_UP`, `ZIP_SPEED`, `ZIP_T`, `ZIP_LIFT`, `DIVE`.
+    - `PlayerCamera.constants`: `KICK`, `KICK_V`/`KICK_V1`, `ROLL`, `ROLL_V`, `LINES_V`, `FX_EASE`, `LAG`, `LAG_MAX`, `LAG_UP`,
+      `LAG_EASE`, `CROUCH`.
+    - `player-view.js`: `TILT_MAX`, `TRAIL`, `HANG`, `IK_EASE`, `REACH`, `FP_OFF`, `FP_CROSS`.
+    - `WebShot.constants`: `LINE_SPREAD`, `LINE_SAG`, `LINE_SNAP`, `LINE_RING`, `LINE_FADE`.
+    - `SwingAudio.constants`.
+  - **For P4.**
+    - To knock the player off a line, call `Swing.release(swing, player)` (the boost only applies near the top of the arc) and
+      `letGo(now)` in `world-game.js`.
+    - `swing.mode` tells you whether he is grounded (`none` with `player.grounded`), `perch`, `swing`, `fly` or `zip`.
+    - A bomb shot down goes before villains: add it to `aimed()`, or add a `bomb` flag that `Swing.decide` checks first.
+    - The PAUSED card still says "The clock stops", and DEFEAT says "Out of time". Both are P4's to rewrite.
+    - `you.sample()` gives his capsules in the hang pose while he's on a line (the drawn body, turned about the hands).
+  - **For P5.** The Rhino's ram needs "perched on that building": `swing.perch` has `{x, y, z, yaw}`, and `City.query` at that
+    point finds the box under it.
