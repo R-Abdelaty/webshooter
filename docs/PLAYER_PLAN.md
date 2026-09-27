@@ -355,3 +355,95 @@ anything the next session must know._
   | `anim_death.fbx` | Dying (front impact to the head, falls) | 563 KB |
   | `anim_dodge_r.fbx` | Dodging Right [in place] | 380 KB |
   | `anim_dodge_l.fbx` | Dodging Right, **mirrored** by Mixamo [in place] (a different file from `_r`) | 380 KB |
+- 2026-09-27 — **Session P1 done: both Spider-Man models are built, embedded and load in the page from `file://`, and
+  every clip plays in the viewer.** 178 tests pass (175 old + 3 new player tests in `rig.test.cjs`). No game code
+  outside the model loaders and the viewer changed; CLASSIC is untouched. **Nothing is pushed** (the remote is public;
+  see CHARACTERS_PLAN C1).
+  - **Build.** `node game/tools/build-models.cjs --blender --sheets --only spiderman` runs
+    `game/tools/blender/spiderman.py` (about 50 s), renders both sheets, compresses and embeds. The sources went in
+    through LFS. Blender's decimate isn't bit-for-bit repeatable: a rebuild flips a few normals on the thinned lens frames
+    (invisible). The committed build is kept, and the arms rebuild identically.
+  - **The embedded stacks** (`docs/reference/clips/spiderman_embedded.png`) are all two frames long:
+    - `Layer0`/`Layer0.001` are one static near-T-pose;
+    - `CameraAction`/`FIGAction` move the armature object out of view;
+    - the other twelve are the rest pose.
+    None is a clip, so all are dropped. The 9 face shape keys are dropped too, with their current mix (`TopLensR` −1.01)
+    baked in.
+  - **`spiderman.glb`** (3.0 MB, 1.56 MB compressed):
+    - **Size.** 40.1k triangles: the lens frames were thinned 18.8k → 4k and the shooters 6.9k → 2.4k, with the suit
+      untouched. It is **real size (1.83 m) with no `transform_apply`**: the glTF exporter keeps the FBX armature's
+      0.00168 scale on the armature node. `scale` is not needed in the manifest.
+    - **Materials** (4):
+      - `suit`: suit and mask merged, one UV set; the UDIM v 2..3 is shifted to 0..1;
+      - `lens`: a 512 px lens texture, emissive 0.35;
+      - `lens_frame`: black lacquer;
+      - `web_shooter`: gunmetal.
+    - **Textures.** 2K WebP. Roughness goes 0.62 → 0.30 on `spec2`'s web lines, and the normal map is the web lines as
+      a height field. `wrinkles` as extra height was compared in renders and adds only blotchy bulges on the black side
+      panels, so it is off (`NORMAL_WRINKLES`). Vertex colours and the extra UV sets are stripped.
+    - **Clips** (13, retargeted from X Bot with rest-pose correction, as `rhino.py` does): `idle` (Fighting Idle, 3.3 s),
+      `run` (0.53 s, **measured 5.7 m/s**), `jump`, `fall`, `land`, `perch`, `hang`, `shoot`, `hit` (additive through
+      `Rig.ADDITIVE`), `hit_big`, `death` (4.4 s), `dodge_l`, `dodge_r`. Horizontal hips drift is removed from every clip:
+      it was 9 cm on jump/land and 34 cm on death.
+      - `jump` keeps its crouch and push-off but holds the hips at take-off height after the **take-off event (0.6 s)**.
+      - `land` starts 2 frames before touchdown.
+      - `fall` and `hang` are air poses: feet 0.3 m and 0.24 m above the origin, hang's hands at 2.3 m.
+      - The unused embedded clips were dropped.
+    - **Contact sheet:** `docs/reference/clips/spiderman.png`.
+  - **`spiderman_arms.glb`** (2.4 MB, 1.39 MB compressed):
+    - **Mesh.** 17.4k triangles: every face mostly weighted to the clavicles, arms, hands and fingers, plus the shooters,
+      on the same 78-bone skeleton. The cut runs across the chest and back, behind the eye.
+    - **Camera space.** An `fp_camera` root node puts the eye (between the lenses, 3 cm back) at the origin, looking
+      down −Z, so P2 adds it to the camera as it is.
+    - **Poses.** Written as wrist targets in camera metres with an elbow hint (two-bone IK), a finger direction and a palm
+      normal (the forearm takes half the hand's roll), and finger grips (`relaxed`, `loose`, `fist`, `thwip`, `open`).
+      Keys are eased Bezier, with the hand a frame behind the arm and the fingers two. The shoulder sits 16 cm behind the
+      eye and the arm reaches 52 cm, so no hand can be more than about 35 cm in front of the eye.
+    - **Clips:** `fp_idle` (3 s loop), `fp_run` (16 frames, as long as `run`), `fp_shoot_l/r` (snap at frame 4 = 0.133 s,
+      the event), `fp_swing_hold_l/r` (loops), `fp_zip` (hold the end), `fp_hit`, `fp_death` (hold the end), and
+      **`fp_release_l`/`fp_release_r`**. This plan named one `fp_release`; each hand needs its own, as with the holds.
+    - **Contact sheet** from the eye at 75° and 16:9: `docs/reference/clips/spiderman_arms.png`. In the game renderer:
+      `docs/reference/p1_pov_shoot.png` and `p1_pov_swing_hold.png`.
+  - **Manifest** (`characters.json` → new `player` section; `Rig.validate`/`check` cover it):
+    - **`spiderman`:**
+      - `eye` [0, 1.715, 0.016];
+      - `wrists`: each hand bone plus an offset to its shooter's centre;
+      - 10 body `capsules` measured from the skinned vertices (torso 0.163 m radius, head 0.084);
+      - the `jump` take-off event;
+      - `speeds` `{walk: 3, run: 5.7}`. The walk speed is a guess: there is no walk clip, and loco crossfades the run
+        with idle below it.
+      - **`layers.upper`** (spine, neck, head and both arms) for `shoot`.
+    - **`spiderman_arms`:** `space: "camera"`, `fov: 75`, the snap events, and **`layers.arm_l`/`arm_r`** for
+      `fp_shoot_*` and `fp_release_*`.
+    - **Layer masking.** `build-models.cjs` strips each layer clip down to its layer's bones: a sampled export writes
+      every bone, at rest where it was never keyed. A test checks that the shipped clips drive only their layer.
+  - **Viewer** (M, or `index.html?viewer`): the row now ends with Spider-Man and the arms at eye height. O also draws the
+    wrists (orange), and **V** puts the arms on the game camera.
+  - **Verified**, in headless Chrome from `file://`:
+    - all 7 models load with no warnings;
+    - every one of the 24 player clips takes over the pose and moves the bones;
+    - the wrist points sit 0.1–1.1 cm from the web shooters' skinned centres across idle, hang, run, `fp_idle`,
+      `fp_swing_hold_l` and `fp_shoot_r`;
+    - on the camera, each wrist lands exactly at its pose's camera-space target (e.g. idle 0.274, −0.231, −0.299).
+    The console showed only the known WebSocket and r159 noise. The app's pane stayed hidden, so the in-pane viewer
+    wasn't used.
+  - **Not verified.** The user's own Chrome from disk (ask them to open `game/index.html?viewer`, press V and step
+    through the `fp_` clips), and fps in a fight with the player drawn (that's P2's).
+  - **For P2.**
+    1. **Rig has no per-bone layers yet.** Played alone, a layer clip leaves every other bone at rest: in the viewer,
+       `fp_shoot_r` drops the left arm out of view. P2 must play layer clips over the base on their bones only, or as
+       additive.
+    2. `shoot` is Mixamo's 2.3 s cast, too long for a web shot: play its extension part faster, or crop it, and put a
+       snap event on it.
+    3. `jump`'s crouch is 0.6 s before take-off. For a responsive jump, start the clip about 0.35 s in.
+    4. The poses are framed for FOV 75. At FOV 100 the hands look smaller and lower; scale the view model's FOV if needed.
+    5. The arms are 0.2–0.35 m from the eye, beyond the 0.1 m near plane, but draw them in their own pass so walls can't
+       clip them.
+    6. The swing-hold arm fills about the right third of the screen. P3's IK will raise it toward the anchor.
+    7. The arms carry their own copy of the 2K suit texture (about 1 MB). The runtime could share the body's.
+  - **Also changed.** `common.contact_sheet` now sizes from the visible skinned vertices in the rest pose. The glTF
+    importer adds a hidden 2 m bone-shape sphere, which made every figure small, so the villains' sheets will render
+    larger next time. It also has a first-person view (`sheet.py --fov`).
+  - **Constants to tune by eye** (all in `spiderman.py`): the poses (`IDLE`, `RUN`, `THWIP`, `RECOIL`, `HOLD`,
+    `HANG_FREE`, `LET_GO`, `ZIP_REACH`, `ZIP_BACK`, `GUARD`, `SLUMP`), `GRIPS`, `SPREAD`, `TWIST`, `SNAP`, `FRAME_TRIS`,
+    `SHOOTER_TRIS`, `ROUGH_SUIT`/`ROUGH_LINES`, `NORMAL_LINES`. Also the capsule radii and `speeds.walk` in the manifest.
