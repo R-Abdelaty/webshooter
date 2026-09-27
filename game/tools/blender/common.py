@@ -310,12 +310,14 @@ def export(path, objects, webp_quality=88, sampled=False):
 
 # ---------------------------------------------------------------- review
 
-def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, props=()):
+def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, props=(), fov=None, aspect=16 / 9):
     """Re-import an exported GLB and render each clip at a few frames into one image.
 
     Rendering from the exported file (not the working scene) is the point: it proves
     the clips and skinning survived the export. `props` are other GLBs shown with it
     at the same origin (the Goblin's glider), animated by their own first clip.
+    `fov` (degrees, vertical) renders what a camera at the model's origin looking down
+    glTF -Z sees, in `aspect` frames: for first-person models built in camera space.
     """
     import numpy as np
     reset()
@@ -333,35 +335,51 @@ def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, pro
                 use_action(parm, next((a for a in mine if "fly" in a.name), mine[0]))
     scene = bpy.context.scene
     bpy.context.view_layer.update()
-    pts = [o.matrix_world @ Vector(c) for o in bpy.data.objects if o.type == "MESH" for c in o.bound_box]
+    # The skinned vertices in the rest pose, not the objects' bounding boxes (those can be
+    # far off for a skinned mesh under a scaled armature).
+    rest(arm)
+    dg = bpy.context.evaluated_depsgraph_get(); pts = []
+    for o in bpy.data.objects:
+        if o.type == "MESH" and o.visible_get():      # not the importer's hidden bone-shape sphere
+            eo = o.evaluated_get(dg); me = eo.to_mesh()
+            pts += [o.matrix_world @ v.co for v in me.vertices]
+            eo.to_mesh_clear()
     zlo, zhi = min(p.z for p in pts), max(p.z for p in pts)
     height = max(height, zhi - zlo)
     mid = (zlo + zhi) / 2
     scene.render.engine = "BLENDER_EEVEE"
     scene.view_settings.view_transform = "AgX"
-    scene.render.resolution_x = scene.render.resolution_y = cell
+    cw, ch = (round(cell * aspect), cell) if fov else (cell, cell)
+    scene.render.resolution_x, scene.render.resolution_y = cw, ch
     w = bpy.data.worlds.new("w"); scene.world = w; w.use_nodes = True
     w.node_tree.nodes["Background"].inputs["Color"].default_value = (0.62, 0.66, 0.72, 1)
     w.node_tree.nodes["Background"].inputs["Strength"].default_value = 1.0
     sun = bpy.data.objects.new("sun", bpy.data.lights.new("sun", "SUN"))
     sun.data.energy = 3.2; sun.rotation_euler = (0.9, 0.25, 0.7); scene.collection.objects.link(sun)
     cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam")); scene.collection.objects.link(cam); scene.camera = cam
-    cam.data.type = "ORTHO"
-    cam.data.ortho_scale = height * 1.6
-    cam.location = (height * 1.2, -height * 3.0, mid + height * 0.25)
-    cam.rotation_euler = (Vector((0, 0, mid)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+    if fov:
+        cam.data.sensor_fit = "VERTICAL"; cam.data.angle_y = math.radians(fov); cam.data.clip_start = .02
+        cam.location = (0, 0, 0); cam.rotation_euler = (math.pi / 2, 0, 0)      # glTF -Z is +Y here
+        sun.rotation_euler = (-0.6, 0.35, 0.3)
+        at, size = Vector((-math.tan(math.radians(fov) / 2) * aspect * .96, math.tan(math.radians(fov) / 2) * .8, -1.0)), .1
+    else:
+        cam.data.type = "ORTHO"
+        cam.data.ortho_scale = height * 1.6
+        cam.location = (height * 1.2, -height * 3.0, mid + height * 0.25)
+        cam.rotation_euler = (Vector((0, 0, mid)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+        at, size = Vector((-height * 0.76, height * 0.66, -1.0)), height * 0.09
     bpy.context.view_layer.update()
-    font = bpy.data.curves.new("label", "FONT"); font.size = height * 0.09
+    font = bpy.data.curves.new("label", "FONT"); font.size = size
     label = bpy.data.objects.new("label", font); scene.collection.objects.link(label)
     label.rotation_euler = cam.rotation_euler
-    label.location = cam.matrix_world @ Vector((-height * 0.76, height * 0.66, -1.0))
+    label.location = cam.matrix_world @ at
     mat = bpy.data.materials.new("lbl"); mat.use_nodes = True
     mat.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0, 0, 0, 1)
     font.materials.append(mat)
     cols = cols or frames_per_clip * 2
     per_row = cols // frames_per_clip
     rows = math.ceil(len(acts) / per_row)
-    sheet = np.ones((rows * cell, cols * cell, 4), dtype=np.float32)
+    sheet = np.ones((rows * ch, cols * cw, 4), dtype=np.float32)
     tmp = os.path.join(bpy.app.tempdir, "cell.png")
     for i, act in enumerate(acts):
         use_action(arm, act)
@@ -373,13 +391,13 @@ def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, pro
             scene.render.filepath = tmp
             bpy.ops.render.render(write_still=True)
             img = bpy.data.images.load(tmp)
-            px = np.empty(cell * cell * 4, dtype=np.float32); img.pixels.foreach_get(px)
+            px = np.empty(cw * ch * 4, dtype=np.float32); img.pixels.foreach_get(px)
             bpy.data.images.remove(img)
             r, c = divmod(i, per_row)
             c = c * frames_per_clip + k
-            y0 = (rows - 1 - r) * cell
-            sheet[y0:y0 + cell, c * cell:(c + 1) * cell] = px.reshape(cell, cell, 4)
-    out = bpy.data.images.new("sheet", cols * cell, rows * cell)
+            y0 = (rows - 1 - r) * ch
+            sheet[y0:y0 + ch, c * cw:(c + 1) * cw] = px.reshape(ch, cw, 4)
+    out = bpy.data.images.new("sheet", cols * cw, rows * ch)
     out.pixels.foreach_set(sheet.ravel())
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
     out.filepath_raw = out_png; out.file_format = "PNG"; out.save()
