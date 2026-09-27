@@ -630,8 +630,11 @@ def loop_clip(name, length, fn, step=2):
 # about 35 cm in front of the eye: every pose keeps within that, or the arm locks straight.
 IDLE = dict(w=(.27, -.24, -.30), elbow=(.5, -1, .2), f=(-.2, .3, -1), n=(-1, -.35, -.1), grip="relaxed")
 RUN = dict(w=(.27, -.31, -.22), elbow=(.4, -1, .5), f=(-.3, .4, -1), n=(-1, -.2, 0), grip="loose")
-THWIP = dict(w=(.09, -.13, -.34), elbow=(.6, -1, .1), f=(-.08, 1, -.35), n=(-.12, .15, -1), grip="thwip")
-RECOIL = moved(THWIP, (.01, .025, .05), f=(-.08, 1, -.1))
+# The thwip is palm-up: the forearm turned over (the hand rolled half a turn about it from
+# a palm-down cast), the wrist snapped back so the fingers point down and the palm - and the
+# web shooter under the wrist - faces the target.
+THWIP = dict(w=(.09, -.13, -.34), elbow=(.6, -1, .1), f=(-.31, -.61, -.81), n=(-.47, .44, -.78), grip="thwip")
+RECOIL = moved(THWIP, (.01, .025, .05), f=(-.17, -.75, -.65))
 HOLD = dict(w=(.16, .0, -.27), elbow=(.7, -.7, .2), f=(-.5, .8, -.35), n=(-.6, -.2, -.8), grip="fist", clav=(20, 12))
 HANG_FREE = dict(w=(.28, -.42, -.18), elbow=(.4, -1, .4), f=(-.1, -.2, -1), n=(-1, -.2, 0), grip="relaxed")
 LET_GO = moved(HOLD, (.03, .04, -.04), grip="open")
