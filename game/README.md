@@ -11,12 +11,12 @@ The city is alive. Cars and yellow cabs drive the avenues and streets on the rig
 | Control | Does |
 | --- | --- |
 | Wrist shooter | Look and aim (see LOOK below) |
-| Flick | Shoot a web where the crosshair was just before the flick |
-| Click the view | Take the mouse for looking (pointer lock); once it has the mouse, a click shoots. While the wrist is aiming, a click shoots straight away |
+| Flick | Where the crosshair was just before the flick: at a villain, a shot; at a wall, a web line to swing on; at a roof edge or roof, a zip up to it; at nothing, let go of your line (see *Swinging*) |
+| Click the view | Take the mouse for looking (pointer lock); once it has the mouse, a click does what a flick does. While the wrist is aiming, a click acts straight away |
 | Mouse | Look around, crosshair in the middle |
 | W A S D or arrows | Walk |
 | Shift | Sprint |
-| Space | Jump (clears a roof parapet) |
+| Space | Jump (clears a roof parapet); on a line, let go; perched, dive off |
 | T | First person / third person (the same as Settings → CAMERA) |
 | C | Recentre the wrist's aim |
 | Esc | Pause - see the cards below |
@@ -32,7 +32,17 @@ You are Spider-Man. In **first person** (the default) you see his arms and hands
 
 A web is a bundle of fine, see-through grey-white fibres. It leaves the shooting wrist at the snap of the hand, fans out as it flies (sagging a little in the air) and meets its target splayed and taut; then its tail reels in to the splat as it fades. It is shot, not held, so once it has left it is free of the hand. What it does when it lands (the splat, a hit on a villain, the sound) happens when it gets there, a tenth of a second or so after the flick; the hit itself counts at once.
 
-**Settings → CAMERA** switches between **First person** and **Third person** (or press **T**), and **CAMERA MOTION** is **Full** or **Reduced**. Full lets the first-person view bob slightly as you run and dip when you land; Reduced keeps it still. Both are remembered with the other settings. On MED he casts a shadow in both views; on LOW he casts none.
+**Settings → CAMERA** switches between **First person** and **Third person** (or press **T**), and **CAMERA MOTION** is **Full** or **Reduced**. Full lets the first-person view bob slightly as you run and dip when you land, and while you swing it widens with speed, leans a little into the arc and shows faint speed lines; Reduced keeps it still when you run, widens the view only half as much and never leans or shows lines. It never flips or spins. Both are remembered with the other settings. On MED he casts a shadow in both views; on LOW he casts none.
+
+### Swinging
+
+Flick (or click) at a **building wall** up to 60 m away and not below you, and a web line shoots from your hand to it and pulls taut: you swing on it like a pendulum, down and through the bottom of the arc and up the other side. From standing it pulls you off your feet. Past the bottom the line reels in a little, so a chain of swings climbs rather than sinks, and it never lets you drag along the street. Let go - flick at empty sky, or press **Space** - and you keep your speed; let go near the top of the forward arc and you get a little extra throw. Flick at the next wall before you land and the other hand takes the next line: hand over hand down an avenue, like the reference video. You swing and fly where you look, and **WASD** steers a little too. Swinging is capped at about 130 km/h. You slide along walls you hit rather than going through them, and landing never hurts.
+
+Flick at a **roof edge** (the top of a wall) or a **roof** within reach and you **zip**: pulled fast along the line and set down **perched**, crouched on the edge facing out. Walk to step off, or press **Space** to dive off. Zipping is also the way down to a lower roof.
+
+In a fight the same rules apply, with shots first: aim within about 4 degrees of the villain and it is a shot (which hits if it is within 1.5 degrees, as before), even while you hang from a line - the free hand shoots and the line holds. So you can swing round him and shoot on the way. A flick at nothing while you are on a line lets go of it, so aim with care.
+
+In first person the hand on the line reaches up toward it at the side of your view, and the line runs from your fist to the wall. In third person he hangs from the line, his body along it and his legs trailing, and the camera follows a little behind and above as you go.
 
 ### Looking with the wrist
 
@@ -43,7 +53,7 @@ A wrist turns about 80 degrees each way, not 360, so **Settings → CONTROLLER �
 
 **TURN SPEED** scales how fast Edge turn turns, **SENSITIVITY** is the same setting as in the classic game (how far the crosshair moves per degree of wrist, and Direct's turn gain), and **FOV** is the vertical field of view, 60-100 degrees (default 75). They are remembered with the other settings. Moving the mouse takes the look from the wrist; turning the wrist takes it back.
 
-The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A web splat sticks to whatever it hits (a wall, a roof, the street, a tree, the water) and fades after six seconds, and the web flies out to it from the wrist that threw it (see *Playing as Spider-Man*). The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
+The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A shot's web leaves a splat where it lands, and a swing line grips its wall with a small one; they fade after six seconds, and the web flies out from the wrist that threw it (see *Playing as Spider-Man*). The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
 
 ## Fights
 
@@ -65,7 +75,7 @@ As in the classic game, a flicked shot is judged where you aimed just before the
 
 ### Sound
 
-Sounds come from where they happen, and you hear them from where you stand (headphones make it clearest). The Goblin's glider hums as he circles you and he cackles when he arrives. The Rhino bellows, his feet pound the tarmac in time with his charge, and his skids scrape. Venom growls, whooshes into each leap and thuds onto the beams. A web's hit or miss sounds at the point it landed. Down in the street the traffic rumbles, louder the closer and busier it is and fainter up on a roof, and now and then a car near you sounds its horn. The thwip of your own web plays at your wrist. EFFECTS in Settings sets the volume of all of it.
+Sounds come from where they happen, and you hear them from where you stand (headphones make it clearest). The Goblin's glider hums as he circles you and he cackles when he arrives. The Rhino bellows, his feet pound the tarmac in time with his charge, and his skids scrape. Venom growls, whooshes into each leap and thuds onto the beams. A web's hit or miss sounds at the point it landed. Down in the street the traffic rumbles, louder the closer and busier it is and fainter up on a roof, and now and then a car near you sounds its horn. The thwip of your own web plays at your wrist, and so does a swing line's. While you swing, the wind rises with your speed and the line creaks as it takes your weight; a hard landing thuds. EFFECTS in Settings sets the volume of all of it.
 
 ### Graphics
 
@@ -105,7 +115,7 @@ Blender is found through `BLENDER_PATH`, then `PATH`, then `C:\Program Files\Ble
 
 ## Training (3D)
 
-**TRAINING** puts you on a mid-height roof with targets on the walls and roofs around it, near and far (about 16 to 70 m). One target at a time: hit it and the next appears at least 30 degrees away from the last, so every one is a real re-aim. Far targets are drawn bigger so each is about the same size on screen. There is no clock and nothing to lose; the HUD shows hits, shots, accuracy, best streak and the current streak.
+**TRAINING** puts you on a mid-height roof with targets on the walls and roofs around it, near and far (about 16 to 70 m). One target at a time: hit it and the next appears at least 30 degrees away from the last, so every one is a real re-aim. Far targets are drawn bigger so each is about the same size on screen. There is no clock and nothing to lose; the HUD shows hits, shots, accuracy, best streak and the current streak. Only a flick within about 4 degrees of the target counts as a shot at it (which hits or misses as before); anywhere else the swinging rules apply, so a wild miss becomes a line or a zip instead of a missed shot.
 
 ## Classic
 

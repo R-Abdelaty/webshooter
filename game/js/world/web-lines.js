@@ -37,8 +37,10 @@
 
     // from, to: functions returning a point now (the wrist; the target, which
     // may move with a villain) or plain points.
+    // A held swing line (WebShot.line) follows the hand for as long as it is
+    // held; a shot leaves it at the snap.
     function add(shot, from, to) {
-      if (live.length >= MAX) { live[0].slot.mesh.visible = false; pool.push(live.shift().slot); }
+      if (live.length >= MAX) { var i = live.findIndex(function (w) { return !w.shot.held || w.shot.releasedAt !== null; }), o = live.splice(i < 0 ? 0 : i, 1)[0]; o.slot.mesh.visible = false; pool.push(o.slot); }
       live.push({ shot: shot, from: from, to: to, slot: pool.pop() || make() });
     }
     function at(p) { return typeof p === 'function' ? p() : p; }
@@ -49,7 +51,7 @@
       var pxPerM = 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(1, height);
       live = live.filter(function (w) {
         // The web leaves the wrist where the wrist is at the snap, and is free of it after.
-        if (now >= w.shot.launch && !w.left) w.left = at(w.from);
+        if (now >= w.shot.launch && (!w.left || (w.shot.held && w.shot.releasedAt === null))) w.left = at(w.from) || w.left;
         var ok = now < w.shot.done && !!w.left && WebShot.build(w.shot, w.left, at(w.to), now, eye, pxPerM, w.slot.out);
         var m = w.slot.mesh, g = m.geometry;
         m.visible = !!ok;

@@ -30,6 +30,17 @@
   // at the snap of the hand, flies out, and what it does when it gets there
   // (the splat, the hit's flash and particles, the sound) happens when it
   // gets there. The game's rules take the shot at once.
+  //
+  // And you swing (P3, swing.js). A flick or a click is judged by
+  // Swing.decide: at a villain (or the training target) it is a shot, as
+  // above; at a wall in reach it is a line to swing on (let go by flicking at
+  // nothing, or Space); at a roof edge or top, a zip up to it and a perch.
+  // While swing.js has you - on a line, flying off one, zipping, perched -
+  // it moves you and Player doesn't. The line is drawn from the hand that
+  // holds it (web-lines.js), which reaches for it (player-view.js); the
+  // camera kicks wider with speed and, in first person, rolls into the arc
+  // and shows speed lines (CAMERA MOTION: REDUCED tones them down); wind
+  // and the line's creak are swing-audio.js's.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -49,6 +60,7 @@
   var traffic = null, life = null, hudView = null, cues = null, nearCars = [];
   var HORN_EVERY = 16;             // seconds between horns, on average, down among the traffic
   var you = null, anim = PlayerAnim.create(), pcam = PlayerCamera.create(), view = null, shots = [], lastState = 'idle';
+  var swing = Swing.create(), held = null, fxv = { fov: 0, roll: 0, lines: 0 };
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -154,6 +166,7 @@
     leaving = true; running = false; paused = false;
     unlock();
     WSAudio.hum && WSAudio.hum(null); WSAudio.ambience && WSAudio.ambience(0);
+    SwingAudio.stop();
     show($('world-card'), false); show($('world'), false); show($('menu'), true);
     document.dispatchEvent(new CustomEvent('webshooter:quit'));
   }
@@ -164,6 +177,7 @@
     player.pitch = v.pitch || 0;
     look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear(); stopUntil = 0;
     anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null;
+    swing = Swing.create(); held = null; fxv = { fov: 0, roll: 0, lines: 0 };
   }
   function enterRoam(fromSpawn) {
     mode = 'roam'; fight = null; enc = null; range = null; cues = null;
@@ -281,7 +295,7 @@
   // The camera, and in a fight where everything was: a shot taken from this
   // frame is judged against what it showed.
   function camera() {
-    return { yaw: player.yaw, pitch: player.pitch, eye: viewEye(), seen: fight ? Fight.snapshot(fight) : null };
+    return { yaw: player.yaw, pitch: player.pitch, roll: fxv.roll, fov: world.camera.fov, eye: viewEye(), seen: fight ? Fight.snapshot(fight) : null };
   }
   // Where the camera is this frame: at your eye in first person, over your
   // shoulder in third (placed by viewPlace each frame).
@@ -291,15 +305,32 @@
   function viewPlace(st, dt) {
     var c = camMode(), eye = Player.eye(player);
     if (c.camera === 'third') {
-      var t = PlayerCamera.third(pcam, player, city, dt);
-      view = { eye: t.eye, hide: t.hide, face: PlayerAnim.face(anim, player, player.yaw, dt) };
+      var t = PlayerCamera.third(pcam, player, city, dt, { moving: Swing.airborne(swing) });
+      view = { eye: t.eye, hide: t.hide, face: PlayerAnim.face(anim, player, faceYaw(), dt) };
     } else {
       var landed = st === 'land' && lastState !== 'land';
       pcam.dist = null;                // third person starts from pulled in, next time
-      view = { eye: PlayerCamera.first(pcam, player, eye, dt, landed, c.cameraMotion), hide: false, face: player.yaw };
+      view = { eye: PlayerCamera.first(pcam, player, eye, dt, landed, c.cameraMotion, swing.mode === 'perch'), hide: false, face: player.yaw };
       anim.face = player.yaw;
     }
     lastState = st;
+    // The swing's camera effects, for the speed you swing and fly at.
+    var g = Swing.grip(player), lat = 0;
+    if (swing.mode === 'swing') {
+      var ax = swing.anchor.x - g.x, ay = swing.anchor.y - g.y, az = swing.anchor.z - g.z, al = Math.hypot(ax, ay, az) || 1, rt = Player.right(player.yaw);
+      lat = (ax * rt.x + az * rt.z) / al;
+    }
+    fxv = PlayerCamera.swingFx(pcam, { speed: Swing.airborne(swing) ? Swing.speed(player) : 0, swinging: swing.mode === 'swing', lateral: lat,
+      first: c.camera !== 'third' }, dt, c.cameraMotion);
+  }
+  // Which way the third-person body faces while swing.js has him: where he's
+  // going through the air, out over the edge on a perch; for a moment after
+  // a shot, the aim (PlayerAnim.face holds that).
+  function faceYaw() {
+    if (anim.aimT > 0) return player.yaw;
+    if (swing.mode === 'perch' && swing.perch) return swing.perch.yaw;
+    if (Swing.airborne(swing) && Math.hypot(player.vx, player.vz) > 2) return Math.atan2(-player.vx, -player.vz);
+    return player.yaw;
   }
   // CAMERA and CAMERA MOTION: kept in the settings menu.js saves (the same
   // object, so neither side undoes the other), and applied live.
@@ -333,12 +364,19 @@
     var moves = { state: anim.state, body: [], arms: [], speed: player.speed, armSpeed: 1 };
     if (!paused) {
       Player.look(player, r.dyaw, r.dpitch);
-      Player.step(player, { move: Move.vector(), buttons: Move.buttons() }, dt, city);
+      // swing.js moves you while it has you; otherwise Player walks you.
+      var input = { move: Move.vector(), buttons: Move.buttons(), yaw: player.yaw }, vy0 = player.vy, air0 = !player.grounded;
+      var sw = Swing.step(swing, player, input, dt, city);
+      if (!sw.active) Player.step(player, input, dt, city);
+      swingEvents(sw.events, now);
+      if (air0 && player.grounded && !sw.active && vy0 < -9) landed(player, -vy0);
       if (fight) Fight.tick(fight, fdt);
       if (range) Training3D.tick(range, dt);
       if (mode === 'roam') triggers();
-      moves = PlayerAnim.step(anim, player, dt);
+      moves = PlayerAnim.step(anim, player, dt, Swing.anim(swing));
     }
+    SwingAudio.update({ speed: Swing.speed(player), load: swing.load, taut: swing.taut, on: !paused && Swing.airborne(swing) },
+      S.muted ? 0 : (Number.isFinite(+S.sfx) ? +S.sfx : 80) / 100);
     viewPlace(moves.state, paused ? 0 : dt);
     var eye = view.eye;
     // The villain's model: its clips move on while the fight is played, and
@@ -351,12 +389,14 @@
     var blobbed = world.tier.blob && fight && modelShown && villains.shown();
     fx.setBlob(blobbed ? fight.at : null, blobbed ? Fight.ground(fight) : null, fight ? VILLAINS[fight.villain].height : 0);
     ending(now);
-    world.setFov(fov());
+    world.setFov(fov() + fxv.fov);
     world.update(dt, eye, player.yaw, player.pitch);
+    world.camera.rotation.z = fxv.roll;
     shake(now);
     world.camera.updateMatrixWorld();
     // You, as the camera now sees you, with the shots taken since last frame.
-    you.update({ player: player, face: view.face, anim: moves, shots: shots, dt: paused ? 0 : dt, hide: view.hide });
+    you.update({ player: player, face: view.face, anim: moves, shots: shots, dt: paused ? 0 : dt, hide: view.hide,
+      line: swing.mode === 'swing' ? { anchor: swing.anchor, hand: swing.hand, grip: Swing.grip(player) } : null });
     shots = [];
     // What the webs in flight do when they land, and the webs themselves.
     if (!paused) due = due.filter(function (d) { if (now < d.at) return true; d.fn(now); return false; });
@@ -377,6 +417,7 @@
     world.render();
     you.render();
     fxc.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+    speedLines(fxc, overlay.clientWidth, overlay.clientHeight, fxv.lines, now);
     hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, goal(), eye);
     drawHud(now, eye);
     if (perf) readout(now, c, S);
@@ -435,17 +476,20 @@
   // A click has neither and shoots from where things are now.
   function fire(at, p) {
     if (!running || paused || !world || !player) return null;
-    // Cooling down, or a fight not being played: the shot doesn't happen.
-    if (fight && (fight.mode !== 'playing' || fight.cooldownRemaining > 0)) return null;
-    if (range && range.cooldownRemaining > 0) return null;
     var c = ctl(), S = settings(), wrist = wristLooks(c);
     var aim = at && p ? Look.crosshair(at, S.lookMode, wrist) : look.crosshair;
     var cam = (p && Look.cameraAt(look, Look.shotTime(p))) || camera();
-    var dir = Look.ray(cam, aim, world.camera.fov, world.camera.aspect);
+    var dir = Look.ray(cam, aim, cam.fov || world.camera.fov, world.camera.aspect);
     var hit = world.raycast(cam.eye, dir, RANGE), now = performance.now();
     var shot = { origin: cam.eye, dir: dir, blocked: hit ? hit.distance : Infinity };
+    // A shot at him, a line to swing on, a zip, or letting go (swing.js).
+    var d = Swing.decide({ target: aimed(shot, cam), hit: hit, player: player, city: city, villains: villainCaps() }, swing);
+    if (d.act !== 'shot') return swingAct(d, hit, now);
+    // Cooling down, or a fight not being played: the shot doesn't happen.
+    if (fight && (fight.mode !== 'playing' || fight.cooldownRemaining > 0)) return null;
+    if (range && range.cooldownRemaining > 0) return null;
     var far = { x: cam.eye.x + dir.x * RANGE, y: cam.eye.y + dir.y * RANGE, z: cam.eye.z + dir.z * RANGE };
-    var out = { view: aim, hit: false, point: hit ? hit.point : null };
+    var out = { act: 'shot', view: aim, hit: false, point: hit ? hit.point : null };
     // A hand throws it - the other one than last time. The web leaves its
     // wrist at the snap of the hand.
     var sh = PlayerAnim.shoot(anim), hand = sh.hand;
@@ -509,6 +553,85 @@
     later(ws.arrive, land);
     return out;
   }
+  // --- swinging ---------------------------------------------------------------
+  // Is a villain (his body as it was when you aimed), a thug or the
+  // training target near enough the aim that it's a shot, not a swing?
+  function aimed(shot, cam) {
+    var tol = Swing.constants.SHOT_CONE;
+    function near(sph) { var m = AimAssist.miss(shot.origin, shot.dir, sph); return m.front && m.deg <= tol && m.distance <= shot.blocked + .05; }
+    if (fight && fight.mode === 'playing') {
+      if (fight.phase === 'thugs') return fight.thugs.some(function (t) { return !t.down && near(Fight.thugSphere(t)); });
+      var seen = cam.seen, body = seen ? seen.body : fight.body, at = seen ? seen.villain : fight.at;
+      if (!at) return false;
+      if (body && body.capsules && body.capsules.length) return Swing.inCone(shot.origin, shot.dir, body.capsules, tol, shot.blocked);
+      var h = VILLAINS[fight.villain].height;
+      return near({ x: at.x, y: at.y + h / 2, z: at.z, r: h / 2 });
+    }
+    return !!(range && range.target3 && near(range.target3));
+  }
+  // The villain's body, which a line mustn't be anchored in.
+  function villainCaps() { return fight && fight.body && fight.body.capsules ? fight.body.capsules : []; }
+  // A line to swing on, a zip to a roof, or letting go - and the web for it,
+  // shot from the hand that will hold it.
+  function swingAct(d, hit, now) {
+    var out = { act: d.act, hit: false, point: hit ? hit.point : null, why: d.why };
+    if (d.act === 'release') { Swing.release(swing, player); letGo(now); return out; }
+    if (d.act === 'none') return out;
+    var hand, to;
+    if (d.act === 'attach') {
+      // Hand over hand: the free hand takes the next line; from a standstill,
+      // the hand on the anchor's side.
+      if (swing.mode === 'swing') { hand = swing.hand === 'l' ? 'r' : 'l'; Swing.release(swing, player); }
+      else { var rt = Player.right(player.yaw); hand = (d.anchor.x - player.x) * rt.x + (d.anchor.z - player.z) * rt.z < 0 ? 'l' : 'r'; }
+      Swing.attach(swing, player, d.anchor, hand);
+      to = d.anchor;
+    } else {
+      hand = 'r';
+      Swing.zip(swing, player, d.perch);
+      to = d.point;
+    }
+    letGo(now);
+    out.hand = hand; out.anchor = to; out.perch = d.perch || null;
+    var from = function () { return you.wrist(hand) || viewEye(); };
+    var launch = now + WebShot.snap(camMode().camera) * 1000;
+    later(launch, function () { WSAudio.thwip(); });
+    held = WebShot.line({ from: from(), to: to, launch: launch });
+    lines.add(held, from, to);
+    // Where it grips the wall: a small splat and a puff.
+    var n = hit.normal;
+    later(held.arrive, function (t) { webs.add(to, n, dist(from(), to), t, null, .6); fx.web(to, n); });
+    return out;
+  }
+  function letGo(now) { if (held) { WebShot.letGo(held, now); held = null; } }
+  // What swing.js said happened this frame.
+  function swingEvents(ev, now) {
+    ev.forEach(function (e) {
+      if (e.type === 'land') landed(e.at, e.speed);
+      if (e.type === 'perch' && WSAudio.thud) WSAudio.thud(e.at, .35);
+    });
+    // A line let go of any way (Space, touching down, a perch) goes slack.
+    if (held && swing.mode !== 'swing' && swing.mode !== 'zip') letGo(now);
+  }
+  // Touching down hard: a thud at your feet. No damage, ever.
+  function landed(at, speed) {
+    if (speed > 6 && WSAudio.thud) WSAudio.thud({ x: at.x, y: at.y, z: at.z }, Math.min(1, speed / 26));
+  }
+  // First person, fast: faint streaks rushing out from the middle of the
+  // view (k 0..1), fresh every few frames.
+  function speedLines(g, w, h, k, now) {
+    if (!(k > .02)) return;
+    var cx = w / 2, cy = h / 2, R = Math.hypot(w, h) / 2, tick = Math.floor(now / 60);
+    function rnd(n) { var x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); }
+    g.save(); g.lineCap = 'round';
+    for (var i = 0; i < 28; i++) {
+      var sd = tick * 131 + i * 977, a = rnd(sd) * Math.PI * 2, r0 = R * (.5 + .35 * rnd(sd + 1)), l = R * (.1 + .22 * rnd(sd + 2)) * k;
+      g.strokeStyle = 'rgba(255,255,255,' + ((.08 + .16 * rnd(sd + 3)) * k).toFixed(3) + ')';
+      g.lineWidth = 1 + 1.6 * rnd(sd + 4);
+      g.beginPath(); g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); g.lineTo(cx + Math.cos(a) * (r0 + l), cy + Math.sin(a) * (r0 + l)); g.stroke();
+    }
+    g.restore();
+  }
+
   // Run fn(now) once performance.now() reaches `at` (held while paused).
   function later(at, fn) { if (fn) due.push({ at: at, fn: fn }); }
   // Where on the villain a shot that met him (Fight.fire's `body`) is, as he
@@ -614,6 +737,7 @@
     $('world-perf').textContent = fps.toFixed(0) + ' fps  ·  ' + world.tier.name.toUpperCase() + '  ·  ' + r.calls + ' draw calls  ·  ' +
       (r.triangles / 1000).toFixed(0) + 'k tris  ·  x ' + player.x.toFixed(0) + ' y ' + player.y.toFixed(1) + ' z ' + player.z.toFixed(0) +
       '  ·  ' + (function (n) { return n.cars + n.cabs + ' cars, ' + n.people + ' walkers'; })(life.counts()) +
+      '  ·  ' + swing.mode + ' ' + Swing.speed(player).toFixed(1) + ' m/s' + (swing.mode === 'swing' ? ' line ' + swing.len.toFixed(1) + ' m' : '') +
       '\nlook ' + (Look.mode(S.lookMode) === 'direct' ? 'DIRECT' : 'EDGE TURN') + ' (' + src + ')  ·  crosshair ' +
       look.crosshair.x.toFixed(2) + ', ' + look.crosshair.y.toFixed(2) + turn +
       '  ·  yaw ' + (player.yaw * 180 / Math.PI).toFixed(0) + '° pitch ' + (player.pitch * 180 / Math.PI).toFixed(0) + '°  ·  fov ' + fov();
@@ -673,6 +797,7 @@
     get mode() { return mode; }, get fight() { return fight; }, get range() { return range; }, get spots() { return spots; },
     get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
     get villains() { return villains; }, get fx() { return fx; }, get life() { return life; }, get hud() { return hudView; }, get traffic() { return traffic; },
-    get you() { return you; }, get anim() { return anim; }, get view() { return view; }, setCamera: setCamera
+    get you() { return you; }, get anim() { return anim; }, get view() { return view; }, setCamera: setCamera,
+    get swing() { return swing; }, get held() { return held; }, get fxv() { return fxv; }
   };
 })();
