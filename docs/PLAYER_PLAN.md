@@ -447,3 +447,115 @@ anything the next session must know._
   - **Constants to tune by eye** (all in `spiderman.py`): the poses (`IDLE`, `RUN`, `THWIP`, `RECOIL`, `HOLD`,
     `HANG_FREE`, `LET_GO`, `ZIP_REACH`, `ZIP_BACK`, `GUARD`, `SLUMP`), `GRIPS`, `SPREAD`, `TWIST`, `SNAP`, `FRAME_TRIS`,
     `SHOOTER_TRIS`, `ROUGH_SUIT`/`ROUGH_LINES`, `NORMAL_LINES`. Also the capsule radii and `speeds.walk` in the manifest.
+- 2026-09-27 — **Session P2 done: you play as Spider-Man in first and third person, around the city and in all three
+  fights.** 198 tests pass (178 old + 20 new in `game/tests/player.test.cjs`). No CLASSIC file or test changed, and neither
+  did `menu.js` or `audio.js` (both are shared with CLASSIC). **Nothing is pushed.**
+  - **What exists.**
+    - Logic (UMD, tested): `world/player-anim.js` (`PlayerAnim`) and `world/player-camera.js` (`PlayerCamera`).
+      - `PlayerAnim.step(a, player, dt, extra)` classifies idle/walk/run/jump/fall/land from `Player` and returns clip
+        commands for both models. `extra` takes `{perched, zip, swing: 'l'|'r', hits, big, dead}`. P3 and P4 fill these in;
+        today `world-game.js` passes nothing.
+      - `PlayerAnim.shoot(a)` picks the hand and returns the layer clips. `PlayerAnim.face` gives the third-person facing.
+      - `PlayerCamera` holds the settings (`settings/load/save`), the third-person boom (`third`), the first-person bob and
+        dip (`first`), and the pull-in maths (`rayBox`, `cast`, `allowed`, `ease`).
+    - Render: `world/player-view.js` (`WorldPlayer`). `WorldGame` exposes `you`, `anim`, `view` and `setCamera`.
+  - **Rig changes** (`rig.js`, `characters.js`). P1's note 1 is fixed with real layers:
+    - `Rig.layer` (also reached through `play` for any clip in a manifest layer) plays a clip once on its layer's bones
+      only, over the base and any one-shot. There is one clip per layer; a new one replaces the old. It takes `from`/`to`
+      (a stretch of the clip), `speed` and fades. `fadeOut` is in real seconds, so a sped-up clip is gone by its last frame.
+    - Three's mixer averages by weight, so `Rig.layerWeight(w) = w/(1-w)` gives the layer share `w` of its bones over a
+      base weighing 1. `Rig.pose` lists layers with `layer: key` and leaves them out of the base's sum.
+    - One-shots take `from`, so `jump` starts 0.35 s in.
+  - **The left-handed cast.** The manifest's new `mirrors: {shoot_l: 'shoot'}` builds `shoot_l` at load time (`Rig.mirror`:
+    Left/Right swapped, rotations as (x, −y, −z, w), positions as (−x, y, z)). It plays on the same layer with the same
+    events. Measured on this rig, a mirrored pose lands within 2.4 mm of the reflected original. If it is missing,
+    `FALLBACKS` plays the right-handed `shoot`.
+  - **The third-person shoot** (P1's note 2). I sampled the right hand through Mixamo's 2.3 s cast: the arm is straight out
+    ahead at 1.45 s (now `events.shoot`). The game plays 1.2–1.95 s at 1.8×, so the snap comes 0.14 s after the shot.
+    The first-person shot starts 0.05 s in at 1.4×, so its snap comes 60 ms after the flick.
+  - **How first person is drawn.** The arms ride their own camera, a copy of the game camera at the manifest's 75° FOV, so a
+    wide FOV setting doesn't shrink them. They are on layer `World3D.OVER` and drawn after the city by `world.renderOver`:
+    depth cleared, no sky, no second shadow pass. The sun and hemisphere light that layer too, so the arms get the same
+    light, shadow and grade.
+    - The full body stays in the world with a `colorWrite: false` material, so on MED it still casts the player's shadow.
+      On LOW it is hidden.
+    - `you.wrist(hand)` converts the arms camera's wrist into the world point that the game camera shows on the same
+      pixel. The overlay strand starts there, and splat sizes are measured from it.
+  - **Third person.** The body stands at the player's feet, facing where he runs, or the aim for 0.6 s after a shot. It
+    uses the villains' rim (`WorldVillains.patch`/`uniforms`, now exported, with `RIM.spiderman` toned down to .22 because
+    .5 washed him out in shade) and reflects the fight's `World3D.environment`, the same texture the villains get. In roam
+    and training he goes back to the studio environment (`WorldModels.studio()`).
+    - The camera sits 3.5 m back, 0.6 m up and 0.55 m right of the neck (1.5 m), turning with yaw and pitch.
+    - **The pull-in tests `City.query` boxes and the street directly, with five rays** (the boom's line, and 0.22 m to each
+      side, above and below it). It does not use `world.raycast`, which costs about 3 ms a ray. The camera comes in at
+      once and eases out at 3/s. At its minimum of 0.45 m the body is hidden (`HIDE` 0.7): backed flat against a wall you
+      see from his neck. Letting the camera swing round instead is a possible refinement.
+  - **Aim and lag compensation.** `camera()` now returns the camera actually used (`view.eye`), so `Look.record` and a
+    click's ray both come from over the shoulder in third person. `Look` itself is unchanged in both modes.
+  - **Settings.** CAMERA (First person / Third person) and CAMERA MOTION (Full / Reduced) are in the settings panel under a
+    new CAMERA heading. **T** toggles CAMERA.
+    - `world-game.js` binds them: it writes both into the same settings object `menu.js` saves, and through
+      `PlayerCamera.save` into `ws.settings.v2`, so neither side undoes the other.
+    - REDUCED removes the first-person bob (≤2.2 cm up, 1.2 cm to the side) and the landing dip (≤9 cm). P3's FOV kick,
+      roll and speed lines should read the same `cameraMotion`.
+  - **Measured** in headless Chrome on the **Intel UHD at 1920×1080** (1280×720 CSS at DPR 1.5), MED, over http. Each view
+    was 3 × 1.5 s, looking at the fight's focus. The pre-session build (`dc09837`) came from a scratch copy.
+
+    | view | before | first person | third person |
+    |---|---|---|---|
+    | spawn roof | 80/75/72 fps | 74/74/74 fps | 73/73/74 fps |
+    | Goblin | 85/119/121 fps | 110/99/109 fps | 91/93/93 fps |
+    | Rhino | 75/73/65 fps | 68/70/60 fps | 62/73/74 fps |
+    | Venom | 93/93/68 fps | 76/85/74 fps | 85/82/84 fps |
+
+    The player costs about 10 draw calls (82 → 92 at the spawn roof, fights 59–99) and about 100k triangles. The Rhino
+    view is the tightest, at 60 once.
+  - **Verified** in headless Chrome, since the app's browser pane stayed hidden. The driver is `cdp.cjs` in this session's
+    scratchpad, as in S4.
+    - Both models load, from **`file://`** too.
+    - First person:
+      - idle arms;
+      - the thwip snap, alternating hands (the right hand measured moving from (0.24, −0.24) to (0.09, −0.12) m in camera
+        space in 60 ms);
+      - the strand leaving the visible wrist.
+    - Third person:
+      - idle;
+      - both casts (`shoot` and the mirrored `shoot_l`);
+      - running away from the camera;
+      - on the street by a wall;
+      - on the Rhino's parapet.
+    - The state sequence from real keyboard input: walk → run (arms pump) → jump (clip from 0.35 s, then `fall`) → land →
+      run → idle.
+    - **All three fights won in both modes** through the real `WorldGame.fire`, with the hands alternating r/l.
+    - The pull-in: backed against a wall, the camera stopped 6 cm outside it at 0.45 m with the body hidden. Turned away,
+      it eased back out to 3.58 m.
+    - LOW hides the first-person body. Switching CAMERA live works.
+    - The console shows only the known WebSocket and r159 noise. Shots are in `docs/reference/p2_pov_shoot.png`,
+      `p2_third_shoot.png` and `p2_third_street.png`.
+  - **Not verified.**
+    - The real shooter.
+    - A real Chrome window with vsync; ask the user to press P in each fight in both modes.
+    - Pointer lock.
+    - The model viewer's V with the player's own arms also on the camera: two pairs of arms show, which is harmless in a
+      debug tool.
+  - **Known and deliberate.**
+    - `WSAudio.thwip()` stays unplaced, because `audio.js` is shared with CLASSIC. In first person that is at the wrist
+      anyway; in third person you hear it at the camera, 3.5 m back.
+    - After a jump, the state stays `jump` until landing; the body plays `fall` under it anyway.
+    - In third person the body faces where it runs, so strafing turns him sideways to the camera.
+  - **Constants to tune by eye.**
+    - `PlayerAnim.constants`: `IDLE_V`, `WALK_V`, `ARMS_RUN_V`, `ARMS_RATE`, `AIR_MIN`, `JUMP_VY`, `LAND_AIR`, `LAND_VY`,
+      `LAND_T`, `JUMP_FROM`, `SHOOT`, `FP_SHOOT`, `AIM_HOLD`, `TURN`, `FACE_V`.
+    - `PlayerCamera.constants`: `BACK`, `UP`, `SIDE`, `PIVOT`, `NEAR`, `PAD`, `PROBE`, `OUT`, `HIDE`, `BOB`, `BOB_SIDE`,
+      `BOB_V`, `DIP`, `DIP_T`.
+    - `RIM.spiderman` in `villain-view.js`.
+  - **For P3.**
+    - Pass `{swing: hand}` / `{zip: true}` / `{perched: true}` to `PlayerAnim.step`; it plays `hang`/`fp_swing_hold_*`,
+      `fp_zip`, `perch`, and `fp_release_*` when a line is let go. `PlayerAnim.shoot` already uses the free hand while one
+      holds a line.
+    - The web line should start at `you.wrist(hand)`.
+    - IK the arms on `you.arms` (bones through `rig.bone`), after `you.update`, which applies the pose.
+    - `PlayerCamera.third` gives the boom; P3's lag behind the direction of travel goes there, and its comfort effects
+      should read `cameraMotion`.
+  - **For P4.** `you.sample()` gives the player's body capsules (third-person pose) for attack hit tests.
+    `extra.hits`/`big`/`dead` already play `hit`/`hit_big`/`death` and `fp_hit`/`fp_death`.
