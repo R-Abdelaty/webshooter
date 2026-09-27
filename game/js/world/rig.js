@@ -11,6 +11,9 @@
   //   or 'loco' - idle/walk/run blended by speed with their strides matched),
   //   one-shots that cross-fade in over it and hand back to it when they end,
   //   and additive clips (hit) layered on top, so a hit doesn't stop a run.
+  //   Layers (the manifest's `layers`: the player's shoot, a first-person
+  //   arm's shot) drive only their own bones over all of that, one clip per
+  //   layer at a time, so a web shot doesn't stop a run or the other arm.
   //   It says, each frame, which clip is at which time with which weight;
   //   the render side only copies that into its AnimationMixer;
   // - weak spots and body capsules that follow bones, from bone world
@@ -28,7 +31,8 @@
     cling_idle: ['idle'], crawl_idle: ['idle'], crawl_move: ['walk', 'run'], descent_loop: ['leap_air'],
     leap_air: ['leap_start'], land_heavy: ['land'],
     hit_big: ['hit'], stun: ['hit_big', 'hit'], defeat: ['hit_big'],
-    entrance: ['roar'], attack2: ['attack'], attack3: ['attack']
+    entrance: ['roar'], attack2: ['attack'], attack3: ['attack'],
+    shoot_l: ['shoot']
   };
   var ADDITIVE = ['hit'];
   var FADE = { base: .25, shotIn: .12, shotOut: .2, addIn: .05, addOut: .15 };
@@ -98,6 +102,9 @@
         if (!l || !Array.isArray(l.bones) || !l.bones.length || !l.bones.every(isStr) || !Array.isArray(l.clips) || !l.clips.every(isStr))
           err.push(at + 'layers.' + k + ' needs bones and clips');
       });
+      Object.keys(v.mirrors || {}).forEach(function (c) {
+        if (!isStr(v.mirrors[c])) err.push(at + 'mirrors.' + c + ' must name the clip it mirrors');
+      });
       if (v.airborne !== undefined) {
         var a = v.airborne || {};
         if (!Array.isArray(a.feet) || !a.feet.length || !a.feet.every(isStr) || !isNum(a.ankle) || !Array.isArray(a.clips) || !a.clips.every(isStr))
@@ -122,6 +129,7 @@
     bonesOf(entry).forEach(function (b) { if (!has(bones, b)) warn.push('no bone ' + b); });
     (entry.loops || []).forEach(function (c) { if (!has(clips, c)) warn.push('no loop clip ' + c); });
     Object.keys(entry.events || {}).forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for its event'); });
+    Object.keys(entry.mirrors || {}).forEach(function (c) { if (!has(clips, entry.mirrors[c])) warn.push('no clip ' + entry.mirrors[c] + ' to mirror as ' + c); });
     Object.keys(entry.layers || {}).forEach(function (k) {
       entry.layers[k].bones.forEach(function (b) { if (!has(bones, b)) warn.push('no bone ' + b + ' for layer ' + k); });
       entry.layers[k].clips.forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for layer ' + k); });
@@ -147,7 +155,8 @@
   // --- the state machine --------------------------------------------------------------
   // spec: { clips: { name: seconds }, loops: [names], speeds: { walk, run }
   //   (m/s, for 'loco'), additive: [names], events: { clip: { release_seconds } },
-  //   base: the first base state (default 'idle') }.
+  //   base: the first base state (default 'idle'), layers: the manifest's
+  //   { key: { bones, clips } } }.
   function machine(spec) {
     var names = Object.keys(spec.clips || {});
     var m = {
@@ -155,8 +164,18 @@
       loops: (spec.loops || []).filter(function (c) { return names.indexOf(c) >= 0; }),
       additive: (spec.additive || ADDITIVE).slice(), speeds: spec.speeds || null,
       events: spec.events || {}, fade: spec.fade || FADE,
-      slots: [], adds: [], speed: 0, phase: 0, time: 0, missing: []
+      slots: [], adds: [], layers: [], layerOf: {}, speed: 0, phase: 0, time: 0, missing: []
     };
+    Object.keys(spec.layers || {}).forEach(function (k) {
+      (spec.layers[k].clips || []).forEach(function (c) { if (names.indexOf(c) >= 0) m.layerOf[c] = k; });
+    });
+    // A mirrored clip plays where its source does, with its events.
+    Object.keys(spec.mirrors || {}).forEach(function (c) {
+      var src = spec.mirrors[c];
+      if (names.indexOf(c) < 0) return;
+      if (m.layerOf[src] !== undefined) m.layerOf[c] = m.layerOf[src];
+      if (m.events[src] && !m.events[c]) { m.events = Object.assign({}, m.events); m.events[c] = m.events[src]; }
+    });
     var first = resolve(names, spec.base || 'idle') || names[0];
     if (first) m.slots.push(slot(m, first, 'base', 1, 1));
     return m;
@@ -175,11 +194,14 @@
   // an additive clip is layered on top; anything else is a one-shot that
   // cross-fades in over the base and hands back to it at its end - or holds
   // its last frame (opts.hold, for defeat). opts: { speed, fade, hold, loop,
-  // restart, cut (a new base state ends the one-shot playing) }. Returns the clip actually used, or null if there is none.
+  // restart, cut (a new base state ends the one-shot playing), from (seconds
+  // into a one-shot to start it: skip a slow wind-up) }. Returns the clip
+  // actually used, or null if there is none. A layer's clip goes to layer().
   function play(m, want, opts) {
     opts = opts || {};
     var name = resolve(m.names, want);
     if (!name) { if (m.missing.indexOf(want) < 0) m.missing.push(want); return null; }
+    if (m.layerOf[name] !== undefined && !opts.loop) return layer(m, name, opts);
     var shot = shotSlot(m), base = baseSlot(m);
     if (name !== LOCO && m.additive.indexOf(name) >= 0 && !opts.loop) {
       m.adds = m.adds.filter(function (a) { return a.name !== name; });
@@ -209,10 +231,35 @@
     if (shot) { fadeOut(shot, fin); shot.ended = true; }
     var n = slot(m, name, 'shot', 0, 1);
     n.rate = 1 / Math.max(1e-3, fin); n.speed = opts.speed || 1; n.hold = !!opts.hold; n.loop = false;
+    if (opts.from > 0) n.t = Math.min(dur(m, name), opts.from);
     if (!(fin > 0)) n.w = 1;
     m.slots.push(n);
     if (base) { base.target = 0; base.rate = n.rate; }
     return name;
+  }
+
+  // A clip on its layer: it plays once over everything else, on its layer's
+  // bones only, and replaces what that layer was playing. opts: { speed,
+  // from, to (seconds into the clip: play only that stretch of it), fade
+  // (in), fadeOut }. Returns the clip, or null if it has no layer.
+  function layer(m, want, opts) {
+    opts = opts || {};
+    var name = resolve(m.names, want), key = name ? m.layerOf[name] : undefined;
+    if (key === undefined) { if (m.missing.indexOf(want) < 0) m.missing.push(want); return null; }
+    var d = dur(m, name), from = Math.max(0, Math.min(d, opts.from || 0));
+    var to = Math.max(from, Math.min(d, opts.to === undefined ? d : opts.to));
+    var fin = opts.fade !== undefined ? opts.fade : m.fade.shotIn;
+    // What the layer was playing gives way as this comes in.
+    m.layers.forEach(function (l) { if (l.key === key && !l.gone) { l.gone = l.ended = true; l.target = 0; l.rate = 1 / Math.max(1e-3, fin); } });
+    m.layers.push({ name: name, key: key, t: from, to: to, speed: opts.speed || 1, w: fin > 0 ? 0 : 1, target: 1,
+      rate: 1 / Math.max(1e-3, fin), fadeOut: Math.min((to - from) / (opts.speed || 1), opts.fadeOut !== undefined ? opts.fadeOut : m.fade.shotOut), ended: false, gone: false });
+    return name;
+  }
+  // What each layer is playing now: { key: clip }.
+  function layers(m) {
+    var out = {};
+    m.layers.forEach(function (l) { if (!l.gone) out[l.key] = l.name; });
+    return out;
   }
 
   // Walking speed for 'loco', in m/s.
@@ -271,12 +318,27 @@
     if (!shotSlot(m) && base && base.target < 1) { base.target = 1; base.rate = 1 / m.fade.shotOut; }
     m.phase = (m.phase + locoBlend(m, m.speed).cps * dt) % 1;
     m.adds = m.adds.filter(function (a) { a.t += dt * a.speed; return a.t < dur(m, a.name); });
+    m.layers.forEach(function (l) {
+      var t0 = l.t, e = m.events[l.name];
+      l.t = Math.min(l.to, l.t + dt * l.speed);
+      if (!l.gone) {
+        if (e && t0 < e.release_seconds && l.t >= e.release_seconds) ev.push({ type: 'release', clip: l.name, layer: l.key });
+        // Gone from the bones by its last frame (fadeOut is real seconds).
+        if (l.t >= l.to - l.fadeOut * l.speed - 1e-9) { l.target = 0; l.rate = 1 / Math.max(1e-3, l.fadeOut); }
+        if (l.t >= l.to) { l.gone = l.ended = true; ev.push({ type: 'end', clip: l.name, layer: l.key }); }
+      }
+      var dw = l.rate * dt;
+      l.w = l.w < l.target ? Math.min(l.target, l.w + dw) : Math.max(l.target, l.w - dw);
+    });
+    m.layers = m.layers.filter(function (l) { return !(l.gone && l.w <= 0); });
     return ev;
   }
 
   // Which clip is at which time with which weight, for the render side:
-  // [{ clip, t, w, additive }]. The non-additive weights add up to 1, so no
-  // rest pose bleeds through a cross-fade.
+  // [{ clip, t, w, additive, layer }]. The non-additive weights add up to 1,
+  // so no rest pose bleeds through a cross-fade. A layer's weight is its own
+  // share of its bones (0..1) over all that, and is not in the sum; the
+  // render side turns it into a mixer weight with layerWeight().
   function pose(m) {
     var list = [], sum = 0;
     function add(clip, t, w) {
@@ -300,8 +362,14 @@
       var d = dur(m, a.name), w = Math.min(1, a.t / m.fade.addIn, (d - a.t) / m.fade.addOut);
       if (w > 1e-4) list.push({ clip: a.name, t: a.t, w: Math.max(0, w), additive: true });
     });
+    m.layers.forEach(function (l) { if (l.w > 1e-4) list.push({ clip: l.name, t: l.t, w: l.w, additive: false, layer: l.key }); });
     return list;
   }
+  // Three's mixer averages what acts on a bone by weight. Under a layer at
+  // share w the rest of the pose weighs 1, so the layer's action needs
+  // w / (1 - w) to come out at w of the bone - capped, since at 1 it takes
+  // the bone whole.
+  function layerWeight(w) { return w >= .9999 ? 1e4 : Math.max(0, w) / (1 - w); }
 
   // The state in words, for the viewer and the tests.
   function state(m) {
@@ -314,6 +382,22 @@
   function updateEvery(distance, onScreen) {
     if (!onScreen) return 4;
     return distance < 40 ? 1 : distance < 90 ? 2 : 3;
+  }
+
+  // --- mirroring ---------------------------------------------------------------------
+  // A clip's tracks with left and right swapped: [{ name, times, values }]
+  // (a bone's name with "Left" and "Right" exchanged, then .quaternion or
+  // .position). On a rig whose two sides are mirror images across its x = 0
+  // plane (Mixamo's), the mirror of a local rotation is (x, -y, -z, w) and of
+  // a position (-x, y, z); checked on Spider-Man to 2 mm at the hands.
+  function mirror(tracks) {
+    return tracks.map(function (t) {
+      var name = t.name.replace(/Left|Right/g, function (w) { return w === 'Left' ? 'Right' : 'Left'; });
+      var v = Array.prototype.slice.call(t.values), i;
+      if (/.quaternion$/.test(t.name)) for (i = 0; i < v.length; i += 4) { v[i + 1] = -v[i + 1]; v[i + 2] = -v[i + 2]; }
+      else if (/.position$/.test(t.name)) for (i = 0; i < v.length; i += 3) v[i] = -v[i];
+      return { name: name, times: Array.prototype.slice.call(t.times), values: v };
+    });
   }
 
   // --- bones -> weak spots and capsules ------------------------------------------------
@@ -401,8 +485,8 @@
 
   var api = {
     WEAK_SPOTS: WEAK_SPOTS, STANDARD: STANDARD, FALLBACKS: FALLBACKS, ADDITIVE: ADDITIVE, FADE: FADE, LOCO: LOCO,
-    validate: validate, bonesOf: bonesOf, check: check, resolve: resolve, missing: missing,
-    machine: machine, play: play, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
+    validate: validate, mirror: mirror, bonesOf: bonesOf, check: check, resolve: resolve, missing: missing,
+    machine: machine, play: play, layer: layer, layers: layers, layerWeight: layerWeight, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
     updateEvery: updateEvery, pointOn: pointOn, sample: sample, rayCapsule: rayCapsule, rayBody: rayBody, along: along
   };
   if (typeof module !== 'undefined') module.exports = api;

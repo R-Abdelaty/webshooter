@@ -121,6 +121,15 @@
       .then(function (gltf) {
         var clips = {}, additive = {};
         gltf.animations.forEach(function (c) { clips[c.name] = c; });
+        // Clips made by mirroring another (the left-handed shoot).
+        Object.keys((e && e.mirrors) || {}).forEach(function (n) {
+          var src = clips[e.mirrors[n]];
+          if (!src || clips[n]) return;
+          var made = Rig.mirror(src.tracks);
+          clips[n] = new T.AnimationClip(n, src.duration, src.tracks.map(function (t, i) {
+            return new t.constructor(made[i].name, made[i].times, made[i].values, t.getInterpolation());
+          }));
+        });
         // A hit is layered over whatever is playing: its change from its own
         // first frame, added on top.
         Rig.ADDITIVE.forEach(function (n) {
@@ -180,7 +189,7 @@
       a.play(); a.enabled = false;
     });
     this.clipNames = Object.keys(tpl.clips);
-    this.machine = Rig.machine({ clips: durs, loops: e.loops, speeds: e.speeds, events: e.events, base: opts.base });
+    this.machine = Rig.machine({ clips: durs, loops: e.loops, speeds: e.speeds, events: e.events, base: opts.base, layers: e.layers, mirrors: e.mirrors });
     this.frame = 0; this.every = 1; this.onScreen = true;
     this.apply();
   }
@@ -194,6 +203,12 @@
   };
   CharacterRig.prototype.setSpeed = function (v) { Rig.setSpeed(this.machine, v); };
   CharacterRig.prototype.state = function () { return Rig.state(this.machine); };
+  // A clip on its layer only (Rig.layer); see play.
+  CharacterRig.prototype.layer = function (name, opts) {
+    var got = Rig.layer(this.machine, name, opts);
+    if (!got) warnOnce(this.id + ':' + name, 'model ' + this.id + ' has no layer clip ' + name);
+    return got;
+  };
   // Step the clips by dt seconds; returns the machine's events ('end',
   // 'release'). distance (metres from the camera) and onScreen let a far or
   // hidden character work its pose out less often; its timing stays exact.
@@ -211,7 +226,9 @@
     Rig.pose(this.machine).forEach(function (p) {
       var a = p.additive ? self.addActions[p.clip] : self.actions[p.clip];
       if (!a) return;
-      a.enabled = true; a.time = p.t; a.weight = p.w;
+      // A layer's clip only has its own bones' tracks (build-models.cjs strips
+      // the rest), so its weight takes those bones and nothing else.
+      a.enabled = true; a.time = p.t; a.weight = p.layer ? Rig.layerWeight(p.w) : p.w;
     });
     this.mixer.update(0);
   };
@@ -240,7 +257,9 @@
 
   root.WorldModels = {
     register: register, load: load, create: create, entry: entry, ids: ids, manifest: manifest, setRenderer: setRenderer,
-    loaded: function (id) { return !!templates[id]; }
+    loaded: function (id) { return !!templates[id]; },
+    // The neutral studio environment every model reflects until given another.
+    studio: function () { return env; }
   };
   root.CharacterRig = CharacterRig;
 })(window);
