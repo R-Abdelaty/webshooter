@@ -153,7 +153,7 @@
   function eye(p) { return { x: p.x, y: p.y + P.EYE, z: p.z }; }
 
   var api = { create: create, step: step, look: look, eye: eye, pushOut: pushOut, forward: forward, right: right,
-    support: support, constants: P };
+    support: support, resolveWalls: resolveWalls, ceiling: ceiling, clampToWalk: clampToWalk, constants: P };
   if (typeof module !== 'undefined') module.exports = api;
   root.Player = api;
 })(typeof window === 'undefined' ? globalThis : window);

@@ -29,7 +29,17 @@
     // First person, FULL. REDUCED is none of it.
     BOB: .022, BOB_SIDE: .012,     // metres of bob at a run, up and down / side to side
     BOB_V: 3,                      // m/s: the bob fades in up to this speed
-    DIP: .09, DIP_T: .28           // a landing's dip, metres, and how long it lasts
+    DIP: .09, DIP_T: .28,          // a landing's dip, metres, and how long it lasts
+    CROUCH: .55, CROUCH_T: 6,      // a perch lowers the eye this far, easing at this rate a second
+    // Swinging (P3). Third person: the camera trails the direction of travel
+    // by LAG seconds of your velocity (at most LAG_MAX metres) and rises
+    // LAG_UP at speed, easing at LAG_EASE a second.
+    LAG: .1, LAG_MAX: 2.2, LAG_UP: .8, LAG_EASE: 3,
+    // The comfort-capped effects (swingFx): a wider view with speed, from
+    // KICK_V to KICK_V1 m/s, at most KICK degrees; first person also rolls
+    // into the arc, at most ROLL radians, and shows speed lines from LINES_V.
+    // REDUCED halves the kick and has no roll and no lines. Never a flip.
+    KICK: 10, KICK_V: 12, KICK_V1: 34, ROLL: .07, ROLL_V: 12, LINES_V: [18, 34], FX_EASE: 4
   };
 
   var DEFAULTS = { camera: 'first', cameraMotion: 'full' };
@@ -122,19 +132,54 @@
 
   // The third-person camera, one frame. s: a state from create(); p: Player.
   // Returns { eye, dist, hide } - hide when it's too close to show the body.
-  function create() { return { dist: null, bobT: 0, dip: 0 }; }
-  function third(s, p, city, dt) {
-    var o = pivot(p), b = boom(p.yaw, p.pitch);
-    var hits = probes(o, b).map(function (q) { return cast(city, q, b.dir, b.len + K.PAD); });
-    s.dist = ease(s.dist, allowed(b.len, hits), dt);
-    return { eye: add(o, b.dir, s.dist), dist: s.dist, hide: s.dist < K.HIDE };
+  function create() { return { dist: null, bobT: 0, dip: 0, crouch: 0, lag: { x: 0, y: 0, z: 0 }, kick: 0, roll: 0, lines: 0 }; }
+  // opts.moving: swinging, flying or zipping - the camera trails you; its
+  // offset from the boom eases back when you stop.
+  function third(s, p, city, dt, opts) {
+    var o = pivot(p), b = boom(p.yaw, p.pitch), want = { x: 0, y: 0, z: 0 };
+    if (opts && opts.moving) {
+      var v = Math.hypot(p.vx || 0, p.vy || 0, p.vz || 0), k = Math.min(1, v * K.LAG / K.LAG_MAX);
+      var m = v > 1e-6 ? K.LAG_MAX * k / v : 0;
+      want = { x: -(p.vx || 0) * m, y: -(p.vy || 0) * m + K.LAG_UP * k, z: -(p.vz || 0) * m };
+    }
+    if (!s.lag) s.lag = { x: 0, y: 0, z: 0 };
+    var e = 1 - Math.exp(-K.LAG_EASE * (dt > 0 ? dt : 0));
+    s.lag.x += (want.x - s.lag.x) * e; s.lag.y += (want.y - s.lag.y) * e; s.lag.z += (want.z - s.lag.z) * e;
+    // The boom with the trail added, then pulled in off the city as before.
+    var w = add(add({ x: 0, y: 0, z: 0 }, b.dir, b.len), s.lag, 1), l = Math.hypot(w.x, w.y, w.z) || 1e-6;
+    var line = { dir: { x: w.x / l, y: w.y / l, z: w.z / l }, len: l, axes: b.axes };
+    var hits = probes(o, line).map(function (q) { return cast(city, q, line.dir, line.len + K.PAD); });
+    s.dist = ease(s.dist, allowed(line.len, hits), dt);
+    return { eye: add(o, line.dir, s.dist), dist: s.dist, hide: s.dist < K.HIDE };
   }
+
+  // The swing's comfort-capped camera effects, eased, one frame. o: {
+  //   speed (m/s), swinging (on a line), lateral (-1..1: how far to the
+  //   right of the view the line pulls), first (first person) }; motion:
+  //   'full' | 'reduced'. Returns { fov (degrees to add), roll (radians, as
+  //   the camera's rotation.z: negative leans right), lines (0..1) }.
+  function swingFx(s, o, dt, motion) {
+    o = o || {};
+    var reduced = motion === 'reduced', v = o.speed || 0;
+    var k = sstep(K.KICK_V, K.KICK_V1, v) * K.KICK * (reduced ? .5 : 1);
+    var r = reduced || !o.first || !o.swinging ? 0 : -K.ROLL * Math.max(-1, Math.min(1, o.lateral || 0)) * Math.min(1, v / K.ROLL_V);
+    var n = reduced || !o.first ? 0 : sstep(K.LINES_V[0], K.LINES_V[1], v);
+    var e = 1 - Math.exp(-K.FX_EASE * (dt > 0 ? dt : 0));
+    s.kick = (s.kick || 0) + (k - (s.kick || 0)) * e;
+    s.roll = (s.roll || 0) + (r - (s.roll || 0)) * e;
+    s.lines = (s.lines || 0) + (n - (s.lines || 0)) * e;
+    return { fov: Math.min(K.KICK, s.kick), roll: Math.max(-K.ROLL, Math.min(K.ROLL, s.roll)), lines: Math.min(1, s.lines) };
+  }
+  function sstep(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
 
   // First person: the eye, bobbing with the stride and dipping on a landing.
   // p: Player; eye: Player.eye(p); landed: this frame touched down hard;
   // motion: 'full' or 'reduced'.
-  function first(s, p, eye, dt, landed, motion) {
+  // crouch: perched (the eye comes down, in either motion setting).
+  function first(s, p, eye, dt, landed, motion, crouch) {
     dt = dt > 0 ? dt : 0;
+    s.crouch = (s.crouch || 0) + ((crouch ? 1 : 0) - (s.crouch || 0)) * (1 - Math.exp(-K.CROUCH_T * dt));
+    eye = { x: eye.x, y: eye.y - K.CROUCH * s.crouch, z: eye.z };
     if (landed) s.dip = K.DIP_T;
     s.dip = Math.max(0, s.dip - dt);
     var v = p.grounded ? Math.hypot(p.vx || 0, p.vz || 0) : 0;
@@ -147,7 +192,7 @@
   }
 
   var api = { settings: settings, load: load, save: save, KEY: KEY, DEFAULTS: DEFAULTS, axes: axes, pivot: pivot, boom: boom,
-    rayBox: rayBox, cast: cast, allowed: allowed, ease: ease, create: create, third: third, first: first, constants: K };
+    rayBox: rayBox, cast: cast, allowed: allowed, ease: ease, create: create, third: third, first: first, swingFx: swingFx, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.PlayerCamera = api;
 })(typeof window === 'undefined' ? globalThis : window);

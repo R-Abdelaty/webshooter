@@ -19,6 +19,12 @@
   //     WebShot.indices().
   //   WebShot.snap(camera)  seconds from the flick to the snap of the hand
   //     ('first' or 'third'), from the clips PlayerAnim plays.
+  //
+  // A swing line (P3) is the same bundle, held: WebShot.line({ from, to,
+  // launch }) flies out the same way, lands with a little sag that snaps
+  // tight (overshooting once), and stays taut - a narrower bundle, the
+  // splay only where it grips the wall - until WebShot.letGo(line, now):
+  // then it goes slack and fades.
 
   var PA = root.PlayerAnim || (typeof require === 'function' ? require('./player-anim.js') : null);
 
@@ -39,7 +45,11 @@
     SAG: .035,                    // of the length, as it flies (none once it's taut)
     WAVE: .18,                    // each fibre's wander, as a share of the spread there
     COLOR: [.86, .88, .9], ALPHA: .62, CORE_ALPHA: .95,
-    GLINT: .35                    // how bright the light running along it gets
+    GLINT: .35,                   // how bright the light running along it gets
+    // A held swing line: its bundle this share of a shot's width, the sag it
+    // lands with (of its length), how fast that snaps out (seconds) and how
+    // fast it rings, and how long it takes to go once let go.
+    LINE_SPREAD: .3, LINE_SAG: .05, LINE_SNAP: .06, LINE_RING: 38, LINE_FADE: .22
   };
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -71,8 +81,29 @@
     return { launch: o.launch, arrive: arrive, done: arrive + (K.HOLD + K.FADE) * 1000, len: len, strands: strands };
   }
 
+  function line(o) {
+    var s = shot(o);
+    s.held = true; s.done = Infinity; s.releasedAt = null; s.spreadK = K.LINE_SPREAD; s.sag = K.LINE_SAG;
+    return s;
+  }
+  function letGo(s, now) {
+    if (!s || !s.held || s.releasedAt !== null) return;
+    s.releasedAt = now; s.done = now + K.LINE_FADE * 1000;
+  }
+  function heldState(s, now) {
+    var fly = Math.max(1e-3, s.arrive - s.launch), tip = clamp((now - s.launch) / fly, 0, 1), a = (now - s.arrive) / 1000;
+    // Snapping tight: from the sag, past straight once, and settled.
+    var taut = a < 0 ? 0 : 1 - Math.exp(-a / K.LINE_SNAP) * Math.cos(a * K.LINE_RING), k = 1;
+    if (s.releasedAt !== null) {
+      var r = clamp((now - s.releasedAt) / 1000 / K.LINE_FADE, 0, 1);
+      k = 1 - r; taut = Math.min(taut, 1 - r);
+    }
+    return { tip: 1 - Math.pow(1 - tip, 1.6), taut: taut, k: k, tail: 0 };
+  }
+
   function state(s, now) {
     if (now < s.launch || now >= s.done) return null;
+    if (s.held) return heldState(s, now);
     var fly = Math.max(1e-3, s.arrive - s.launch), tip = clamp((now - s.launch) / fly, 0, 1);
     var after = (now - s.arrive) / 1000, k = after <= K.HOLD ? 1 : clamp(1 - (after - K.HOLD) / K.FADE, 0, 1);
     // It snaps taut over the moment it lands; then its tail, let go at the
@@ -94,7 +125,7 @@
   // Where fibre `f` is at u (0 at the wrist, 1 at the target) on a web from
   // `from` to `to`, `taut` (0 flying, 1 landed) of the way to straight.
   function spread(s, u) {
-    var S1 = clamp(s.len * K.SPREAD_PER_M, K.SPREAD1[0], K.SPREAD1[1]);
+    var S1 = clamp(s.len * K.SPREAD_PER_M, K.SPREAD1[0], K.SPREAD1[1]) * (s.spreadK || 1);
     return K.SPREAD0 + (S1 - K.SPREAD0) * Math.pow(u, K.FAN);
   }
   function point(s, f, from, to, u, taut, ax) {
@@ -103,7 +134,7 @@
     var sp = spread(s, u);
     var wob = f.r ? K.WAVE * Math.sin(f.phase + u * f.waves * Math.PI * 2) * (1 - .6 * taut) : 0;
     var c = Math.cos(f.a) * f.r * sp + wob * sp, e = Math.sin(f.a) * f.r * sp;
-    var sag = -K.SAG * s.len * Math.sin(Math.PI * u) * (1 - taut);
+    var sag = -(s.sag || K.SAG) * s.len * Math.sin(Math.PI * u) * (1 - taut);
     return { x: from.x + d.x * u + ax[0].x * c + ax[1].x * e, y: from.y + d.y * u + ax[0].y * c + ax[1].y * e + sag, z: from.z + d.z * u + ax[0].z * c + ax[1].z * e };
   }
 
@@ -146,7 +177,7 @@
     return true;
   }
 
-  var api = { shot: shot, state: state, point: point, spread: spread, build: build, indices: indices, size: size, snap: snap, travel: travel, constants: K };
+  var api = { shot: shot, line: line, letGo: letGo, state: state, point: point, spread: spread, build: build, indices: indices, size: size, snap: snap, travel: travel, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.WebShot = api;
 })(typeof window === 'undefined' ? globalThis : window);

@@ -67,12 +67,16 @@
   function classify(a, p, dt, x) {
     var v = Math.hypot(p.vx || 0, p.vz || 0);
     if (x.dead) return 'dead';
-    if (x.zip) return 'zip';
-    if (x.swing) return 'swing';
-    if (x.perched) return 'perch';
+    // Time off the ground counts on a line and on a zip too, so touching down
+    // after a swing is a landing.
     if (!p.grounded) {
-      if (a.grounded && (p.vy || 0) > K.JUMP_VY) a.jumped = true;
+      if (a.grounded && (p.vy || 0) > K.JUMP_VY && !x.swing && !x.zip) a.jumped = true;
       a.air += dt; a.fallVy = Math.min(a.fallVy, p.vy || 0);
+    }
+    if (x.zip) { a.jumped = false; return 'zip'; }
+    if (x.swing) { a.jumped = false; return 'swing'; }
+    if (x.perched) { a.air = 0; a.jumped = false; a.fallVy = 0; a.landT = 0; return 'perch'; }
+    if (!p.grounded) {
       if (a.jumped) return 'jump';
       return a.air >= K.AIR_MIN ? 'fall' : (a.state === 'land' ? 'land' : ground(v));
     }

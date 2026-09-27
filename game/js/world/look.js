@@ -168,6 +168,9 @@
   function ray(cam, view, fov, aspect) {
     var tv = Math.tan(fov * DEG / 2), th = tv * aspect;
     var x = (view.x * 2 - 1) * th, y = (1 - view.y * 2) * tv, z = -1;
+    // A camera rolled into a swing's arc (cam.roll, radians, as the camera's
+    // rotation.z) turns the view about its own axis first.
+    if (cam.roll) { var cr = Math.cos(cam.roll), sr = Math.sin(cam.roll), rx = x * cr - y * sr; y = x * sr + y * cr; x = rx; }
     var cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch), cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
     var y1 = y * cp - z * sp, z1 = y * sp + z * cp;                  // pitch, about x
     var x2 = x * cy + z1 * sy, z2 = -x * sy + z1 * cy;               // then yaw, about y
