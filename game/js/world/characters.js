@@ -2,7 +2,8 @@
   'use strict';
   // The animated characters, on the Three.js side (rig.js is the logic).
   //
-  // WorldModels loads a model by id (goblin, glider, bomb, rhino, venom): its
+  // WorldModels loads a model by id (goblin, glider, bomb, rhino, venom, and
+  // the player's spiderman and spiderman_arms): its
   // GLB is base64 in js/world/models/<id>.js (tools/embed-models.cjs), because
   // a file:// page can't fetch files. That script is only added to the page
   // the first time the model is asked for. The GLB is parsed once into a
@@ -36,17 +37,17 @@
     console.warn('Web Shooter: ' + msg);
   }
   function manifest() { return root.CharacterManifest || { villains: {} }; }
-  // The manifest entry for a villain or a prop.
+  // The manifest entry for a villain, a prop or the player's models.
   function entry(id) {
-    var v = manifest().villains;
+    var v = manifest().villains, pl = manifest().player || {};
     if (v[id]) return v[id];
     for (var k in v) if (v[k].props && v[k].props[id]) return v[k].props[id];
-    return null;
+    return pl[id] || null;
   }
   function ids() {
     var v = manifest().villains, out = [];
     Object.keys(v).forEach(function (k) { out.push(k); Object.keys(v[k].props || {}).forEach(function (p) { out.push(p); }); });
-    return out;
+    return out.concat(Object.keys(manifest().player || {}));
   }
 
   // The renderer to build the environment map with (World3D's), once.

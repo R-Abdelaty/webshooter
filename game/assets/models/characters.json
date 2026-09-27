@@ -1,5 +1,5 @@
 {
-  "_about": "Game-ready character models built by game/tools/blender/*.py from game/assets-src/characters/. Units are metres; each model stands on y=0 facing +Z (glTF). The runtime scales each model root by `scale` (1 when omitted) to reach `height`: goblin and venom are exported at real size, rhino at his native 1.383 m. Clip names are the standard ones from docs/CHARACTERS_PLAN.md. Weak spots and body capsules follow bones (js/world/rig.js): a weak spot's offset is in metres along the bone's own axes (rotation only, so the rhino's scale doesn't stretch it) and its radius is in metres; a capsule runs between two bones' origins, or past the second by an optional [x, y, z] along its axes (the head's reaches the crown). Weak spots sit on the middle of the body part they name, with a radius about its half-thickness; capsule radii are the limb's measured thickness (Session C2, from the skinned vertices in the idle pose; check them with the model viewer, M in the 3D city). `airborne` (venom) names the clips that lift his feet off the ground in the clip itself: while they play, the model is lowered so his lowest ankle stays `ankle` metres above the point the fight moves him along. `speeds` are the ground speeds (m/s) at which walk and run look right, for blending them by speed without foot slide, measured from the planted foot in each clip. `shoulders` (left and right upper arm) is how the game measures which way each clip squares the chest: it takes out each clip's average (Venom's idle stands 53 degrees to his right) and, for clips that turn the body by themselves (the turn clips), the whole turn, so the villain faces exactly where the fight says. Rebuild a model with: blender --background --factory-startup --python game/tools/blender/<id>.py",
+  "_about": "Game-ready character models built by game/tools/blender/*.py from game/assets-src/characters/. Units are metres; each model stands on y=0 facing +Z (glTF). The runtime scales each model root by `scale` (1 when omitted) to reach `height`: goblin and venom are exported at real size, rhino at his native 1.383 m. Clip names are the standard ones from docs/CHARACTERS_PLAN.md. Weak spots and body capsules follow bones (js/world/rig.js): a weak spot's offset is in metres along the bone's own axes (rotation only, so the rhino's scale doesn't stretch it) and its radius is in metres; a capsule runs between two bones' origins, or past the second by an optional [x, y, z] along its axes (the head's reaches the crown). Weak spots sit on the middle of the body part they name, with a radius about its half-thickness; capsule radii are the limb's measured thickness (Session C2, from the skinned vertices in the idle pose; check them with the model viewer, M in the 3D city). `airborne` (venom) names the clips that lift his feet off the ground in the clip itself: while they play, the model is lowered so his lowest ankle stays `ankle` metres above the point the fight moves him along. `speeds` are the ground speeds (m/s) at which walk and run look right, for blending them by speed without foot slide, measured from the planted foot in each clip. `shoulders` (left and right upper arm) is how the game measures which way each clip squares the chest: it takes out each clip's average (Venom's idle stands 53 degrees to his right) and, for clips that turn the body by themselves (the turn clips), the whole turn, so the villain faces exactly where the fight says. Rebuild a model with: blender --background --factory-startup --python game/tools/blender/<id>.py `player` holds the playable Spider-Man (docs/PLAYER_PLAN.md): the full body (third person) and the first-person arms cut from it, on the same skeleton. `space: \"camera\"` means the model is built in camera space: its origin is the eye, it looks down -Z with +Y up, so it is added to the camera as it is; `fov` is the vertical field of view its poses were framed for. `eye` is where the eyes are in a world-space model. `wrists` are where the webs leave: a bone and an offset along its own axes (metres, rotation only) to the centre of that web shooter. `layers` name bone sets for clips meant to play over another clip on those bones only (the third-person shoot over run or hang, a first-person shot or release over a swing hold): the runtime keeps just those bones' tracks.",
   "villains": {
     "goblin": {
       "file": "goblin.glb",
@@ -98,6 +98,114 @@
         "ankle": 0.17,
         "clips": ["leap_start", "leap_air", "land", "descent_start", "descent_loop", "descent_end"]
       }
+    }
+  },
+  "player": {
+    "spiderman": {
+      "file": "spiderman.glb",
+      "height": 1.83,
+      "eye": [0, 1.715, 0.016],
+      "loops": ["idle", "run", "fall", "perch", "hang"],
+      "speeds": { "walk": 3, "run": 5.7 },
+      "shoulders": ["mixamorig:LeftArm", "mixamorig:RightArm"],
+      "events": {
+        "jump": {
+          "release_frame": 18,
+          "fps": 30,
+          "release_seconds": 0.6,
+          "what": "take-off: the feet leave the ground; start the jump's rise here"
+        }
+      },
+      "wrists": {
+        "l": { "bone": "mixamorig:LeftHand", "offset": [0.001, -0.01, 0.031] },
+        "r": { "bone": "mixamorig:RightHand", "offset": [-0.001, -0.01, 0.032] }
+      },
+      "layers": {
+        "upper": {
+          "bones": [
+            "mixamorig:Spine", "mixamorig:Spine1", "mixamorig:Spine2", "mixamorig:Neck", "mixamorig:Head",
+            "mixamorig:LeftShoulder", "mixamorig:LeftArm", "mixamorig:LeftForeArm", "mixamorig:LeftHand",
+            "mixamorig:LeftHandThumb1", "mixamorig:LeftHandThumb2", "mixamorig:LeftHandThumb3",
+            "mixamorig:LeftHandThumb4", "mixamorig:LeftHandIndex1", "mixamorig:LeftHandIndex2",
+            "mixamorig:LeftHandIndex3", "mixamorig:LeftHandIndex4", "mixamorig:LeftHandMiddle1",
+            "mixamorig:LeftHandMiddle2", "mixamorig:LeftHandMiddle3", "mixamorig:LeftHandMiddle4",
+            "mixamorig:LeftHandRing1", "mixamorig:LeftHandRing2", "mixamorig:LeftHandRing3",
+            "mixamorig:LeftHandRing4", "mixamorig:LeftHandPinky1", "mixamorig:LeftHandPinky2",
+            "mixamorig:LeftHandPinky3", "mixamorig:LeftHandPinky4", "mixamorig:RightShoulder",
+            "mixamorig:RightArm", "mixamorig:RightForeArm", "mixamorig:RightHand", "mixamorig:RightHandThumb1",
+            "mixamorig:RightHandThumb2", "mixamorig:RightHandThumb3", "mixamorig:RightHandThumb4",
+            "mixamorig:RightHandIndex1", "mixamorig:RightHandIndex2", "mixamorig:RightHandIndex3",
+            "mixamorig:RightHandIndex4", "mixamorig:RightHandMiddle1", "mixamorig:RightHandMiddle2",
+            "mixamorig:RightHandMiddle3", "mixamorig:RightHandMiddle4", "mixamorig:RightHandRing1",
+            "mixamorig:RightHandRing2", "mixamorig:RightHandRing3", "mixamorig:RightHandRing4",
+            "mixamorig:RightHandPinky1", "mixamorig:RightHandPinky2", "mixamorig:RightHandPinky3",
+            "mixamorig:RightHandPinky4"
+          ],
+          "clips": ["shoot"]
+        }
+      },
+      "body": [
+        ["mixamorig:Hips", "mixamorig:Neck", 0.163],
+        ["mixamorig:Neck", "mixamorig:Head", 0.084, [0, 0.099, 0.065]],
+        ["mixamorig:LeftArm", "mixamorig:LeftForeArm", 0.065],
+        ["mixamorig:LeftForeArm", "mixamorig:LeftHand", 0.052],
+        ["mixamorig:RightArm", "mixamorig:RightForeArm", 0.068],
+        ["mixamorig:RightForeArm", "mixamorig:RightHand", 0.052],
+        ["mixamorig:LeftUpLeg", "mixamorig:LeftLeg", 0.108],
+        ["mixamorig:LeftLeg", "mixamorig:LeftFoot", 0.09],
+        ["mixamorig:RightUpLeg", "mixamorig:RightLeg", 0.101],
+        ["mixamorig:RightLeg", "mixamorig:RightFoot", 0.089]
+      ],
+      "notes": "Fan-made model, personal use only: do not publish. 40k triangles, exported at real size (1.83 m; the rig keeps its FBX scale on the armature node). The 13 clips are Mixamo's (on X Bot), retargeted and in place: no clip moves him across the ground. jump crouches, pushes off and tucks, but its hips stay at take-off height after the take-off event, so the game's jump supplies the rise; land starts two frames before touchdown; fall and hang are poses in the air (feet about 0.3 m and 0.24 m above his origin; hang's hands reach 2.3 m). death falls flat in place (4.4 s; hold its last frame). There is no walk clip: below speeds.walk the run crossfades with idle. speeds.run is measured from the planted foot. shoot is a one-handed cast (right hand) of the upper body only (layers.upper; the build strips the rest), to play over idle, run or hang."
+    },
+    "spiderman_arms": {
+      "file": "spiderman_arms.glb",
+      "height": 1.83,
+      "space": "camera",
+      "fov": 75,
+      "loops": ["fp_idle", "fp_run", "fp_swing_hold_l", "fp_swing_hold_r"],
+      "events": {
+        "fp_shoot_l": { "release_frame": 4, "fps": 30, "release_seconds": 0.133, "what": "the snap: the web leaves the left wrist" },
+        "fp_shoot_r": {
+          "release_frame": 4,
+          "fps": 30,
+          "release_seconds": 0.133,
+          "what": "the snap: the web leaves the right wrist"
+        }
+      },
+      "wrists": {
+        "l": { "bone": "mixamorig:LeftHand", "offset": [0.001, -0.01, 0.031] },
+        "r": { "bone": "mixamorig:RightHand", "offset": [-0.001, -0.01, 0.032] }
+      },
+      "layers": {
+        "arm_l": {
+          "bones": [
+            "mixamorig:LeftShoulder", "mixamorig:LeftArm", "mixamorig:LeftForeArm", "mixamorig:LeftHand",
+            "mixamorig:LeftHandThumb1", "mixamorig:LeftHandThumb2", "mixamorig:LeftHandThumb3",
+            "mixamorig:LeftHandThumb4", "mixamorig:LeftHandIndex1", "mixamorig:LeftHandIndex2",
+            "mixamorig:LeftHandIndex3", "mixamorig:LeftHandIndex4", "mixamorig:LeftHandMiddle1",
+            "mixamorig:LeftHandMiddle2", "mixamorig:LeftHandMiddle3", "mixamorig:LeftHandMiddle4",
+            "mixamorig:LeftHandRing1", "mixamorig:LeftHandRing2", "mixamorig:LeftHandRing3",
+            "mixamorig:LeftHandRing4", "mixamorig:LeftHandPinky1", "mixamorig:LeftHandPinky2",
+            "mixamorig:LeftHandPinky3", "mixamorig:LeftHandPinky4"
+          ],
+          "clips": ["fp_shoot_l", "fp_release_l"]
+        },
+        "arm_r": {
+          "bones": [
+            "mixamorig:RightShoulder", "mixamorig:RightArm", "mixamorig:RightForeArm", "mixamorig:RightHand",
+            "mixamorig:RightHandThumb1", "mixamorig:RightHandThumb2", "mixamorig:RightHandThumb3",
+            "mixamorig:RightHandThumb4", "mixamorig:RightHandIndex1", "mixamorig:RightHandIndex2",
+            "mixamorig:RightHandIndex3", "mixamorig:RightHandIndex4", "mixamorig:RightHandMiddle1",
+            "mixamorig:RightHandMiddle2", "mixamorig:RightHandMiddle3", "mixamorig:RightHandMiddle4",
+            "mixamorig:RightHandRing1", "mixamorig:RightHandRing2", "mixamorig:RightHandRing3",
+            "mixamorig:RightHandRing4", "mixamorig:RightHandPinky1", "mixamorig:RightHandPinky2",
+            "mixamorig:RightHandPinky3", "mixamorig:RightHandPinky4"
+          ],
+          "clips": ["fp_shoot_r", "fp_release_r"]
+        }
+      },
+      "notes": "The arms, hands and web shooters of spiderman.glb (17k triangles), on the same skeleton, in camera space: add the root to the camera as it is. The cut runs across the chest and back, behind the eye, so it is never in view. Poses were framed for a 75 degree vertical FOV at 16:9 and nothing flips or spins. fp_idle (3 s) and fp_run (0.53 s, one stride cycle, as long as run) are loops for both arms. fp_shoot_l/r (0.37 s) drive only the shooting arm (layers; the build strips the rest), snapping into the thwip pose at the event (index and pinky straight, middle and ring curled, thumb out, wrist cocked back), then recoil and return. fp_swing_hold_l/r loop the named hand raised in a fist on the line (the runtime IK-aims it at the anchor) and the other low. fp_release_l/r drive only that arm: the fist opens and drops back to idle. fp_zip (0.6 s, hold the end) hauls the line in with both fists. fp_hit (0.43 s) flinches both forearms up before the face. fp_death (1 s, hold the end) slumps both arms out of view."
     }
   }
 }

@@ -3,7 +3,8 @@
 //   node game/tools/build-models.cjs              compress + embed the GLBs in assets/models/
 //   node game/tools/build-models.cjs --blender    first rebuild those GLBs from assets-src/ in Blender
 //   node game/tools/build-models.cjs --sheets     also re-render docs/reference/clips/<id>.png
-//   node game/tools/build-models.cjs --only venom just one character (and its props)
+//   node game/tools/build-models.cjs --only venom just one character (and its props);
+//                                                --only spiderman is the player (both models)
 //
 // 1. (--blender) runs game/tools/blender/<id>.py headless, which writes
 //    assets/models/<id>.glb. Blender is looked for in BLENDER_PATH, then on
@@ -33,8 +34,14 @@ const manifest = require(path.join(MODELS, 'characters.json'));
 const SCRIPTS = [
   { script: 'goblin.py', writes: ['goblin', 'glider', 'bomb'] },
   { script: 'venom.py', writes: ['venom'] },
-  { script: 'rhino.py', writes: ['rhino'] }
+  { script: 'rhino.py', writes: ['rhino'] },
+  { script: 'spiderman.py', writes: ['spiderman', 'spiderman_arms'] }
 ];
+// How sheet.py draws each player model (the arms from the eye, as the player sees them).
+const PLAYER_SHEETS = {
+  spiderman: ['--frames', '4', '--cols', '12'],
+  spiderman_arms: ['--fov', '75', '--frames', '4', '--cell', '150', '--cols', '8']
+};
 
 function args(argv) {
   const a = { blender: false, sheets: false, only: null };
@@ -48,28 +55,32 @@ function args(argv) {
   return a;
 }
 
-// Every model file the manifest names: villains and their props.
+// Every model file the manifest names: villains and their props, then the player's.
+const player = manifest.player || {};
 function modelIds() {
   const ids = [];
   Object.keys(manifest.villains).forEach(id => {
     ids.push(id);
     Object.keys(manifest.villains[id].props || {}).forEach(p => ids.push(p));
   });
-  return ids;
+  return ids.concat(Object.keys(player));
 }
 function idsFor(only) {
   if (!only) return modelIds();
+  if (only === 'spiderman') return Object.keys(player);
   const v = manifest.villains[only];
-  if (!v) throw new Error('--only ' + only + ': not a villain in characters.json (' + Object.keys(manifest.villains).join(', ') + ')');
+  if (!v) throw new Error('--only ' + only + ': not a villain in characters.json, nor spiderman (' + Object.keys(manifest.villains).join(', ') + ')');
   return [only].concat(Object.keys(v.props || {}));
 }
 
-// The bones the runtime reads for a model: weak spots and body capsules.
+// The bones the runtime reads for a model: weak spots, body capsules, wrists and layers.
 function bonesOf(id) {
-  const v = manifest.villains[id], out = new Set();
+  const v = manifest.villains[id] || player[id], out = new Set();
   if (!v) return out;
   (v.weakSpots || []).forEach(w => out.add(w.bone));
   (v.body || []).forEach(c => { out.add(c[0]); out.add(c[1]); });
+  Object.values(v.wrists || {}).forEach(w => out.add(w.bone));
+  Object.values(v.layers || {}).forEach(l => l.bones.forEach(b => out.add(b)));
   return out;
 }
 
@@ -147,6 +158,24 @@ function dropDeadChannels(doc, keep) {
     // Its sampler too, unless another channel still reads it.
     if (s && !s.listParents().some(p => p.propertyType === 'AnimationChannel')) s.dispose();
   }));
+  return n;
+}
+
+// A layer clip (characters.json `layers`: the player's shoot, a first-person
+// shot) plays over another clip on its own bones only, so it must not carry
+// the others: a sampled export writes every bone, at rest where the clip
+// never keyed it, which would pull the rest of the body back to rest.
+function maskLayers(doc, layers) {
+  let n = 0;
+  Object.values(layers || {}).forEach(l => {
+    const bones = new Set(l.bones);
+    doc.getRoot().listAnimations().filter(a => l.clips.includes(a.getName())).forEach(a => a.listChannels().forEach(c => {
+      const t = c.getTargetNode();
+      if (t && bones.has(t.getName())) return;
+      const smp = c.getSampler(); c.dispose(); n++;
+      if (smp && !smp.listParents().some(q => q.propertyType === 'AnimationChannel')) smp.dispose();
+    }));
+  });
   return n;
 }
 
@@ -267,13 +296,13 @@ async function compressor() {
   await MeshoptEncoder.ready; await MeshoptDecoder.ready;
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
     .registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
-  return async function compress(src, dst, keep) {
+  return async function compress(src, dst, keep, layers) {
     const doc = await io.read(src);
     const used = doc.getRoot().listExtensionsUsed().map(e => e.extensionName);
     const banned = used.filter(n => /draco|basisu|ktx/i.test(n));
     if (banned.length) throw new Error(path.basename(src) + ' uses ' + banned.join(', ') + ': only meshopt and WebP are allowed');
     const baked = bakeCubic(doc);
-    const dead = dropDeadChannels(doc, keep || new Set());
+    const dead = dropDeadChannels(doc, keep || new Set()) + maskLayers(doc, layers);
     shareClipTimes(doc);
     await doc.transform(
       // keepLeaves: a bone that is only an end joint is still part of the skin.
@@ -299,6 +328,8 @@ async function main() {
       const props = Object.keys(manifest.villains[v].props || {}).filter(p => p !== 'bomb');
       runBlender(blender, 'sheet.py', [v, String(manifest.villains[v].height / (manifest.villains[v].scale || 1))].concat(props));
     });
+    if (a.sheets) Object.keys(player).filter(id => ids.includes(id)).forEach(id =>
+      runBlender(blender, 'sheet.py', [id, String(player[id].height)].concat(PLAYER_SHEETS[id] || [])));
   }
 
   let compress;
@@ -310,12 +341,12 @@ async function main() {
   for (const id of ids) {
     const src = path.join(MODELS, id + '.glb'), dst = path.join(DIST, id + '.glb');
     if (!fs.existsSync(src)) throw new Error('missing ' + path.relative(REPO, src) + ' (run with --blender)');
-    const r = await compress(src, dst, bonesOf(id));
+    const r = await compress(src, dst, bonesOf(id), (player[id] || {}).layers);
     const before = inspect(src), after = inspect(dst);
     const json = fs.readFileSync(dst).readUInt32LE(12) / 1e6;
     console.log(id.padEnd(7) + before.mb.toFixed(2).padStart(6) + ' MB -> ' + after.mb.toFixed(2).padStart(5) + ' MB  (JSON ' +
       json.toFixed(2) + ' MB, ' + after.triangles + ' tris, ' + after.clips.length + ' clips' +
-      (r.dead ? ', ' + r.dead + ' dead channels dropped' : '') + (r.baked ? ', ' + r.baked + ' cubic tracks baked' : '') + ')');
+      (r.dead ? ', ' + r.dead + ' dead or masked channels dropped' : '') + (r.baked ? ', ' + r.baked + ' cubic tracks baked' : '') + ')');
     if (after.clips.length !== before.clips.length) throw new Error(id + ': compression lost clips');
   }
   embed.run(ids);

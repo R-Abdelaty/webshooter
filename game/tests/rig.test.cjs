@@ -45,6 +45,52 @@ test('manifest: the goblin releases his bomb inside his attack clip',()=>{
   near(e.release_seconds,e.release_frame/e.fps,.01);
 });
 
+// --- the player (docs/PLAYER_PLAN.md, Session P1) -------------------------------------
+// A shipped model: the compressed GLB inside its generated script (js/world/models/<id>.js).
+function shipped(id){
+  const src=fs.readFileSync(path.join(__dirname,'../js/world/models',id+'.js'),'utf8'),b=Buffer.from(src.match(/'([A-Za-z0-9+/=]{100,})'/)[1],'base64');
+  return JSON.parse(b.slice(20,20+b.readUInt32LE(12)).toString());
+}
+test('player: the full body and the first-person arms are in the manifest, on one skeleton',()=>{
+  assert.deepEqual(Object.keys(manifest.player),['spiderman','spiderman_arms']);
+  const body=glb(manifest.player.spiderman.file),arms=glb(manifest.player.spiderman_arms.file);
+  for(const [id,v] of Object.entries(manifest.player)){
+    const g=glb(v.file);
+    assert.deepEqual(Rig.check(v,g.bones,Object.keys(g.clips)),[],id);
+    for(const [c,e] of Object.entries(v.events||{})) assert.ok(e.release_seconds>0&&e.release_seconds<g.clips[c],id+' '+c+' event inside the clip');
+  }
+  const bones=b=>b.filter(n=>/^mixamorig:/.test(n)).sort();
+  assert.deepEqual(bones(arms.bones),bones(body.bones));
+  assert.equal(bones(body.bones).length,78);
+  assert.deepEqual(Object.keys(body.clips).sort(),['death','dodge_l','dodge_r','fall','hang','hit','hit_big','idle','jump','land','perch','run','shoot']);
+  assert.ok(Object.keys(arms.clips).every(c=>/^fp_/.test(c)));
+  assert.equal(manifest.player.spiderman_arms.space,'camera');
+  assert.equal(manifest.player.spiderman.body.length,10);
+});
+test('player: each layer is one side or the upper body, and its shipped clips drive only its bones',()=>{
+  const L=manifest.player.spiderman_arms.layers,U=manifest.player.spiderman.layers.upper;
+  assert.ok(L.arm_l.bones.every(b=>/^mixamorig:Left/.test(b))&&L.arm_r.bones.every(b=>/^mixamorig:Right/.test(b)));
+  assert.ok(!U.bones.some(b=>/Hips|UpLeg|Leg$|Foot|Toe/.test(b)),'no hips or legs in the upper body');
+  for(const [id,layers] of [['spiderman',{upper:U}],['spiderman_arms',L]]){
+    const j=shipped(id);
+    for(const l of Object.values(layers)) for(const c of l.clips){
+      const a=j.animations.find(x=>x.name===c);
+      assert.ok(a,id+' ships '+c);
+      const driven=new Set(a.channels.map(ch=>j.nodes[ch.target.node].name));
+      assert.ok(driven.size>0&&[...driven].every(n=>l.bones.includes(n)),id+' '+c+' drives only its layer: '+[...driven].filter(n=>!l.bones.includes(n)));
+    }
+  }
+});
+test('player: validation names what is wrong with a player entry',()=>{
+  const m=copy(manifest),p=m.player;
+  delete p.spiderman.wrists;p.spiderman_arms.space='screen';p.spiderman_arms.layers.arm_l.bones=[];p.spiderman.eye=[0,1];p.spiderman_arms.fov=200;
+  const e=Rig.validate(m).join('\n');
+  for(const x of ['spiderman: wrists missing','spiderman_arms: space','spiderman_arms: layers.arm_l','spiderman: eye','spiderman_arms: fov'])
+    assert.ok(e.includes(x),'reports '+x+'\n'+e);
+  assert.ok(!/weakSpots|body capsules/.test(e),'the player needs no weak spots, and the arms no capsules');
+  assert.deepEqual(Rig.check(manifest.player.spiderman_arms,['mixamorig:LeftHand'],['fp_idle']).slice(0,1),['no bone mixamorig:RightHand']);
+});
+
 // --- clip names -------------------------------------------------------------------
 test('clips: a model plays its own clip, else the first fallback it has, else nothing',()=>{
   assert.equal(Rig.resolve(['idle','hit'],'hit'),'hit');

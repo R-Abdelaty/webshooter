@@ -43,8 +43,12 @@
   function validate(man) {
     var err = [];
     if (!man || typeof man !== 'object' || !man.villains || typeof man.villains !== 'object') return ['no "villains" object'];
-    Object.keys(man.villains).forEach(function (id) {
-      var v = man.villains[id], at = id + ': ';
+    if (man.player !== undefined && (!man.player || typeof man.player !== 'object')) return ['"player" must be an object'];
+    var all = [];
+    Object.keys(man.villains).forEach(function (id) { all.push({ id: id, v: man.villains[id], villain: true }); });
+    Object.keys(man.player || {}).forEach(function (id) { all.push({ id: id, v: man.player[id], villain: false }); });
+    all.forEach(function (it) {
+      var id = it.id, v = it.v, at = id + ': ';
       if (!v || typeof v !== 'object') { err.push(at + 'not an object'); return; }
       if (!isStr(v.file) || !/\.glb$/.test(v.file)) err.push(at + 'file must be a .glb');
       if (!isNum(v.height) || v.height <= 0) err.push(at + 'height must be a positive number of metres');
@@ -62,7 +66,9 @@
         if (!e || !isNum(e.release_seconds) || e.release_seconds < 0) err.push(at + 'event on ' + c + ' needs release_seconds');
       });
       var names = {};
-      if (!Array.isArray(v.weakSpots) || !v.weakSpots.length) err.push(at + 'weakSpots missing');
+      // The player has no weak spots; a villain must have them (the viewer draws them).
+      if (!it.villain && v.weakSpots === undefined) { /* none */ }
+      else if (!Array.isArray(v.weakSpots) || !v.weakSpots.length) err.push(at + 'weakSpots missing');
       else v.weakSpots.forEach(function (w, i) {
         var wa = at + 'weakSpots[' + i + '] ';
         if (!w || WEAK_SPOTS.indexOf(w.name) < 0) err.push(wa + 'name must be one of ' + WEAK_SPOTS.join('/'));
@@ -71,11 +77,26 @@
         if (!w || !isVec(w.offset)) err.push(wa + 'offset must be [x, y, z]');
         if (!w || !isNum(w.radius) || w.radius <= 0) err.push(wa + 'radius must be positive');
       });
-      if (!Array.isArray(v.body)) err.push(at + 'body capsules missing');
+      if (v.body === undefined && !it.villain) { /* the first-person arms are never hit */ }
+      else if (!Array.isArray(v.body)) err.push(at + 'body capsules missing');
       else v.body.forEach(function (c, i) {
         if (!Array.isArray(c) || (c.length !== 3 && c.length !== 4) || !isStr(c[0]) || !isStr(c[1]) || !isNum(c[2]) || c[2] <= 0 ||
             (c.length === 4 && !isVec(c[3])))
           err.push(at + 'body[' + i + '] must be [boneA, boneB, radius] or [boneA, boneB, radius, [x, y, z] past boneB]');
+      });
+      if (v.space !== undefined && v.space !== 'world' && v.space !== 'camera') err.push(at + 'space must be "world" or "camera"');
+      if (v.eye !== undefined && !isVec(v.eye)) err.push(at + 'eye must be [x, y, z]');
+      if (v.fov !== undefined && (!isNum(v.fov) || v.fov <= 0 || v.fov >= 180)) err.push(at + 'fov must be degrees');
+      if (v.wrists !== undefined) {
+        ['l', 'r'].forEach(function (k) {
+          var w = (v.wrists || {})[k];
+          if (!w || !isStr(w.bone) || !isVec(w.offset)) err.push(at + 'wrists.' + k + ' needs a bone and an [x, y, z] offset');
+        });
+      } else if (!it.villain) err.push(at + 'wrists missing (where the webs leave)');
+      Object.keys(v.layers || {}).forEach(function (k) {
+        var l = v.layers[k];
+        if (!l || !Array.isArray(l.bones) || !l.bones.length || !l.bones.every(isStr) || !Array.isArray(l.clips) || !l.clips.every(isStr))
+          err.push(at + 'layers.' + k + ' needs bones and clips');
       });
       if (v.airborne !== undefined) {
         var a = v.airborne || {};
@@ -92,6 +113,7 @@
     (entry.weakSpots || []).forEach(function (w) { if (out.indexOf(w.bone) < 0) out.push(w.bone); });
     (entry.body || []).forEach(function (c) { [c[0], c[1]].forEach(function (b) { if (out.indexOf(b) < 0) out.push(b); }); });
     ((entry.airborne || {}).feet || []).forEach(function (b) { if (out.indexOf(b) < 0) out.push(b); });
+    Object.keys(entry.wrists || {}).forEach(function (k) { var b = entry.wrists[k].bone; if (out.indexOf(b) < 0) out.push(b); });
     return out;
   }
   // What a loaded model is missing that its entry asks for: bones and clips.
@@ -100,6 +122,10 @@
     bonesOf(entry).forEach(function (b) { if (!has(bones, b)) warn.push('no bone ' + b); });
     (entry.loops || []).forEach(function (c) { if (!has(clips, c)) warn.push('no loop clip ' + c); });
     Object.keys(entry.events || {}).forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for its event'); });
+    Object.keys(entry.layers || {}).forEach(function (k) {
+      entry.layers[k].bones.forEach(function (b) { if (!has(bones, b)) warn.push('no bone ' + b + ' for layer ' + k); });
+      entry.layers[k].clips.forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for layer ' + k); });
+    });
     return warn;
   }
 
