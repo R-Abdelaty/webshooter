@@ -42,7 +42,9 @@
   var RIM = {
     goblin: { color: '#ffe0b0', strength: .45, power: 3 },
     rhino: { color: '#bcd6ee', strength: .7, power: 2.6 },
-    venom: { color: '#aab8ff', strength: .75, power: 2.5 }
+    venom: { color: '#aab8ff', strength: .75, power: 2.5 },
+    // The player's body in third person (player-view.js) gets the same look.
+    spiderman: { color: '#d8e4ff', strength: .22, power: 3.5 }
   };
   var EDGE = [3.5, 4.2, 5];      // the dissolve's glowing edge (linear; it blooms)
   var NOISE = 3.2;               // dissolve pattern: cells per metre
@@ -337,5 +339,6 @@
     };
   }
 
-  root.WorldVillains = { create: create };
+  // patch/uniforms are the look, for the player's body too (player-view.js).
+  root.WorldVillains = { create: create, patch: patch, uniforms: uniforms, ENV_INTENSITY: ENV_INTENSITY };
 })(window);

@@ -18,6 +18,14 @@
   // hud-view.js's, from Hud.status. Sounds happen where they happen: the
   // villain's voice, feet and glider (SoundCues), the webs' impacts, horns
   // and the street's rumble, with the camera as the listener.
+  //
+  // You are Spider-Man (docs/PLAYER_PLAN.md, P2): PlayerAnim picks the clips
+  // for what you're doing, player-view.js shows them - the arms on the
+  // camera in first person, the whole of him over his right shoulder in
+  // third (PlayerCamera places that camera and pulls it in off walls).
+  // Settings -> CAMERA, or T, switches between them live. Shots are still
+  // aimed from the camera through the crosshair, and each one is thrown by
+  // a hand - alternately - whose wrist the strand leaves from.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -37,6 +45,7 @@
   var fx = null, tierName = null, stopUntil = 0;
   var traffic = null, life = null, hudView = null, cues = null, nearCars = [];
   var HORN_EVERY = 16;             // seconds between horns, on average, down among the traffic
+  var you = null, anim = PlayerAnim.create(), pcam = PlayerCamera.create(), view = null, shots = [], lastState = 'idle';
 
   function show(el, on) { el.classList.toggle('is-hidden', !on); }
   function ctl() { return window.WebShooterGame ? WebShooterGame.getController() : null; }
@@ -61,6 +70,9 @@
     traffic = Traffic.create(city);
     life = WorldLife.create(world.scene, traffic);
     hudView = WorldHud.create(city, spots);
+    // You: loaded now, so he's there by the time the city is.
+    you = WorldPlayer.create(world);
+    you.load().then(function () { you.setMode(camMode().camera); PlayerAnim.resync(anim); });
     applyTier();
     window.addEventListener('resize', function () { if (running) layout(); });
   }
@@ -79,6 +91,7 @@
     world.setTier(t);
     villains.setCast(t.cast);
     life.setCast(t.cast);
+    you.setCast(t.cast);
     fx.setScale(t.particles);
     if (mode === 'fight' && enc) lightFight();
   }
@@ -88,7 +101,9 @@
     var f = Encounters.focus(enc);
     world.setShadowFocus(f);
     world.update(0, Player.eye(player), player.yaw, player.pitch);
-    villains.setEnvironment(world.environment(f, world.tier.env, [villains.group, fx.group, life.group]));
+    var env = world.environment(f, world.tier.env, [villains.group, fx.group, life.group, you.group]);
+    villains.setEnvironment(env);
+    you.setEnvironment(env);
   }
 
   function lock() {
@@ -144,10 +159,12 @@
     player = Player.create(v);
     player.pitch = v.pitch || 0;
     look = Look.create(); strands = []; webs.clear(); fx.clear(); stopUntil = 0;
+    anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null;
   }
   function enterRoam(fromSpawn) {
     mode = 'roam'; fight = null; enc = null; range = null; cues = null;
     world.setShadowFocus(null);
+    you.setEnvironment(null);
     Traffic.clear(traffic, null);
     if (fromSpawn || !player) { place(city.spawn); player.pitch = -.22; }  // out and down over the city
     // Standing in a fight's trigger (a fight you just left, say) doesn't
@@ -173,6 +190,7 @@
     range = Training3D.start(spots.training, Date.now() & 0x7fffffff);
     place(spots.training.vantage);
     world.setShadowFocus(null);
+    you.setEnvironment(null);
     Traffic.clear(traffic, null);
     closeCard();
   }
@@ -259,7 +277,38 @@
   // The camera, and in a fight where everything was: a shot taken from this
   // frame is judged against what it showed.
   function camera() {
-    return { yaw: player.yaw, pitch: player.pitch, eye: Player.eye(player), seen: fight ? Fight.snapshot(fight) : null };
+    return { yaw: player.yaw, pitch: player.pitch, eye: viewEye(), seen: fight ? Fight.snapshot(fight) : null };
+  }
+  // Where the camera is this frame: at your eye in first person, over your
+  // shoulder in third (placed by viewPlace each frame).
+  function viewEye() { return view ? view.eye : Player.eye(player); }
+  function camMode() { return PlayerCamera.settings(settings()); }
+  // The camera for this frame, and which way the body faces.
+  function viewPlace(st, dt) {
+    var c = camMode(), eye = Player.eye(player);
+    if (c.camera === 'third') {
+      var t = PlayerCamera.third(pcam, player, city, dt);
+      view = { eye: t.eye, hide: t.hide, face: PlayerAnim.face(anim, player, player.yaw, dt) };
+    } else {
+      var landed = st === 'land' && lastState !== 'land';
+      pcam.dist = null;                // third person starts from pulled in, next time
+      view = { eye: PlayerCamera.first(pcam, player, eye, dt, landed, c.cameraMotion), hide: false, face: player.yaw };
+      anim.face = player.yaw;
+    }
+    lastState = st;
+  }
+  // CAMERA and CAMERA MOTION: kept in the settings menu.js saves (the same
+  // object, so neither side undoes the other), and applied live.
+  function setCamera(patch) {
+    var S = settings(), c = PlayerCamera.save(localStorage, Object.assign(camMode(), patch));
+    S.camera = c.camera; S.cameraMotion = c.cameraMotion;
+    showCamera();
+  }
+  function showCamera() {
+    var c = camMode();
+    if ($('camera-mode')) $('camera-mode').value = c.camera;
+    if ($('camera-motion')) $('camera-motion').value = c.cameraMotion;
+    if (you) you.setMode(c.camera);
   }
 
   function frame(now) {
@@ -277,14 +326,17 @@
       hold: paused, rebase: rebase
     }, dt);
     rebase = false; lastLook = r;
+    var moves = { state: anim.state, body: [], arms: [], speed: player.speed, armSpeed: 1 };
     if (!paused) {
       Player.look(player, r.dyaw, r.dpitch);
       Player.step(player, { move: Move.vector(), buttons: Move.buttons() }, dt, city);
       if (fight) Fight.tick(fight, fdt);
       if (range) Training3D.tick(range, dt);
       if (mode === 'roam') triggers();
+      moves = PlayerAnim.step(anim, player, dt);
     }
-    var eye = Player.eye(player);
+    viewPlace(moves.state, paused ? 0 : dt);
+    var eye = view.eye;
     // The villain's model: its clips move on while the fight is played, and
     // through its defeat even once the card is up. Its bones are sampled into
     // the fight now, before the camera below records what this frame shows.
@@ -298,6 +350,10 @@
     world.setFov(fov());
     world.update(dt, eye, player.yaw, player.pitch);
     shake(now);
+    world.camera.updateMatrixWorld();
+    // You, as the camera now sees you, with the shots taken since last frame.
+    you.update({ player: player, face: view.face, anim: moves, shots: shots, dt: paused ? 0 : dt, hide: view.hide });
+    shots = [];
     Look.record(look, deviceTime(c, now), camera());
     // Extras that draw into the world (the model viewer): (dt, now, paused).
     for (var h = 0; h < hooks.length; h++) hooks[h](paused ? 0 : dt, now, paused);
@@ -312,6 +368,7 @@
     nearCars = life.update(paused ? 0 : dt, eye, world.tier);
     street(eye, paused ? 0 : dt);
     world.render();
+    you.render();
     drawStrands(now);
     hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, goal(), eye);
     drawHud(now, eye);
@@ -375,13 +432,17 @@
     if (fight && (fight.mode !== 'playing' || fight.cooldownRemaining > 0)) return null;
     if (range && range.cooldownRemaining > 0) return null;
     var c = ctl(), S = settings(), wrist = wristLooks(c);
-    var view = at && p ? Look.crosshair(at, S.lookMode, wrist) : look.crosshair;
+    var aim = at && p ? Look.crosshair(at, S.lookMode, wrist) : look.crosshair;
     var cam = (p && Look.cameraAt(look, Look.shotTime(p))) || camera();
-    var dir = Look.ray(cam, view, world.camera.fov, world.camera.aspect);
+    var dir = Look.ray(cam, aim, world.camera.fov, world.camera.aspect);
     var hit = world.raycast(cam.eye, dir, RANGE), now = performance.now();
     var shot = { origin: cam.eye, dir: dir, blocked: hit ? hit.distance : Infinity };
     var end = hit ? hit.point : { x: cam.eye.x + dir.x * RANGE, y: cam.eye.y + dir.y * RANGE, z: cam.eye.z + dir.z * RANGE };
-    var out = { view: view, hit: false, point: hit ? hit.point : null };
+    var out = { view: aim, hit: false, point: hit ? hit.point : null };
+    // A hand throws it - the other one than last time - and its wrist is
+    // where the web leaves, for the strand and the splat's size.
+    var sh = PlayerAnim.shoot(anim), wr = you.wrist(sh.hand) || cam.eye;
+    shots.push(sh); out.hand = sh.hand;
     WSAudio.thwip();
 
     if (fight) {
@@ -399,7 +460,7 @@
         // Heard where it landed on him.
         WSAudio.crunch(st ? st.point : fight.at);
       } else if (r.hit) {
-        webs.add(r.point, back(dir), dist(cam.eye, r.point), now, actors.thugAnchor(r.thug), .9);
+        webs.add(r.point, back(dir), dist(wr, r.point), now, actors.thugAnchor(r.thug), .9);
         fx.web(r.point, back(dir));
         end = r.point; flash(.2); shakeAt = now; shakeAmp = SHAKE * (r.down ? .9 : .5);
         WSAudio.crunch(r.point); if (r.down && WSAudio.impact) WSAudio.impact(r.point);
@@ -407,19 +468,19 @@
         // A miss - or a shot during his entrance, which still sticks to him.
         var on = stickToVillain(r.body, cam.eye, now);
         if (on) { end = on.point; fx.web(on.point, on.normal); }
-        else if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
+        else if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); }
         WSAudio.thunk(on ? on.point : hit && hit.point);
       }
     } else if (range) {
       var t = Training3D.fire(range, shot);
       out.hit = t.hit;
       // The web sticks to the wall or roof behind the target.
-      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); }
+      if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); }
       if (t.hit) { flash(.18); shakeAt = now; shakeAmp = SHAKE * .5; WSAudio.crunch(t.point); end = t.point; } else WSAudio.thunk(hit && hit.point);
     } else {
-      if (hit) { webs.add(hit.point, hit.normal, hit.distance, now); fx.web(hit.point, hit.normal); WSAudio.thunk(hit.point); }
+      if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); WSAudio.thunk(hit.point); }
     }
-    strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now });
+    strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now, hand: sh.hand });
     return out;
   }
   // A web where a shot met the villain (Fight.fire's `body`), placed on him
@@ -443,8 +504,9 @@
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
   function back(d) { return { x: -d.x, y: -d.y, z: -d.z }; }
 
-  // The strand from the wrist - the bottom right of the view - to where the web
-  // landed, only for the instant of the shot, like the 2D game's.
+  // The strand from the wrist that threw it - the hand you see, wherever it
+  // is now - to where the web landed, only for the instant of the shot, like
+  // the 2D game's. Before his model is in, from the bottom right of the view.
   function drawStrands(now) {
     var w = overlay.clientWidth, h = overlay.clientHeight;
     strands = strands.filter(function (s) { return now - s.time < STRAND_MS; });
@@ -452,7 +514,9 @@
     strands.forEach(function (s) {
       var e = world.project(s.end);
       if (!e.front) return;
-      var ox = w * .8, oy = h + 4, x = e.x * w, y = e.y * h, mx = (ox + x) / 2, my = (oy + y) / 2 + Math.abs(x - ox) * .06;
+      var from = you.wrist(s.hand), o = from && world.project(from), ox = w * .8, oy = h + 4;
+      if (o && o.front) { ox = o.x * w; oy = o.y * h; }
+      var x = e.x * w, y = e.y * h, mx = (ox + x) / 2, my = (oy + y) / 2 + Math.abs(x - ox) * .06;
       fxc.save(); fxc.globalAlpha = Math.max(0, 1 - (now - s.time) / STRAND_MS);
       fxc.strokeStyle = '#fff'; fxc.lineWidth = 2.5; fxc.lineCap = 'round';
       fxc.shadowColor = 'rgba(0,0,0,.35)'; fxc.shadowBlur = 2;
@@ -511,7 +575,7 @@
     if (mode === 'roam') allSpots().forEach(function (s) { if (s.trigger) marks.push({ x: s.trigger.x, z: s.trigger.z, color: C[s.id] || '#5fe3ff', kind: 'fight' }); });
     else if (fight && fight.at && fight.mode !== 'won') marks.push({ x: fight.at.x, z: fight.at.z, color: C[VILLAINS[fight.villain].id] || '#ff6a6a', kind: 'villain' });
     else if (range && range.target3) marks.push({ x: range.target3.x, z: range.target3.z, color: '#5fe3ff', kind: 'target' });
-    hudView.drawMap(eye, player.yaw, marks, now);
+    hudView.drawMap(Player.eye(player), player.yaw, marks, now);
   }
 
   // P shows frame rate, draw calls and where you are - the numbers the
@@ -567,10 +631,15 @@
     if (e.key === 'Escape' && !paused) pause();
     // menu.js recentres the aim on C; that jump must not turn the view.
     if (e.key === 'c' || e.key === 'C') rebase = true;
+    // T: first person / third person.
+    if (e.code === 'KeyT' && !paused) setCamera({ camera: camMode().camera === 'third' ? 'first' : 'third' });
     if (e.code === 'KeyP') { perf = !perf; show($('world-perf'), perf); frames = 0; perfAt = performance.now(); }
   });
   document.addEventListener('visibilitychange', function () { if (document.hidden) pause(); });
   $('btn-world-quit').onclick = quit;
+  if ($('camera-mode')) $('camera-mode').onchange = function () { setCamera({ camera: $('camera-mode').value }); };
+  if ($('camera-motion')) $('camera-motion').onchange = function () { setCamera({ cameraMotion: $('camera-motion').value }); };
+  document.addEventListener('webshooter:ready', function () { setTimeout(showCamera, 0); });
 
   window.WorldGame = {
     start: start, quit: quit, pause: pause, resume: resume, fire: fire,
@@ -580,6 +649,7 @@
     saved: function () { try { var s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.chapter ? s.chapter : 0; } catch (_) { return 0; } },
     get mode() { return mode; }, get fight() { return fight; }, get range() { return range; }, get spots() { return spots; },
     get player() { return player; }, get city() { return city; }, get world() { return world; }, get look() { return look; },
-    get villains() { return villains; }, get fx() { return fx; }, get life() { return life; }, get hud() { return hudView; }, get traffic() { return traffic; }
+    get villains() { return villains; }, get fx() { return fx; }, get life() { return life; }, get hud() { return hudView; }, get traffic() { return traffic; },
+    get you() { return you; }, get anim() { return anim; }, get view() { return view; }, setCamera: setCamera
   };
 })();

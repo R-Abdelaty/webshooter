@@ -17,6 +17,7 @@ The city is alive. Cars and yellow cabs drive the avenues and streets on the rig
 | W A S D or arrows | Walk |
 | Shift | Sprint |
 | Space | Jump (clears a roof parapet) |
+| T | First person / third person (the same as Settings → CAMERA) |
 | C | Recentre the wrist's aim |
 | Esc | Pause - see the cards below |
 | Enter | Press the first button on a card (GO, RESUME, RETRY...) |
@@ -24,6 +25,12 @@ The city is alive. Cars and yellow cabs drive the avenues and streets on the rig
 | M | Model viewer (a debug tool): see *Character models* below |
 
 You collide with buildings, parapets, roof plant and site parts, step up kerbs, and fall off roofs (without harm). The river railing and the city edge stop you. Everything is generated from a fixed seed, so the city is the same every time. Nothing is downloaded: Three.js r159 is in `vendor/`, and all textures are drawn on canvases when the city is built. The villains are 3D models kept inside script files (see *Character models*).
+
+### Playing as Spider-Man
+
+You are Spider-Man. In **first person** (the default) you see his arms and hands in front of you: they hang ready while you stand, pump when you run, and each web shot snaps one hand forward into the thwip pose, the left and right in turn. The arms are drawn over the city, so they never disappear into a wall. In **third person** you see all of him from over his right shoulder: he runs, jumps, falls and lands, turns to face the way he runs, and turns to face where you aim when he shoots, casting with the hand whose turn it is. The camera slides in when a wall is behind you, so the view is never blocked, and eases back out after; backed right up against a wall it comes in to your neck and hides him. Either way you aim with the crosshair from the camera exactly as before, and the web strand leaves from the wrist that threw it.
+
+**Settings → CAMERA** switches between **First person** and **Third person** (or press **T**), and **CAMERA MOTION** is **Full** or **Reduced**. Full lets the first-person view bob slightly as you run and dip when you land; Reduced keeps it still. Both are remembered with the other settings. On MED he casts a shadow in both views; on LOW he casts none.
 
 ### Looking with the wrist
 
@@ -34,7 +41,7 @@ A wrist turns about 80 degrees each way, not 360, so **Settings → CONTROLLER �
 
 **TURN SPEED** scales how fast Edge turn turns, **SENSITIVITY** is the same setting as in the classic game (how far the crosshair moves per degree of wrist, and Direct's turn gain), and **FOV** is the vertical field of view, 60-100 degrees (default 75). They are remembered with the other settings. Moving the mouse takes the look from the wrist; turning the wrist takes it back.
 
-The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A web splat sticks to whatever it hits (a wall, a roof, the street, a tree, the water) and fades after six seconds, and a strand flicks out from your wrist at the bottom right for the instant of the shot. The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
+The flick itself never moves the view. The web goes where the crosshair was just before the flick, from the view as it was then - in Edge turn the view may already have turned on a little by the time the shot is detected, and the shot allows for that. A web splat sticks to whatever it hits (a wall, a roof, the street, a tree, the water) and fades after six seconds, and a strand flicks out from the wrist that threw it for the instant of the shot. The centre prompt works over the city as it does over the menu: until you have set your centre, the wrist does nothing.
 
 ## Fights
 
@@ -69,7 +76,7 @@ Both have the same look: a colour grade towards the first reference clip's warm 
 
 ## Character models
 
-The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If one can't be loaded, its fight still plays with the classic game's picture of it instead, and the console says so once. You can look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino, Venom, and the player's Spider-Man (the full body, then the first-person arms at his eye height) stand in a row in front of you at their real size, facing you. Spider-Man isn't playable yet: his models are built and loaded, and the next sessions of `docs/PLAYER_PLAN.md` put him in the game. If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
+The villains are rigged, animated 3D models (see `docs/CHARACTERS_PLAN.md`). If one can't be loaded, its fight still plays with the classic game's picture of it instead, and the console says so once. You can look at the models in the city with the **model viewer**: press **M** anywhere in the 3D city, or open `index.html?viewer` to go straight there. The Green Goblin (on his glider), the glider on its own, his pumpkin bomb, the Rhino, Venom, and the player's Spider-Man (the full body, then the first-person arms at his eye height) stand in a row in front of you at their real size, facing you. You play as the same Spider-Man (see *Playing as Spider-Man*). If there isn't level floor that way, the row forms where there is and turns you to face it. You can walk round them.
 
 | Key | Does |
 | --- | --- |

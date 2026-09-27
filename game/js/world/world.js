@@ -20,6 +20,8 @@
   var SUN_DIR = new T.Vector3(-.58, .62, .52).normalize();
   var ZENITH = new T.Color('#3f7fcf'), HORIZON = new T.Color('#c9dbe9'), HAZE = new T.Color('#b9cad8');
   var SHADOW_HALF = 90, SHADOW_SIZE = 2048;
+  // The layer drawn over the picture by renderOver: the first-person arms.
+  var OVER = 1;
   // The grade, in display terms after ACES: shadows lean cool and highlights
   // warm, a touch less saturation than the raw textures, a little contrast.
   var GRADE = { shadow: [.92, .98, 1.08], high: [1.06, 1, .9], saturation: .88, contrast: 1.07 };
@@ -137,8 +139,11 @@
     var skyMesh = sky(); scene.add(skyMesh);
     var cloudGroup = clouds(city.seed); scene.add(cloudGroup);
 
-    scene.add(new T.HemisphereLight(0xcfe0f2, 0x8c7c68, 1.35));
+    var hemi = new T.HemisphereLight(0xcfe0f2, 0x8c7c68, 1.35);
+    scene.add(hemi);
     var sun = new T.DirectionalLight(0xfff0da, 2.7);
+    // They light layer OVER too: the first-person arms (renderOver).
+    hemi.layers.enable(OVER); sun.layers.enable(OVER);
     sun.castShadow = true;
     sun.shadow.mapSize.set(SHADOW_SIZE, SHADOW_SIZE);
     var sc = sun.shadow.camera;
@@ -220,6 +225,17 @@
       renderer.info.reset();
       renderer.render(scene, camera);
     }
+    // What is on layer OVER, seen through `cam` (its layers set to OVER), drawn
+    // over the picture with a depth buffer of its own - the first-person arms,
+    // which so never go into a wall. Same lights, fog, shadow map and grade;
+    // no second shadow pass and no second sky.
+    function renderOver(cam) {
+      var bg = scene.background, clear = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate;
+      scene.background = null; renderer.autoClear = false; renderer.shadowMap.autoUpdate = false;
+      renderer.clearDepth();
+      renderer.render(scene, cam);
+      scene.background = bg; renderer.autoClear = clear; renderer.shadowMap.autoUpdate = shadows;
+    }
 
     // The city as seen from `at`, blurred for image-based lighting: what the
     // villains' metal and armour reflect. `hide` is what must not be in it
@@ -275,10 +291,10 @@
     }
 
     resize();
-    return { renderer: renderer, scene: scene, camera: camera, sun: sun, update: update, resize: resize, render: render,
+    return { renderer: renderer, scene: scene, camera: camera, sun: sun, update: update, resize: resize, render: render, renderOver: renderOver,
       setFov: setFov, raycast: raycast, project: project, info: renderer.info, setTier: setTier, setShadowFocus: setShadowFocus,
       environment: environment, get tier() { return tier; } };
   }
 
-  root.World3D = { create: create, SUN_DIR: SUN_DIR, GRADE: GRADE, graded: graded };
+  root.World3D = { create: create, SUN_DIR: SUN_DIR, GRADE: GRADE, graded: graded, OVER: OVER };
 })(window);

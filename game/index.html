@@ -67,7 +67,7 @@
     <div id="world-crosshair" class="crosshair" aria-hidden="true"></div>
     <pre id="world-perf" class="world-perf is-hidden" aria-hidden="true"></pre>
     <p id="world-loading" class="world-loading is-hidden">BUILDING THE CITY…</p>
-    <footer class="hud-bottom world-hint">Wrist or mouse to look · Flick or click to shoot · WASD / arrows move · Shift sprint · Space jump · C recentre · Esc pause · P readout</footer>
+    <footer class="hud-bottom world-hint">Wrist or mouse to look · Flick or click to shoot · WASD / arrows move · Shift sprint · Space jump · T camera · C recentre · Esc pause · P readout</footer>
     <div id="world-card" class="card-wrap is-hidden"><div class="card" id="world-card-inner" data-kind="paused"></div></div>
   </section>
   <div id="centre-cal" class="cal-wrap is-hidden" role="dialog" aria-modal="true" aria-labelledby="cal-title">
@@ -88,6 +88,9 @@
       <label><input id="chk-mute" type="checkbox"> MUTE</label>
       <h3>GRAPHICS</h3>
       <label>QUALITY <select id="graphics"><option value="low">Low (integrated graphics)</option><option value="med">Medium</option></select></label>
+      <h3>CAMERA</h3>
+      <label>CAMERA <select id="camera-mode"><option value="first">First person (POV)</option><option value="third">Third person (full character)</option></select></label>
+      <label>CAMERA MOTION <select id="camera-motion"><option value="full">Full</option><option value="reduced">Reduced</option></select></label>
       <h3>CONTROLLER</h3><p id="controller-status" class="controller-status">Controller disconnected</p>
       <label>SHOOTER ADDRESS <input id="shooter-host" type="text" spellcheck="false" autocomplete="off" placeholder="webshooter.local"></label>
       <label>INPUT <select id="input-source"><option value="mouse">Mouse</option><option value="wrist">Wrist</option></select></label>
@@ -116,6 +119,8 @@
   <script src="js/world/move.js"></script>
   <script src="js/world/city.js"></script>
   <script src="js/world/player.js"></script>
+  <script src="js/world/player-anim.js"></script>
+  <script src="js/world/player-camera.js"></script>
   <script src="js/world/textures.js"></script>
   <script src="js/world/city-mesh.js"></script>
   <script src="js/world/gfx.js"></script>
@@ -139,6 +144,7 @@
   <script src="js/world/models/manifest.js"></script>
   <script src="js/world/characters.js"></script>
   <script src="js/world/villain-view.js"></script>
+  <script src="js/world/player-view.js"></script>
   <script src="js/world/world-game.js"></script>
   <script src="js/world/model-viewer.js"></script>
   <script src="js/game.js"></script>
