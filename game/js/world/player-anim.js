@@ -41,15 +41,17 @@
     LAND_VY: 7,            // ...a drop this fast, and touching down is a landing
     LAND_T: .35,           // how long a landing holds the state
     JUMP_FROM: .35,        // the jump clip's crouch is 0.6 s before take-off: start it this far in
-    // The body's shoot clip is Mixamo's 2.3 s one-armed cast. Only its sweep
-    // is used, sped up: from 1.2 s, the arm straight out ahead at 1.45 s
-    // (the snap, `events.shoot` in characters.json), done by 1.95 s.
-    SHOOT: { from: 1.2, to: 1.95, speed: 1.8, fade: .06, fadeOut: .12 },
+    // The body's shoot clip is Mixamo's 2.3 s one-armed cast. Only the end of
+    // its sweep is used, sped up: from 1.3 s, the arm straight out ahead at
+    // 1.45 s (the snap, `events.shoot` in characters.json, when the web
+    // leaves), done by 1.95 s.
+    SHOOT: { from: 1.3, to: 1.95, speed: 2, fade: .05, fadeOut: .12 }, SHOOT_SNAP: 1.45,
     // The arms' shot starts a little in, so the snap comes 60 ms after the
     // flick instead of 133.
-    FP_SHOOT: { from: .05, speed: 1.4, fade: .03, fadeOut: .08 },
+    FP_SHOOT: { from: .05, speed: 1.4, fade: .03, fadeOut: .08 }, FP_SNAP: .133,
     AIM_HOLD: .6,          // seconds the body keeps facing the aim after a shot
     TURN: 10,              // how fast the body turns to face (per second, eased)
+    TURN_AIM: 40,          // ...and to face a shot, so the casting arm points where the web goes
     FACE_V: .8             // m/s: slower than this he keeps facing where he was
   };
 
@@ -169,7 +171,7 @@
     else if (a.swing || a.state === 'perch') want = aimYaw;
     else if (v > K.FACE_V) want = Math.atan2(-(p.vx || 0), -(p.vz || 0));
     var d = wrap(want - a.face);
-    a.face = wrap(a.face + d * (1 - Math.exp(-K.TURN * dt)));
+    a.face = wrap(a.face + d * (1 - Math.exp(-(a.aimT > 0 ? K.TURN_AIM : K.TURN) * dt)));
     return a.face;
   }
   function wrap(x) { return Math.atan2(Math.sin(x), Math.cos(x)); }

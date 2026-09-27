@@ -259,3 +259,53 @@ test('camera: first person bobs a little at a run and dips on landing; REDUCED k
   const r=PlayerCamera.create();PlayerCamera.first(r,P({vz:-6}),eye,DT,true,'reduced');
   for(let i=0;i<30;i++)assert.deepEqual(PlayerCamera.first(r,P({vz:-6}),eye,DT,false,'reduced'),eye,'REDUCED: none of it');
 });
+
+// --- the web in flight (web-shot.js) ----------------------------------------------------------------
+const WebShot=require('../js/world/web-shot.js');
+const W0={x:0,y:1.5,z:0},W1={x:0,y:6.5,z:-20};
+test('web: it leaves at the snap of the hand, in either view, as the clips time it',()=>{
+  const A=PlayerAnim.constants;
+  near(A.FP_SNAP,ARMS.events.fp_shoot_r.release_seconds,1e-9,'first person: fp_shoot\'s snap');
+  near(A.SHOOT_SNAP,BODY.events.shoot.release_seconds,1e-9,'third person: shoot\'s snap');
+  near(WebShot.snap('first'),(A.FP_SNAP-A.FP_SHOOT.from)/A.FP_SHOOT.speed);
+  near(WebShot.snap('third'),(A.SHOOT_SNAP-A.SHOOT.from)/A.SHOOT.speed);
+  assert.ok(WebShot.snap('first')<.08&&WebShot.snap('third')<.1,'quick after the flick in both');
+});
+test('web: it flies out fast (quicker for near, capped for far), lands taut, holds, and fades as its tail reels in',()=>{
+  const K=WebShot.constants,s=WebShot.shot({from:W0,to:W1,launch:1000,seed:1});
+  near((s.arrive-s.launch)/1000,WebShot.travel(s.len));
+  near(WebShot.travel(2),K.TRAVEL[0]);near(WebShot.travel(1400),K.TRAVEL[1]);
+  assert.equal(WebShot.state(s,999),null,'nothing before the snap');
+  assert.equal(WebShot.state(s,s.done),null,'gone after');
+  let last=-1;for(let t=s.launch;t<=s.arrive;t+=5){const st=WebShot.state(s,t);assert.ok(st.tip>=last);last=st.tip;assert.equal(st.tail,0);}
+  near(WebShot.state(s,s.arrive).tip,1);
+  const held=WebShot.state(s,s.arrive+K.HOLD*1000-1);near(held.k,1);near(held.taut,1);
+  const late=WebShot.state(s,s.done-1);assert.ok(late.k<.02&&late.tail>.95,'faded, and reeled in to where it landed');
+  assert.ok(WebShot.state(s,s.launch+10).taut<1,'slack in the air');
+});
+test('web: a bundle tight at the wrist that fans out toward the target; taut, the core runs straight',()=>{
+  const K=WebShot.constants,s=WebShot.shot({from:W0,to:W1,launch:0,seed:7}),off=(p,u)=>{
+    const c={x:W0.x+(W1.x-W0.x)*u,y:W0.y+(W1.y-W0.y)*u,z:W0.z+(W1.z-W0.z)*u};return Math.hypot(p.x-c.x,p.y-c.y,p.z-c.z);};
+  assert.equal(s.strands.length,K.STRANDS);
+  let atWrist=0,atEnd=0;
+  for(const f of s.strands){atWrist=Math.max(atWrist,off(WebShot.point(s,f,W0,W1,0,1),0));atEnd=Math.max(atEnd,off(WebShot.point(s,f,W0,W1,1,1),1));}
+  assert.ok(atWrist<=K.SPREAD0*(1+K.WAVE)+1e-9,'tight at the wrist: '+atWrist);
+  assert.ok(atEnd>K.SPREAD0*5&&atEnd<=K.SPREAD1[1]*(1+K.WAVE)+1e-9,'fanned out at the target: '+atEnd);
+  for(const u of [.1,.5,.9])near(off(WebShot.point(s,s.strands[0],W0,W1,u,1),u),0,1e-9,'the core is straight when taut');
+  assert.ok(WebShot.point(s,s.strands[0],W0,W1,.5,0).y<W0.y+(W1.y-W0.y)*.5,'and sags while it flies');
+  assert.ok(s.strands.filter(f=>f.haze).length===K.HAZE,'and a few faint films between the fibres');
+});
+test('web: its ribbons face the eye, keep a visible width far off, and fill the buffers',()=>{
+  const n=WebShot.size(),out={pos:new Float32Array(n*3),col:new Float32Array(n*4),uv:new Float32Array(n*2)};
+  const far={x:0,y:40,z:-600},s=WebShot.shot({from:W0,to:far,launch:0,seed:3}),eye={x:1,y:1.7,z:3},pxPerM=.0008;
+  assert.equal(WebShot.build(s,W0,far,-1,eye,pxPerM,out),false,'nothing before it leaves');
+  assert.ok(WebShot.build(s,W0,far,s.arrive,eye,pxPerM,out));
+  assert.ok(out.pos.every(Number.isFinite)&&out.col.every(Number.isFinite));
+  assert.equal(Math.max(...WebShot.indices()),n-1);
+  // The last pair of the core fibre: its width on screen is at least MIN_PX.
+  const i=WebShot.constants.SEGS*2,a=[out.pos[i*3],out.pos[i*3+1],out.pos[i*3+2]],b=[out.pos[i*3+3],out.pos[i*3+4],out.pos[i*3+5]];
+  const w=Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]),d=Math.hypot((a[0]+b[0])/2-eye.x,(a[1]+b[1])/2-eye.y,(a[2]+b[2])/2-eye.z);
+  assert.ok(w/d/pxPerM>=WebShot.constants.MIN_PX-1e-6,'at least '+WebShot.constants.MIN_PX+' px wide: '+(w/d/pxPerM));
+  const across=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],view=[eye.x-(a[0]+b[0])/2,eye.y-(a[1]+b[1])/2,eye.z-(a[2]+b[2])/2];
+  near((across[0]*view[0]+across[1]*view[1]+across[2]*view[2])/w/d,0,1e-4,'square to the eye (float32)');
+});

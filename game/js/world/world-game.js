@@ -25,19 +25,22 @@
   // third (PlayerCamera places that camera and pulls it in off walls).
   // Settings -> CAMERA, or T, switches between them live. Shots are still
   // aimed from the camera through the crosshair, and each one is thrown by
-  // a hand - alternately - whose wrist the strand leaves from.
+  // a hand - alternately - whose wrist the web leaves from. The web itself
+  // is a fan of fibres in the world (web-shot.js, web-lines.js): it leaves
+  // at the snap of the hand, flies out, and what it does when it gets there
+  // (the splat, the hit's flash and particles, the sound) happens when it
+  // gets there. The game's rules take the shot at once.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
   var MOUSE_SENS = .0022;          // radians per pixel of mouse movement
   var RANGE = 1500;                // metres a web can reach
-  var STRAND_MS = 220;             // how long the strand from the wrist to the hit shows
   var SHAKE = .012, SHAKE_MS = 260; // a hit's screen shake: radians, and how long it takes to settle
   var SAVE_KEY = 'ws.save3d.v1';
   // How long the defeat (or the villain getting away) plays before its card.
   var END_MS = { won: 1800, lost: 900 };
   var canvas = $('world-canvas'), overlay = $('world-fx'), fxc = overlay.getContext('2d'), cross = $('world-crosshair');
-  var world = null, city = null, spots = null, player = null, webs = null, actors = null, villains = null, look = Look.create(), strands = [];
+  var world = null, city = null, spots = null, player = null, webs = null, actors = null, villains = null, look = Look.create(), lines = null, due = [];
   var running = false, paused = false, locked = false, leaving = false, rebase = false, looping = false, last = 0;
   var perf = false, perfAt = 0, frames = 0, lastLook = null, pending = null;
   var mode = 'roam', fight = null, enc = null, range = null, shownEnd = null, endAt = 0, armed = false;
@@ -60,6 +63,7 @@
     spots = Encounters.build(city);
     world = World3D.create(canvas, city);
     webs = WorldWebs.create(world.scene);
+    lines = WorldWebLines.create(world.scene);
     actors = WorldActors.create(world.scene, allSpots());
     // The villains' models, loaded now so each fight's is ready by its GO.
     villains = WorldVillains.create(world.scene, world);
@@ -101,7 +105,7 @@
     var f = Encounters.focus(enc);
     world.setShadowFocus(f);
     world.update(0, Player.eye(player), player.yaw, player.pitch);
-    var env = world.environment(f, world.tier.env, [villains.group, fx.group, life.group, you.group]);
+    var env = world.environment(f, world.tier.env, [villains.group, fx.group, life.group, you.group, lines.group]);
     villains.setEnvironment(env);
     you.setEnvironment(env);
   }
@@ -158,7 +162,7 @@
   function place(v) {
     player = Player.create(v);
     player.pitch = v.pitch || 0;
-    look = Look.create(); strands = []; webs.clear(); fx.clear(); stopUntil = 0;
+    look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear(); stopUntil = 0;
     anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null;
   }
   function enterRoam(fromSpawn) {
@@ -354,6 +358,9 @@
     // You, as the camera now sees you, with the shots taken since last frame.
     you.update({ player: player, face: view.face, anim: moves, shots: shots, dt: paused ? 0 : dt, hide: view.hide });
     shots = [];
+    // What the webs in flight do when they land, and the webs themselves.
+    if (!paused) due = due.filter(function (d) { if (now < d.at) return true; d.fn(now); return false; });
+    lines.update(now, world.camera, canvas.height);
     Look.record(look, deviceTime(c, now), camera());
     // Extras that draw into the world (the model viewer): (dt, now, paused).
     for (var h = 0; h < hooks.length; h++) hooks[h](paused ? 0 : dt, now, paused);
@@ -369,7 +376,7 @@
     street(eye, paused ? 0 : dt);
     world.render();
     you.render();
-    drawStrands(now);
+    fxc.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
     hudView.drawPointer(fxc, overlay.clientWidth, overlay.clientHeight, world.camera, world.project, goal(), eye);
     drawHud(now, eye);
     if (perf) readout(now, c, S);
@@ -437,51 +444,87 @@
     var dir = Look.ray(cam, aim, world.camera.fov, world.camera.aspect);
     var hit = world.raycast(cam.eye, dir, RANGE), now = performance.now();
     var shot = { origin: cam.eye, dir: dir, blocked: hit ? hit.distance : Infinity };
-    var end = hit ? hit.point : { x: cam.eye.x + dir.x * RANGE, y: cam.eye.y + dir.y * RANGE, z: cam.eye.z + dir.z * RANGE };
+    var far = { x: cam.eye.x + dir.x * RANGE, y: cam.eye.y + dir.y * RANGE, z: cam.eye.z + dir.z * RANGE };
     var out = { view: aim, hit: false, point: hit ? hit.point : null };
-    // A hand throws it - the other one than last time - and its wrist is
-    // where the web leaves, for the strand and the splat's size.
-    var sh = PlayerAnim.shoot(anim), wr = you.wrist(sh.hand) || cam.eye;
-    shots.push(sh); out.hand = sh.hand;
-    WSAudio.thwip();
+    // A hand throws it - the other one than last time. The web leaves its
+    // wrist at the snap of the hand.
+    var sh = PlayerAnim.shoot(anim), hand = sh.hand;
+    shots.push(sh); out.hand = hand;
+    var from = function () { return you.wrist(hand) || viewEye(); };
+    var launch = now + WebShot.snap(camMode().camera) * 1000;
+    later(launch, function () { WSAudio.thwip(); });
+    // Where it goes (a point, or a function for a point on a villain that
+    // moves on), and what happens when it gets there.
+    var to = hit ? hit.point : far, land = null;
+    function splat(t) { if (hit) { webs.add(hit.point, hit.normal, dist(from(), hit.point), t); fx.web(hit.point, hit.normal); } }
 
     if (fight) {
-      var r = Fight.fire(fight, VILLAINS, shot, cam.seen);
+      var r = Fight.fire(fight, VILLAINS, shot, cam.seen), f = fight;
       out.hit = r.hit; out.kind = r.kind;
       if (r.hit && r.kind === 'villain') {
-        var st = stickToVillain(r.body, cam.eye, now);
-        if (st) {
-          end = st.point;
+        var vid = VILLAINS[f.villain].id;
+        to = onVillain(r.body, to);
+        land = function (t) {
+          if (fight !== f) return;
+          var st = stickToVillain(r.body, from(), t);
           // Particles and a flash where it met him, and the hit-stop.
-          fx.hit(VILLAINS[fight.villain].id, st.point, st.normal, now);
-          stopUntil = HitFx.stopUntil(now, stopUntil);
-        }
-        actors.flash(now); villains.flash(now); flash(.32); shakeAt = now; shakeAmp = SHAKE;
-        // Heard where it landed on him.
-        WSAudio.crunch(st ? st.point : fight.at);
+          if (st) { fx.hit(vid, st.point, st.normal, t); stopUntil = HitFx.stopUntil(t, stopUntil); }
+          actors.flash(t); villains.flash(t); flash(.32); shakeAt = t; shakeAmp = SHAKE;
+          // Heard where it landed on him.
+          WSAudio.crunch(st ? st.point : f.at);
+        };
       } else if (r.hit) {
-        webs.add(r.point, back(dir), dist(wr, r.point), now, actors.thugAnchor(r.thug), .9);
-        fx.web(r.point, back(dir));
-        end = r.point; flash(.2); shakeAt = now; shakeAmp = SHAKE * (r.down ? .9 : .5);
-        WSAudio.crunch(r.point); if (r.down && WSAudio.impact) WSAudio.impact(r.point);
+        to = r.point;
+        land = function (t) {
+          webs.add(r.point, back(dir), dist(from(), r.point), t, actors.thugAnchor(r.thug), .9);
+          fx.web(r.point, back(dir));
+          flash(.2); shakeAt = t; shakeAmp = SHAKE * (r.down ? .9 : .5);
+          WSAudio.crunch(r.point); if (r.down && WSAudio.impact) WSAudio.impact(r.point);
+        };
       } else {
         // A miss - or a shot during his entrance, which still sticks to him.
-        var on = stickToVillain(r.body, cam.eye, now);
-        if (on) { end = on.point; fx.web(on.point, on.normal); }
-        else if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); }
-        WSAudio.thunk(on ? on.point : hit && hit.point);
+        var onHim = r.body && onVillain(r.body, null);
+        if (onHim) to = onHim;
+        land = function (t) {
+          if (fight !== f) return;
+          var on = onHim && stickToVillain(r.body, from(), t);
+          if (on) fx.web(on.point, on.normal); else splat(t);
+          WSAudio.thunk(on ? on.point : hit && hit.point);
+        };
       }
     } else if (range) {
-      var t = Training3D.fire(range, shot);
-      out.hit = t.hit;
+      var tr = Training3D.fire(range, shot);
+      out.hit = tr.hit;
+      if (tr.hit && !hit) to = tr.point;
       // The web sticks to the wall or roof behind the target.
-      if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); }
-      if (t.hit) { flash(.18); shakeAt = now; shakeAmp = SHAKE * .5; WSAudio.crunch(t.point); end = t.point; } else WSAudio.thunk(hit && hit.point);
+      land = function (t) {
+        splat(t);
+        if (tr.hit) { flash(.18); shakeAt = t; shakeAmp = SHAKE * .5; WSAudio.crunch(tr.point); } else WSAudio.thunk(hit && hit.point);
+      };
     } else {
-      if (hit) { webs.add(hit.point, hit.normal, dist(wr, hit.point), now); fx.web(hit.point, hit.normal); WSAudio.thunk(hit.point); }
+      land = function (t) { splat(t); if (hit) WSAudio.thunk(hit.point); };
     }
-    strands.push({ end: { x: end.x, y: end.y, z: end.z }, time: now, hand: sh.hand });
+    var ws = WebShot.shot({ from: from(), to: typeof to === 'function' ? to() : to, launch: launch });
+    lines.add(ws, from, to);
+    later(ws.arrive, land);
     return out;
+  }
+  // Run fn(now) once performance.now() reaches `at` (held while paused).
+  function later(at, fn) { if (fn) due.push({ at: at, fn: fn }); }
+  // Where on the villain a shot that met him (Fight.fire's `body`) is, as he
+  // is drawn now: a function, so a web in flight follows him. `or` if the
+  // body can't say.
+  function onVillain(body, or) {
+    var f = fight;
+    return function () {
+      if (fight === f && body && body.capsule !== undefined && modelShown) {
+        var st = villains.stickBody(f, body.capsule, body.t, viewEye());
+        if (st) return st.point;
+      }
+      var bb = fight === f && !modelShown && f.at && body && body.u !== undefined && Fight.billboard(f, VILLAINS, Player.eye(player));
+      if (bb) return Fight.onSprite(bb, body.u, body.v);
+      return typeof or === 'function' ? or() : or || (f.at ? { x: f.at.x, y: f.at.y + 1, z: f.at.z } : viewEye());
+    };
   }
   // A web where a shot met the villain (Fight.fire's `body`), placed on him
   // as he is drawn now - on the model, stuck to the bone under it - since a
@@ -503,26 +546,6 @@
   }
   function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
   function back(d) { return { x: -d.x, y: -d.y, z: -d.z }; }
-
-  // The strand from the wrist that threw it - the hand you see, wherever it
-  // is now - to where the web landed, only for the instant of the shot, like
-  // the 2D game's. Before his model is in, from the bottom right of the view.
-  function drawStrands(now) {
-    var w = overlay.clientWidth, h = overlay.clientHeight;
-    strands = strands.filter(function (s) { return now - s.time < STRAND_MS; });
-    fxc.clearRect(0, 0, w, h);
-    strands.forEach(function (s) {
-      var e = world.project(s.end);
-      if (!e.front) return;
-      var from = you.wrist(s.hand), o = from && world.project(from), ox = w * .8, oy = h + 4;
-      if (o && o.front) { ox = o.x * w; oy = o.y * h; }
-      var x = e.x * w, y = e.y * h, mx = (ox + x) / 2, my = (oy + y) / 2 + Math.abs(x - ox) * .06;
-      fxc.save(); fxc.globalAlpha = Math.max(0, 1 - (now - s.time) / STRAND_MS);
-      fxc.strokeStyle = '#fff'; fxc.lineWidth = 2.5; fxc.lineCap = 'round';
-      fxc.shadowColor = 'rgba(0,0,0,.35)'; fxc.shadowBlur = 2;
-      fxc.beginPath(); fxc.moveTo(ox, oy); fxc.quadraticCurveTo(mx, my, x, y); fxc.stroke(); fxc.restore();
-    });
-  }
 
   // --- sounds in the world -----------------------------------------------------
   // The villain's: what his model was told to play this frame, and his feet

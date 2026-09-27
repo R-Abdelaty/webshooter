@@ -559,3 +559,43 @@ anything the next session must know._
       should read `cameraMotion`.
   - **For P4.** `you.sample()` gives the player's body capsules (third-person pose) for attack hit tests.
     `extra.hits`/`big`/`dead` already play `hit`/`hit_big`/`death` and `fp_hit`/`fp_death`.
+- 2026-09-27 — **P2 follow-up from the user's first look: realistic webs, and the first-person thwip turned palm-up.**
+  202 tests pass (198 + 4 new web tests in `player.test.cjs`). No CLASSIC file changed.
+  - **What the user said.** In third person the webs seemed to come out of his body, and a single white line looked
+    unrealistic. In first person the hand was "reversed" and should be upside down. For the web they sent a clip, a
+    slow-motion Web Strike from Marvel's Spider-Man; an enhanced crop is in `docs/reference/video4-web.png`. It shows the
+    web as a bundle of fine, translucent grey-white fibres: tight at the wrist, splaying into a wide fan towards the
+    target, and taut.
+  - **Webs are now 3D and in the world.**
+    - `world/web-shot.js` (`WebShot`, UMD, tested) is the shape and timing: 15 fibres (one core, 3 faint wide "films"),
+      fanning from 1.2 cm at the wrist to 6 cm per metre (6–50 cm) at the target, sagging 3.5% of the length in flight,
+      flying at 280 m/s (0.05–0.15 s), holding 0.12 s and fading over 0.25 s as the tail reels into the splat. The
+      ribbons face the eye and never get thinner than 1.3 px.
+    - `world/web-lines.js` (`WorldWebLines`) draws up to 6 at once. Each is one mesh, depth-tested, so his arm and body
+      hide the part behind them.
+    - The 2D overlay strand (`drawStrands`, `STRAND_MS`) is gone. The overlay canvas still carries the off-screen arrow.
+  - **Why it came out of his body, and the fix.** The overlay line was drawn over everything from the wrist's projection,
+    at the moment of the click, when the casting hand was still at his chest. Now:
+    - The web leaves at the snap (`WebShot.snap`: 60 ms in first person, 75 ms in third) from where the wrist is then.
+      After that it is free of the hand (shot, not held), so it can't trail back into him as the arm recovers.
+    - The third-person cast starts later and quicker (`SHOOT` from 1.3 s at 2×, snap at `SHOOT_SNAP` 1.45 s).
+    - He turns to face a shot at `TURN_AIM` 40/s, so the casting arm points where the web goes.
+  - **Impacts land with the web.** `world-game.js` keeps a small `due` queue (`later(at, fn)`, held while paused, cleared
+    on `place`). The thwip plays at the snap. The splat, puff, villain particles, flash, hit-stop, shake and impact sound
+    all play when the web arrives. A web to a villain follows the point on his model (`onVillain`) while it flies. The
+    **rules take the shot at once**, as before: damage, cooldown and lag compensation are unchanged.
+  - **The thwip is palm-up** (`spiderman.py` `THWIP`/`RECOIL`). The hand is rolled half a turn about the forearm from the
+    old palm-down cast: the forearm turns over, the wrist snaps back, the fingers point down, and the palm and the web
+    shooter under the wrist face the target. Only `spiderman_arms` was rebuilt (`build-models.cjs --blender --sheets
+    --only spiderman`); the body's rebuild was thrown away, as P1 advised. `docs/reference/clips/spiderman_arms.png` and
+    `p2_pov_shoot.png` show it.
+    - **Ask the user whether this is the pose they meant.** "Upside down" could also mean palm-down with the fingers
+      pointing forward. It is two vectors in `THWIP` (`f`, `n`) and a rebuild.
+  - **Verified** headless: both hands in first person (palm-up snap, the fibres leaving the wrist); third person with each
+    hand in flight and reeling in; a hit on Venom; all three fights won in both modes with no console errors.
+    `p2_third_shoot.png` is the third-person web.
+  - **Constants to tune by eye.** `WebShot.constants` (`STRANDS`, `HAZE`, `SPEED`, `TRAVEL`, `HOLD`, `FADE`, `SPREAD0`,
+    `SPREAD_PER_M`, `SPREAD1`, `FAN`, `WIDTH`, `CORE`, `MIN_PX`, `HAZE_W`/`HAZE_ALPHA`, `SAG`, `WAVE`, `COLOR`, `ALPHA`,
+    `GLINT`); `PlayerAnim.constants.SHOOT`, `TURN_AIM`; `THWIP` in `spiderman.py`.
+  - **For P3.** A swing line is held, not shot: give it its own look rather than `WebShot`'s release and reel-in. Its fibre
+    fan (`WebShot.point`) is reusable for the line.
