@@ -106,14 +106,14 @@
     // Venom (P5).
     MELEE: 3.2,             // metres (chest to chest) for a combo
     COMBO_N: 3, COMBO_GAP: .65, COMBO_END: .4,  // swipes, seconds apart, and the follow-through after the last
-    SWIPE_REACH: .9, SWIPE_R: 1,               // a swipe reaches this far ahead of his chest, and hits this close to it
+    SWIPE_REACH: 1.4, SWIPE_R: 1,              // a swipe reaches this far ahead of his chest (a lunge), and hits this close to it
     SWIPE_SHARE: .35,
-    LASH_REACH: 13, LASH_MIN: 2.5,             // metres a tentacle reaches (and the least it's worth lashing at)
+    LASH_REACH: 13, LASH_MIN: 3.25,            // metres a tentacle reaches (and the least: nearer, it is claws)
     LASH_SPEED: 70, LASH_BACK: 45, LASH_R: .35, LASH_T: .5, LASH_TRACK: 3.5,
     LASH_SHARE: .6, LASH_PULL: 7,              // and it pulls you towards him this hard
     POUNCE_MIN: 4, POUNCE_MAX: 27,             // metres he pounces from
-    POUNCE_GAP: 1.6,                           // he lands this far from you...
-    POUNCE_HIT: 1.6,                           // ...and hurts you if you're this close to his chest when he does
+    POUNCE_GAP: 2.5,                           // he lands this far from you (closer, he fills the view: 56 fps on MED)
+    POUNCE_HIT: 2.4,                           // ...and hurts you if you're this close to his chest when he does
     POUNCE_T: [.7, 1.15], POUNCE_T_PER_M: .025,
     POUNCE_SHARE: .85, POUNCE_PUSH: 7,
     HOME: 12,               // he never pounces further than this past his beams
