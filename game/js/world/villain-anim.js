@@ -14,6 +14,13 @@
   // frame (the manifest's events) lands just as the attack does. A stagger
   // plays hit_big.
   //
+  // Hunting you (P8): the Rhino jogs (loco by speed) and throws - the throw
+  // clip from where its grab lands GRAB_AT into the wind-up to its release
+  // at the end of it, cut short when he sets off again. Venom on a wall:
+  // crawl_idle as he lands on it, crawl_move while he climbs (sped to his
+  // climb), cling_idle while he winds up an attack there - looking back at
+  // you - and cling_to_jump to push off it (a pounce's take-off too).
+  //
   //   var a = VillainAnim.create(kind, clips)   clips: { name: seconds }
   //   var out = VillainAnim.step(a, fight, dt)
   //   out.play:  [[clip, opts], ...] for CharacterRig.play, in order
@@ -42,7 +49,9 @@
     DROP_LEAD: .17,                 // ...and descent_end, for venom's entrance
     TURNING: 1,                     // a clip whose chest swings more than this (radians) turns the body itself
     GRAVITY: 9.8,
-    MIN_WIND: .4                    // a wind-up is never slowed below this: it starts later instead
+    MIN_WIND: .4,                   // a wind-up is never slowed below this: it starts later instead
+    CRAWL_V: 3,                     // m/s venom's crawl_move climbs at its own speed
+    WALL_TAKEOFF: .25               // seconds into cling_to_jump that he leaves the wall
   };
 
   // events: the manifest's clip events ({ attack: { release_seconds } }), so
@@ -59,7 +68,7 @@
     var base = function (c, o) { if (a.base !== c) { a.base = c; play(c, o); } };
     var m = s.m || {}, was = a.seen;
     var now = { hits: s.hits, dodge: s.dodge ? s.dodge.n : 0, mode: s.mode, phase: s.phase, state: m.state,
-      flying: !!m.flying, crouch: m.crouch > 0, to: m.to, t: m.t };
+      flying: !!m.flying, crouch: m.crouch > 0, to: m.to, t: m.t, wall: !!(m.wall && !m.flying), climb: !!(m.wall && m.wall.phase === 'climb') };
     a.seen = now;
     if (!s.at) return out;
     if (!was || !a.started) { a.started = true; was = { hits: now.hits, dodge: now.dodge, mode: now.mode, phase: null }; }
@@ -85,7 +94,7 @@
       var tel = at.tele || (at.d && at.d.telegraph) || .9;
       if (at.phase === 'telegraph' && (at.move === 'bomb' || at.move === 'volley') && a.clips.attack) play('attack', { speed: rel / tel, fade: .12 });
       if (at.phase === 'telegraph' && at.move === 'dive' && a.clips.roar) play('roar', { speed: Math.max(1, dur(a, 'roar') / (tel + .6)), fade: .1 });
-      a.plan = plan(a, at);
+      a.plan = plan(a, at, s);
     }
     if (at && at.volley && at.volley.thrown > (a.thrown || 1) && a.clips.attack) {
       a.thrown = at.volley.thrown;
@@ -141,27 +150,46 @@
   // The rhino: his patrol (turn, the first wind-up, run, skid) and, off it
   // (P5), a charge's wind-up (his attack clip, sped up to fit), the run at
   // you, the skid past, the dazed stun, and trotting back.
-  var MOVING = { run: 1, skid: 1, charge: 1, overrun: 1, 'return': 1 };
+  var MOVING = { run: 1, skid: 1, charge: 1, overrun: 1, 'return': 1, hunt: 1 };
   function charge(a, s, was, now, base, play, out) {
     var st = now.state, changed = st !== was.state || was.phase !== 'villain';
-    if (MOVING[st] || (st === 'brace' && s.m.v > .5)) { base('loco', { fade: .2 }); out.speed = s.m.v; }
+    // (P8) Setting off again after a throw cuts its follow-through short.
+    if (MOVING[st] || (st === 'brace' && s.m.v > .5)) { base('loco', { fade: .2, cut: !!a.threw }); a.threw = false; out.speed = s.m.v; }
     else { base('idle', { fade: .3 }); out.speed = 0; }
     if (!changed) return;
     var tel = (s.attack && (s.attack.tele || (s.attack.d && s.attack.d.telegraph))) || .9, D = s.rules || {};
     if (st === 'turn') play(s.m.turn > 0 ? 'turn_l' : 'turn_r', { fade: .15 });
+    else if (st === 'heave') { var th = throwPlay(a, tel); if (th) { a.threw = true; play('throw', th); } }
     else if (st === 'windup') play('attack', { fade: .15 });
     else if (st === 'brace') play('attack', { speed: dur(a, 'attack') / tel || 1, fade: .15 });
     else if (st === 'skid' || st === 'overrun') play('skid', { fade: .2 });
     else if (st === 'stun') play('stun', { speed: dur(a, 'stun') / (D.dazed || dur(a, 'stun')) || 1, fade: .1 });
   }
 
+  // The Rhino's throw (P8), over a wind-up `tel` long: from the point in the
+  // clip that puts its grab GRAB_AT into the wind-up, sped up so its release
+  // ends it. Null without the clip.
+  function throwPlay(a, tel) {
+    var e = a.events.throw, AK = (root.Attacks && root.Attacks.constants) || {}, k = AK.GRAB_AT || .18;
+    if (!a.clips.throw) return null;
+    var rel = (e && e.release_seconds) || a.clips.throw / 2, grab = (e && e.grab_seconds) || rel * .4;
+    var from = Math.max(0, (grab - k * rel) / (1 - k));
+    return { from: from, speed: (rel - from) / tel, fade: .15 };
+  }
   // Venom's attack clips, as { t (seconds after the wind-up began), clip,
   // opts, during: 'telegraph' (else the strike), swipe: which of a combo's }.
   // A wind-up plays its clip slowed so the strike frame comes as the wind-up
   // ends, then the clip carries on at its own speed from there.
-  function plan(a, at) {
+  function plan(a, at, s) {
     var tel = at.tele || (at.d && at.d.telegraph) || .9, out = [], AK = (root.Attacks && root.Attacks.constants) || {};
     if (a.kind !== 'leap') return out;
+    // (P8) On a wall: he clings and looks back at you; a pounce pushes off
+    // it with cling_to_jump, its take-off at the end of the wind-up. (His
+    // standing clips would pull him upright off the wall.)
+    if (s && s.m && s.m.wall && !s.m.flying) {
+      if (at.move === 'pounce') out.push({ t: Math.max(0, tel - K.WALL_TAKEOFF), clip: 'cling_to_jump', opts: { fade: .08 }, during: 'telegraph' });
+      return out;
+    }
     function strikeAt(c) { return (a.events[c] && a.events[c].release_seconds) || dur(a, c) / 3; }
     function windUp(c) {
       var h = strikeAt(c), v = Math.max(K.MIN_WIND, h / tel);
@@ -185,10 +213,20 @@
 
   function leaper(a, s, was, now, base, play) {
     var m = s.m;
+    // (P8) On a wall: crawl_idle as he takes hold, crawl_move as he climbs;
+    // pushing off it, cling_to_jump.
+    if (now.wall) {
+      if (now.crouch && !was.crouch) { play('cling_to_jump', { fade: .08 }); return; }
+      var busy = s.attack && (s.attack.phase === 'telegraph' || s.attack.phase === 'active');
+      base(busy ? 'cling_idle' : now.climb ? 'crawl_move' : 'crawl_idle', { fade: .15, speed: now.climb && !busy ? climbRate(s) : 1 });
+      return;
+    }
     if (now.crouch && !was.crouch) play('leap_start', { speed: K.LEAP_SPEED, fade: .08 });
     if (now.flying && !was.flying) { a.flights++; base('leap_air', { fade: .15 }); }
     if (now.flying && a.landed !== a.flights && m.dur - m.t <= K.LAND_LEAD) {
       a.landed = a.flights;
+      // Onto a wall: no landing, he takes hold (crawl_idle, above).
+      if (m.destWall) return;
       // A pounce comes down hard.
       play(m.pounce && a.clips.land_heavy ? 'land_heavy' : 'land', { fade: .05 }); base('idle', { fade: .05 });
     }
@@ -196,6 +234,11 @@
     if (!now.flying && a.base === 'leap_air') base('idle');
   }
 
+  // crawl_move's speed for his climb.
+  function climbRate(s) {
+    var F = root.Fight && root.Fight.constants;
+    return ((F && F.CLIMB_V) || 7) / K.CRAWL_V;
+  }
   // The goblin's bank and climb, eased.
   function settle(a, s, dt, out, still) {
     if (a.kind === 'glider') {

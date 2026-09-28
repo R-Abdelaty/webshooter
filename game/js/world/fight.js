@@ -37,6 +37,23 @@
   //    and call the attack off, and while he's committed to an attack he
   //    doesn't dodge.
   //
+  // And (P8) they hunt you (hunt.js has the ways there):
+  //
+  //  - the Rhino leaves his avenue as the fight proper starts and follows
+  //    you along the streets at a jog - round the grid, never through a
+  //    building - charging when he has a clear line at you on the street.
+  //    Up high, he tears up a chunk of road (or picks up a car) and THROWs
+  //    it, and still rams the building you're on - and the longer you stay
+  //    on it, the further the quake reaches. Stood with nothing to do for
+  //    IDLE_MAX, his next attack comes at once, or he moves somewhere he
+  //    can throw from.
+  //  - Venom, while you're within HUNT_R, leaves his beams and comes over
+  //    the top: leap after leap across roofs and streets toward you, and
+  //    when you're higher than a leap goes he leaps onto the wall of your
+  //    building and climbs it (m.wall), then over the top. He pounces and
+  //    lashes from a wall too. Further off than HUNT_R, he makes his way
+  //    back to his beams.
+  //
   // A fight goes: (thugs) -> arrive -> villain. There is a thug wave only if
   // the encounter has thugs: Venom's, when Encounters.constants.THUGS.ENABLED
   // is on (it is off for now, so every fight starts at `arrive`). The arrival is the
@@ -73,6 +90,8 @@
   var DiffRef = need('Difficulty', './difficulty.js');
   var AttacksRef = need('Attacks', './attacks.js');
   var CityRef = need('City', './city.js');
+  var HuntRef = need('Hunt', './hunt.js');
+  var EncRef = need('Encounters', './encounters.js');
 
   var K = {
     THUG_CHEST: 1.2, THUG_R: .5,   // a thug is one sphere, from his knees to his head
@@ -105,8 +124,30 @@
     ATTACK_RANGE: 40,               // further from you than this he's closing in, not attacking (the level's range comes first)...
     RANGES: { charge: 60 },         // ...or this, for the Rhino, who can charge a building from his avenue
     SPOT_STAY: 3,                   // seconds Venom stays down by you after a pounce before leaping back up
-    RETURN_EASE: 11                 // how hard the Rhino slows arriving back on his avenue (m/s/s)
+    RETURN_EASE: 11,                // how hard the Rhino slows arriving back on his avenue (m/s/s)
+    // The Rhino hunting you (P8): his jog, how far short of you on the
+    // street he stops, how often he works out his way again, how long he
+    // stands about with nothing to do before he does something, how long he
+    // stands after a throw (its follow-through), and how long you may stay
+    // on one building before he rams it at least every other attack.
+    HUNT_V: 6, STANDOFF: 7, REPLAN: .5, IDLE_MAX: 1.5, THROW_REST: .9, STAY_T: 3,
+    // Venom hunting you (P8): within HUNT_R of you he comes for you; his hops'
+    // speed (m/s) and length (s), the pause between hops, how long he waits
+    // when there's nowhere nearer to go, after a pounce while hunting, how
+    // long he clings before he climbs, how fast he climbs, and the push off
+    // a wall (cling_to_jump's take-off).
+    HUNT_R: 80, HOP_V: 12, HOP_T: [.5, 1.4], HOP_REST: .2, HUNT_WAIT: .35, POUNCE_STAY: .8,
+    CLING_T: .3, CLIMB_V: 7, WALL_CROUCH: .25, WALL_CHECK: .5
   };
+  // The road grid per city (hunt.js), made once.
+  var ROADS = [];
+  function roadsOf(city) {
+    for (var i = 0; i < ROADS.length; i++) if (ROADS[i].city === city) return ROADS[i].g;
+    var g = HuntRef.roads(city);
+    ROADS.push({ city: city, g: g });
+    if (ROADS.length > 3) ROADS.shift();
+    return g;
+  }
 
   function num(v) { return Number.isFinite(v) ? Math.max(0, v) : 0; }
   function rand(s) { s.seed = (s.seed * 1103515245 + 12345) & 0x7fffffff; return s.seed / 0x7fffffff; }
@@ -128,6 +169,7 @@
     s.attack = AttacksRef.create(enc.kind, D, (enc.index + 1) * 104729);
     s.bombs = []; s.rounds = []; s.events = []; s.nextId = 1; s.foe = null;
     s.dazedUntil = -1; s.staggers = 0; s.still = 0; s.stillAt = null;
+    s.stay = { box: null, t: 0 }; s.idle = 0; s.idleMost = 0;
     s.hunt = enc.kind === 'glider' ? { cx: p.cx, cz: p.cz, y: p.y } : null;
     // Venom's beams: their middle, and how far past them he'll pounce.
     if (enc.kind === 'leap' && p.perches.length) {
@@ -216,6 +258,10 @@
   //   stun     he ran into the building (a ram) or a wall: dazed
   //   rest     stood, open, after an attack
   //   return   trotting back to his avenue, where he takes up his patrol
+  //   hunt     (P8) jogging after you along the streets, or stood waiting
+  //   heave    (P8) the throw's wind-up: stood, tearing up debris, facing you
+  // Hunting (m.hunting), he never goes back to his patrol: after an attack
+  // he hunts again.
   function freeRhino(s) {
     var m = s.m;
     if (m.free) return;
@@ -237,7 +283,16 @@
   }
   function moveRhino(s, dt, ctx) {
     var m = s.m, a = s.attack, A = AttacksRef.constants, city = ctx && ctx.city, hit;
-    if (m.state === 'brace') { m.v = Math.max(0, m.v - A.BRAKE * dt); runOn(s, dt, city); return; }
+    if (m.state === 'hunt') return hunting(s, dt, ctx);
+    if (m.state === 'brace' || m.state === 'heave') {
+      m.v = Math.max(0, m.v - A.BRAKE * dt); runOn(s, dt, city);
+      // The throw: his hands on it GRAB_AT of the way into the wind-up.
+      if (m.state === 'heave' && a && a.phase === 'telegraph' && !a.held && a.t >= AttacksRef.windup(a) * A.GRAB_AT) {
+        a.held = true;
+        s.events.push({ type: 'grab', at: copy(s.at), id: s.nextId });
+      }
+      return;
+    }
     if (m.state === 'charge' || m.state === 'overrun') {
       if (m.state === 'charge') m.v = Math.min(A.CHARGE_V, m.v + A.CHARGE_ACCEL * dt);
       else m.v = Math.max(0, m.v - K.DECEL * dt);
@@ -254,7 +309,7 @@
       }
       return;
     }
-    if (m.state === 'stun' || m.state === 'rest') { m.rest -= dt; if (m.rest <= 0) m.state = 'return'; return; }
+    if (m.state === 'stun' || m.state === 'rest') { m.rest -= dt; if (m.rest <= 0) { m.state = m.hunting ? 'hunt' : 'return'; m.route = null; } return; }
     if (m.state === 'return') {
       // Back to the nearest point of his stretch of avenue.
       var p = s.path, lane = clamp((m.x - p.x) / Math.max(1, p.lane), -1, 1), z = clamp(m.z, p.z0, p.z1);
@@ -275,6 +330,51 @@
     m.dir = m.u > .5 ? -1 : 1; m.state = 'turn'; m.next = 'run'; m.rest = K.CHARGE_TURN;
     m.turn = turnSide(s, runYaw(s));
   }
+  // Hunting you (P8): along the streets to where he wants to be - STANDOFF
+  // short of you on the street; up high, a spot on the street he can throw
+  // at you from (or the kerb nearest you) - working the way out again every
+  // REPLAN, jogging, easing to a stop as he gets there.
+  function hunting(s, dt, ctx) {
+    var m = s.m, you = ctx && ctx.you, city = ctx && ctx.city;
+    if (!you || !city) { m.v = Math.max(0, m.v - K.DECEL * dt); return; }
+    var g = roadsOf(city), here = { x: m.x, z: m.z };
+    m.replan = (m.replan || 0) - dt;
+    if (!m.route || m.replan <= 0) {
+      var low = you.y - s.path.y <= AttacksRef.constants.HIGH;
+      m.goal = low ? { x: you.x, z: you.z } : throwSpot(s, ctx, g);
+      m.route = HuntRef.route(g, here, m.goal);
+      m.short = low ? K.STANDOFF : 0;
+      m.replan = K.REPLAN;
+    }
+    while (m.route.length > 1 && Math.hypot(m.route[0].x - m.x, m.route[0].z - m.z) < 1) m.route.shift();
+    var wp = m.route[0], dx = wp.x - m.x, dz = wp.z - m.z, d = Math.hypot(dx, dz);
+    var left = HuntRef.length(here, m.route) - m.short;
+    if (d > .05) { m.hx = dx / d; m.hz = dz / d; }
+    var want = left <= .1 ? 0 : Math.min(K.HUNT_V, Math.sqrt(2 * K.RETURN_EASE * left));
+    m.v = want < m.v ? Math.max(want, m.v - K.DECEL * dt) : Math.min(want, m.v + K.ACCEL * dt);
+    if (m.v * dt > d && m.route.length === 1) m.v = d / Math.max(dt, 1e-6);
+    if (m.v > 0 && runOn(s, dt, city)) { m.v = 0; m.route = null; m.replan = .3; }
+  }
+  // Up high, where he goes to throw from: a spot on the street near you
+  // with a clear throw at you, kept while you stay near where it was found
+  // (and not the one he gave up on); else the kerb nearest you.
+  function throwSpot(s, ctx, g) {
+    var m = s.m, you = ctx.you, A = AttacksRef.constants, c = chest(you);
+    if (m.spot && m.spotFor && Math.hypot(you.x - m.spotFor.x, you.y - m.spotFor.y, you.z - m.spotFor.z) < 6) return m.spot;
+    var ban = m.ban;
+    m.spot = HuntRef.around(g, you, { x: m.x, z: m.z }, function (p) {
+      if (ban && Math.hypot(p.x - ban.x, p.z - ban.z) < 6) return false;
+      var hand = { x: p.x, y: s.path.y + A.HAND_Y, z: p.z };
+      return Math.hypot(c.x - hand.x, c.y - hand.y, c.z - hand.z) <= A.THROW_RANGE - 5 && AttacksRef.throwClear(ctx.city, hand, c);
+    }) || HuntRef.snap(g, you);
+    m.spotFor = copy(you);
+    return m.spot;
+  }
+  // Stood about too long with nothing he can do from here: somewhere else.
+  function moveOn(s) {
+    var m = s.m;
+    if (s.kind === 'charge' && m.free) { m.ban = m.spot ? { x: m.spot.x, z: m.spot.z } : { x: m.x, z: m.z }; m.spot = null; m.route = null; m.replan = 0; }
+  }
   // He ran into something: a ram's building (the quake), or any wall. Either
   // way he's dazed.
   function crash(s, box, ctx) {
@@ -288,13 +388,13 @@
   // The quake of a ram: who's on that building, near where he hit, is hurt;
   // someone hanging from it is shaken off their line.
   function quake(s, ctx) {
-    var a = s.attack, w = a.wall, A = AttacksRef.constants, hurtBy = 0, on = false;
-    s.events.push({ type: 'quake', at: { x: w.x, y: s.path.y, z: w.z }, r: A.QUAKE_R, top: a.box.y1 });
+    var a = s.attack, w = a.wall, A = AttacksRef.constants, hurtBy = 0, on = false, R = a.quakeR || A.QUAKE_R;
+    s.events.push({ type: 'quake', at: { x: w.x, y: s.path.y, z: w.z }, r: R, top: a.box.y1 });
     if (!ctx || !ctx.you) return;
     var you = ctx.you, st = ctx.state;
     if ((st === 'ground' || st === 'perch') && AttacksRef.under(ctx.city, you) === a.box) { on = true; hurtBy = Math.hypot(you.x - w.x, you.z - w.z); }
     else if (st === 'swing' && ctx.anchor && AttacksRef.anchored(ctx.city, ctx.anchor) === a.box) { on = true; hurtBy = Math.hypot(ctx.anchor.x - w.x, ctx.anchor.z - w.z); }
-    var dmg = on ? AttacksRef.quakeDamage(hurtBy, s.rules) : 0;
+    var dmg = on ? AttacksRef.quakeDamage(hurtBy, s.rules, R) : 0;
     if (dmg > 0) hurt(s, dmg, { kind: 'quake', from: { x: w.x, y: s.path.y, z: w.z }, knock: st === 'swing' });
   }
   // Running you over, once a charge.
@@ -308,6 +408,12 @@
       push: { x: m.hx * A.KNOCK_V, y: A.KNOCK_UP, z: m.hz * A.KNOCK_V } });
   }
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  // A clear run for him along the street at someone at p: nothing in the
+  // way up to just short of them (they may stand against a wall).
+  function clearLine(city, from, p, y) {
+    var dx = p.x - from.x, dz = p.z - from.z, l = Math.hypot(dx, dz), k = l > 2 ? (l - AttacksRef.constants.RHINO_R - .6) / l : 0;
+    return AttacksRef.clearRun(city, from, { x: from.x + dx * k, z: from.z + dz * k }, y, null);
+  }
   function runYaw(s) { return s.m.dir > 0 ? 0 : Math.PI; }
   // Which way to turn to face `want`: the short way, or - turning right round
   // - the way that sweeps past you, so you see him turn rather than his back.
@@ -341,23 +447,32 @@
   function pounce(s, dest) {
     var m = s.m, A = AttacksRef.constants, d = Math.hypot(dest.x - s.at.x, dest.y - s.at.y, dest.z - s.at.z);
     m.from = copy(s.at); m.dest = copy(dest); m.t = 0; m.flying = true; m.crouch = 0; m.dash = null; m.off = { x: 0, z: 0 };
-    m.spot = null; m.pounce = true; m.rush = false;
+    m.spot = null; m.pounce = true; m.rush = false; m.wall = null; m.destWall = null;
     m.dur = clamp(A.POUNCE_T[0] + d * A.POUNCE_T_PER_M, A.POUNCE_T[0], A.POUNCE_T[1]);
   }
   function land(s, ctx) {
     var m = s.m;
     m.flying = false; m.off = { x: 0, z: 0 };
+    // (P8) Onto a wall: he clings a moment, then climbs.
+    if (m.destWall) {
+      m.wall = m.destWall; m.wall.phase = 'cling'; m.wall.t = 0; m.wall.check = K.WALL_CHECK;
+      m.destWall = null; m.dest = null; m.spot = null;
+      return;
+    }
     if (m.dest) {
       // Down by you: he stays a while, facing you, then leaps back up to the
-      // nearest beam.
-      m.spot = m.dest; m.dest = null; m.next = nearestPerch(s, m.spot); m.rest = K.SPOT_STAY;
+      // nearest beam. (P8) Hunting, a hop lands him and he's soon off again;
+      // after a pounce he stays by you only a moment.
+      var hunted = hunts(s, ctx);
+      m.spot = m.dest; m.dest = null; m.next = nearestPerch(s, m.spot);
+      m.rest = m.pounce ? (hunted ? K.POUNCE_STAY : K.SPOT_STAY) : K.HOP_REST;
       m.room = ctx && ctx.city ? AttacksRef.sidesteps(ctx.city, m.spot, K.DASH) : [];
       if (m.pounce) { m.pounce = false; slam(s, ctx); }
       return;
     }
     m.at = m.to;
     m.next = m.after;
-    m.rest = m.rush ? K.RUSH_REST : lerp(K.PERCH_MIN, K.PERCH_MAX, rand(s));
+    m.rest = m.hopping ? K.HOP_REST : m.rush ? K.RUSH_REST : lerp(K.PERCH_MIN, K.PERCH_MAX, rand(s));
     m.rush = false;
   }
   function nearestPerch(s, p) {
@@ -383,15 +498,74 @@
     if (m.flying) { m.t += dt; if (m.t >= m.dur) land(s, ctx); return; }
     // Winding up an attack, or in the middle of one: he holds his ground.
     if (AttacksRef.busy(s.attack) && s.phase === 'villain') return;
+    if (m.wall) return onWall(s, dt, ctx);
     if (m.dash) {
       m.dash.t += dt;
       // Off a beam he leaps on soon after; down by you, he stays.
       if (m.dash.t >= m.dash.dur) { m.off = { x: m.dash.x, z: m.dash.z }; m.dash = null; if (!m.spot) m.rest = K.RUSH_REST; }
       return;
     }
-    if (m.crouch > 0) { m.crouch -= dt; if (m.crouch <= 0) leap(s, s.at, m.next); return; }
+    if (m.crouch > 0) { m.crouch -= dt; if (m.crouch <= 0) takeOff(s); return; }
     m.rest -= dt;
-    if (m.rest <= 0) m.crouch = K.CROUCH;
+    if (m.rest > 0) return;
+    // (P8) Hunting you - or, off his beams with you far away, going back to
+    // them: his next hop. Nowhere nearer to go, he waits a moment and looks again.
+    if (s.phase === 'villain' && HuntRef && ctx && ctx.city && ctx.you) {
+      var hunted = hunts(s, ctx);
+      if (hunted || m.spot) {
+        var home = hunted ? null : P[nearestPerch(s, s.at)];
+        m.go = HuntRef.hop(ctx.city, s.at, hunted ? ctx.you : home, { perches: P, exact: !hunted });
+        if (!m.go) { m.rest = K.HUNT_WAIT; return; }
+      }
+    }
+    m.crouch = K.CROUCH;
+  }
+  // (P8) Is he coming for you: in the fight proper, within HUNT_R.
+  function hunts(s, ctx) {
+    return !!(HuntRef && ctx && ctx.city && ctx.you && s.at && s.phase === 'villain' && Math.hypot(ctx.you.x - s.at.x, ctx.you.z - s.at.z) <= K.HUNT_R);
+  }
+  // The crouch is over: off he goes - to the hop he chose (a beam, a spot,
+  // a wall), or to his next beam.
+  function takeOff(s) {
+    var m = s.m, g = m.go;
+    m.go = null; m.hopping = !!g;
+    if (!g) return leap(s, s.at, m.next);
+    // (A hunting hop to a beam goes at a hunting hop's speed.)
+    if (g.perch !== undefined && g.perch >= 0) return leap(s, s.at, g.perch, clamp(Math.hypot(g.to.x - s.at.x, g.to.y - s.at.y, g.to.z - s.at.z) / K.HOP_V, K.HOP_T[0], K.HOP_T[1]));
+    jump(s, g);
+  }
+  // A hunting hop (P8): an arc from where he is to g.to - a roof, the
+  // street, a spot by you - or onto a wall (g.wall).
+  function jump(s, g) {
+    var m = s.m, d = Math.hypot(g.to.x - s.at.x, g.to.y - s.at.y, g.to.z - s.at.z);
+    m.from = copy(s.at); m.dest = copy(g.to); m.destWall = g.wall || null; m.t = 0; m.flying = true; m.crouch = 0;
+    m.spot = null; m.pounce = false; m.rush = false; m.dash = null; m.off = { x: 0, z: 0 }; m.wall = null;
+    m.dur = clamp(d / K.HOP_V, K.HOP_T[0], K.HOP_T[1]);
+  }
+  // On a wall (P8): he clings a moment, then climbs; near the top he hops
+  // over onto the roof. Every WALL_CHECK he asks whether it's still worth it
+  // - you came down, or went elsewhere - and if not, leaps off it.
+  function onWall(s, dt, ctx) {
+    var m = s.m, w = m.wall, city = ctx && ctx.city, you = ctx && ctx.you;
+    if (m.crouch > 0) { m.crouch -= dt; if (m.crouch <= 0) takeOff(s); return; }
+    w.t += dt;
+    if (w.phase === 'cling') { if (w.t >= K.CLING_T) w.phase = 'climb'; return; }
+    w.check -= dt;
+    if (w.check <= 0 && city && you) {
+      w.check = K.WALL_CHECK;
+      var b = w.box, near = Math.hypot(you.x - clamp(you.x, b.x0, b.x1), you.z - clamp(you.z, b.z0, b.z1));
+      if (you.y < w.y || near > 30 || !hunts(s, ctx)) {
+        var g = HuntRef.hop(city, s.at, hunts(s, ctx) ? you : s.path.perches[nearestPerch(s, s.at)], { perches: s.path.perches, exact: !hunts(s, ctx) });
+        if (g) { m.go = g; m.crouch = K.WALL_CROUCH; return; }
+      }
+    }
+    var top = w.top - HuntRef.constants.TOP_REACH;
+    w.y = Math.min(top, w.y + K.CLIMB_V * dt);
+    if (w.y >= top - 1e-6 && city) {
+      var o = HuntRef.over(city, w);
+      if (o) { m.go = { to: o }; m.crouch = .05; }
+      else w.phase = 'cling';
+    }
   }
 
   // The entrance, at the start (or once the thugs are down).
@@ -420,6 +594,8 @@
     else if (s.phase === 'arrive') {
       var q0 = p.perches[m.at], k = Math.min(1, s.arriveT / K.ENTRY);
       s.at = { x: q0.x, y: q0.y + K.ENTRY_DROP * (1 - k * k), z: q0.z };
+    } else if (m.wall && !m.flying) {
+      s.at = { x: m.wall.x, y: m.wall.y, z: m.wall.z };
     } else if (m.flying) {
       var q = m.dest || p.perches[m.to], u = Math.min(1, m.t / m.dur), d = Math.hypot(q.x - m.from.x, q.z - m.from.z);
       var arc = (d * .25 + 1.5) * 4 * u * (1 - u);
@@ -442,9 +618,12 @@
     // up, along his run while he runs, at you while he stands.
     if (s.kind === 'charge' && m.free) {
       if (m.state === 'brace') { var g = s.attack && s.attack.goal; return g && Math.hypot(g.x - at.x, g.z - at.z) > .3 ? yawTo(at, g) : cur; }
+      if (m.state === 'heave') return s.foe && Math.hypot(s.foe.x - at.x, s.foe.z - at.z) > .3 ? yawTo(at, s.foe) : cur;
       if (m.v > .3) return Math.atan2(m.hx, m.hz);
-      return m.state === 'rest' && s.foe ? yawTo(at, s.foe) : cur;
+      return (m.state === 'rest' || m.state === 'hunt') && s.foe && Math.hypot(s.foe.x - at.x, s.foe.z - at.z) > .3 ? yawTo(at, s.foe) : cur;
     }
+    // (P8) Venom on a wall faces into it, whatever he's doing.
+    if (s.kind === 'leap' && m.wall && !m.flying) return HuntRef.wallYaw(m.wall);
     // Winding up an attack, and throwing it: at you.
     if (s.foe && s.attack && (s.attack.phase === 'telegraph' || s.attack.phase === 'active')) {
       return Math.hypot(s.foe.x - at.x, s.foe.z - at.z) > .3 ? yawTo(at, s.foe) : cur;
@@ -490,7 +669,7 @@
       var sx = m.laneWant > m.lane ? 1 : -1;
       side = sx * L.x >= 0 ? 'l' : 'r';
     } else if (m.flying) { m.rush = true; side = null; }
-    else if (m.crouch > 0 || m.dash) side = null;
+    else if (m.crouch > 0 || m.dash || m.wall) side = null;
     else {
       var d = dashDir(s, away, L);
       if (d) {
@@ -558,6 +737,13 @@
 
   // --- he fights back ---------------------------------------------------------------
   function chest(y) { return { x: y.x, y: y.y + K.CHEST, z: y.z }; }
+  // Venom's chest: over his feet, or (P8) on a wall, up off his root and out
+  // from the wall (his crawl pose).
+  function vchest(s) {
+    var w = s.m && s.m.wall;
+    if (w && !s.m.flying) return { x: s.at.x - w.nx * .25, y: s.at.y + 1.9, z: s.at.z - w.nz * .25 };
+    return { x: s.at.x, y: s.at.y + 1.2, z: s.at.z };
+  }
   // How near you must be for him to attack rather than close in: the level's
   // range (HARD's), or for a level without one, the constants'.
   function range(s) { var r = s.rules && s.rules.range; return (r && r[s.kind]) || K.RANGES[s.kind] || K.ATTACK_RANGE; }
@@ -611,13 +797,21 @@
     if (!a) return;
     var inFlight = s.bombs.length > 0 || s.rounds.length > 0 || !!a.lash;
     if (s.kind === 'glider') stillness(s, dt, ctx);
+    if (s.kind === 'charge') staying(s, dt, ctx);
+    // (P8) Stood about with nothing to do: his next attack comes now - or,
+    // with none he can make from here, he goes somewhere he can.
+    idling(s, dt);
+    if (a.phase === 'wait' && s.idle >= K.IDLE_MAX) a.wait = Math.min(a.wait, 0);
     // Standing still: his next attack comes now.
     if (a.phase === 'wait' && punishing(s)) a.wait = Math.min(a.wait, 0);
     // Still closing in on you (you swung off): no wind-ups until he's near -
     // though the quiet counts, so he starts one as soon as he is.
-    if (a.phase === 'wait' && Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z) > range(s)) { AttacksRef.quiet(a, dt, { inFlight: inFlight }); return; }
+    // (The Rhino's is level: on a tall roof you're far above him, but his ram reaches you.)
+    var far = s.kind === 'charge' ? Math.hypot(s.at.x - you.x, s.at.z - you.z) : Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z);
+    if (a.phase === 'wait' && far > range(s)) { AttacksRef.quiet(a, dt, { inFlight: inFlight }); return; }
     // Which moves he has from here (only worked out when one is due).
     var allow = a.phase === 'wait' && (a.wait <= dt || a.quiet + dt >= (s.rules.director || Infinity)) ? allowed(s, ctx) : null;
+    if (allow && !allow.length && s.idle >= K.IDLE_MAX) { moveOn(s); s.idle = 0; }
     var ev = AttacksRef.step(a, dt, { onScreen: ctx.onScreen !== false, state: ctx.state, rand: function () { return rand(s); }, allow: allow || undefined, inFlight: inFlight });
     // Laid into during a wind-up: enough hits stagger him and call it off.
     if (a.phase === 'telegraph' && s.kind !== 'glider' && s.hits - a.hits0 >= s.rules.stagger) stagger(s);
@@ -649,6 +843,22 @@
       if (a.phase !== 'active' || (!a.lash.out && a.lash.s <= 0)) a.lash = null;
     }
   }
+  // (P8) How long you've been on the one building (standing or perched):
+  // the Rhino's quake reaches further the longer it is.
+  function staying(s, dt, ctx) {
+    var st = ctx.state, b = st === 'ground' || st === 'perch' ? AttacksRef.under(ctx.city, ctx.you) : null;
+    if (b && b === s.stay.box) s.stay.t += dt; else s.stay = { box: b, t: 0 };
+  }
+  // (P8) How long he's been stood with nothing to do: not moving, not
+  // winding up or striking, not dazed. (s.idleMost: the longest yet.)
+  function idling(s, dt) {
+    var m = s.m, a = s.attack, stood = false;
+    if (AttacksRef.busy(a)) stood = false;
+    else if (s.kind === 'charge') stood = !!m.free && ((m.state === 'hunt' && m.v < .5) || m.state === 'rest');
+    else if (s.kind === 'leap') stood = !m.flying && !(m.crouch > 0) && !m.dash && !(m.wall && m.wall.phase === 'climb');
+    s.idle = stood ? s.idle + dt : 0;
+    s.idleMost = Math.max(s.idleMost || 0, s.idle);
+  }
   // The moves open to him now, from how far you are and what you're doing
   // (null: all of them - the Goblin's aren't limited).
   function allowed(s, ctx) {
@@ -661,25 +871,35 @@
     }
     var you = ctx.you, m = s.m, A = AttacksRef.constants, st = ctx.state, stands = st === 'ground' || st === 'perch';
     if (s.kind === 'charge') {
-      if (m.free && m.state !== 'return' && m.state !== 'rest') return [];
-      var level = Math.hypot(you.x - s.at.x, you.z - s.at.z);
-      if (you.y - s.path.y <= A.HIGH) return (st === 'ground' || st === 'fly') && level <= A.CHARGE_RANGE ? ['charge'] : [];
-      // Up high: the building under you, or the one your line hangs from.
+      if (m.free && m.state !== 'return' && m.state !== 'rest' && m.state !== 'hunt') return [];
+      var level = Math.hypot(you.x - s.at.x, you.z - s.at.z), out = [];
+      var hand = { x: s.at.x, y: s.path.y + A.HAND_Y, z: s.at.z }, aimAt = chest(you);
+      var throwable = m.hunting && Math.hypot(aimAt.x - hand.x, aimAt.y - hand.y, aimAt.z - hand.z) <= A.THROW_RANGE && AttacksRef.throwClear(ctx.city, hand, aimAt);
+      if (you.y - s.path.y <= A.HIGH) {
+        // Down on the street: at you, if there's a clear run (hunting, he
+        // must have a clear line); in the air over it, a throw.
+        if ((st === 'ground' || st === 'fly') && level <= A.CHARGE_RANGE && (!m.hunting || clearLine(ctx.city, s.at, you, s.path.y))) out.push('charge');
+        if (st !== 'ground' && throwable) out.push('throw');
+        return out;
+      }
+      // Up high: the building under you, or the one your line hangs from - and (P8) a throw at you.
       var box = st === 'swing' ? AttacksRef.anchored(ctx.city, ctx.anchor) : stands ? AttacksRef.under(ctx.city, you) : null;
       var w = box && AttacksRef.wallPoint(box, s.at);
-      if (!w || w.d > A.RAM_RANGE || !AttacksRef.clearRun(ctx.city, s.at, w.stop, s.path.y, box)) return [];
-      s.plan = { box: box, wall: w };
-      return ['ram'];
+      if (w && w.d <= A.RAM_RANGE && AttacksRef.clearRun(ctx.city, s.at, w.stop, s.path.y, box)) { s.plan = { box: box, wall: w }; out.push('ram'); }
+      if (throwable) out.push('throw');
+      // You've stayed on that building: never two throws running - he rams it.
+      if (s.stay.box && s.stay.t >= K.STAY_T && out.indexOf('ram') >= 0 && s.attack.last === 'throw') return ['ram'];
+      return out;
     }
     // Venom: not in the middle of a leap or a dash.
     if (m.flying || m.crouch > 0 || m.dash) return [];
-    var me = { x: s.at.x, y: s.at.y + 1.2, z: s.at.z }, c = chest(you), d = Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z), out = [];
-    if (d <= A.MELEE && stands) out.push('combo');
+    var me = vchest(s), c = chest(you), d = Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z), out = [];
+    if (d <= A.MELEE && stands && !m.wall) out.push('combo');
     // (Not counting the column of the node he's on, which his chest is inside.)
     if (d >= A.LASH_MIN && d <= A.LASH_REACH - .5 && AttacksRef.lashReach(ctx.city, me, { x: (c.x - me.x) / d, y: (c.y - me.y) / d, z: (c.z - me.z) / d }) >= d - .3) out.push('lash');
     if (stands && d >= A.POUNCE_MIN && d <= A.POUNCE_MAX) {
       var L = AttacksRef.landing(ctx.city, you, s.at);
-      if (L && (!s.home || Math.hypot(L.x - s.home.x, L.z - s.home.z) <= s.home.r) && AttacksRef.arcClear(ctx.city, s.at, L)) out.push('pounce');
+      if (L && (!s.home || hunts(s, ctx) || Math.hypot(L.x - s.home.x, L.z - s.home.z) <= s.home.r) && AttacksRef.arcClear(ctx.city, s.at, L)) out.push('pounce');
     }
     return out;
   }
@@ -692,13 +912,16 @@
     if (s.kind === 'glider') { s.still = 0; s.stillAt = copy(you); }
     a.hits0 = s.hits; a.goal = null; a.zone = null; a.box = null; a.wall = null; a.combo = null; a.lash = null;
     if (s.kind === 'charge') {
-      freeRhino(s); m.state = 'brace'; m.hit = false; m.ram = false;
-      if (e.move === 'ram' && s.plan) {
+      freeRhino(s); m.state = e.move === 'throw' ? 'heave' : 'brace'; m.hit = false; m.ram = false; a.held = false; a.quakeR = null;
+      if (e.move === 'throw') { /* he stands and tears it up (moveRhino) */ }
+      else if (e.move === 'ram' && s.plan) {
         a.box = s.plan.box; a.wall = s.plan.wall; a.goal = { x: a.wall.x, y: s.path.y, z: a.wall.z };
         // The ring on the roof: where the quake will hurt.
         // (On the roof - or, up on a higher tier of it, where you stand.)
         var ry = you.y - a.box.y1 > 1.5 && ctx.state !== 'swing' ? you.y : a.box.y1;
-        a.zone = { x: a.wall.x, y: ry, z: a.wall.z, r: AttacksRef.constants.QUAKE_R,
+        // (P8) Further, the longer you've stayed on it.
+        a.quakeR = AttacksRef.quakeReach(s.stay.box === a.box ? s.stay.t : 0);
+        a.zone = { x: a.wall.x, y: ry, z: a.wall.z, r: a.quakeR,
           clip: { x0: a.box.x0, z0: a.box.z0, x1: a.box.x1, z1: a.box.z1 } };
       } else a.goal = { x: you.x, y: s.path.y, z: you.z };
     } else if (s.kind === 'leap') m.crouch = 0;
@@ -709,6 +932,7 @@
     var a = s.attack;
     AttacksRef.cancel(a);
     a.zone = null; a.goal = null;
+    if (a.held) { a.held = false; s.events.push({ type: 'drop', at: copy(s.at) }); }
     s.staggers++;
     if (s.kind === 'charge' && s.m.free) { s.m.state = 'rest'; s.m.rest = s.rules.recover; }
     s.events.push({ type: 'stagger', move: a.move, at: copy(s.at) });
@@ -727,11 +951,25 @@
     if (c.i >= c.n && a.t >= (c.n - 1) * A.COMBO_GAP + A.COMBO_END) AttacksRef.finish(a);
   }
   function swipe(s, ctx, i) {
+    if (i === 0) lunge(s, ctx);
     var A = AttacksRef.constants, at = AttacksRef.claw(s.at, s.face);
     s.events.push({ type: 'swipe', at: at, i: i });
     if (!ctx.body || !AttacksRef.swipeHits(s.at, s.face, ctx.body)) return;
     hurt(s, AttacksRef.damage(A.SWIPE_SHARE, s.rules), { kind: 'swipe', from: at,
       push: { x: Math.sin(s.face) * 4, y: 1.5, z: Math.cos(s.face) * 4 } });
+  }
+  // (P8) A combo's first swipe steps him in at you - up to LUNGE, stopping short of
+  // SWIPE_REACH off you - where there's floor at his level and room (on a
+  // beam there mostly isn't). He turns to you as he goes.
+  function lunge(s, ctx) {
+    var m = s.m, A = AttacksRef.constants, you = ctx.you;
+    if (s.kind !== 'leap' || m.flying || m.wall || !ctx.city) return;
+    var dx = you.x - s.at.x, dz = you.z - s.at.z, d = Math.hypot(dx, dz), k = clamp(d - A.SWIPE_REACH - .4, 0, A.LUNGE);
+    if (k < .05) return;
+    var x = s.at.x + dx / d * k, z = s.at.z + dz / d * k, y = EncRef.groundAt(ctx.city, x, z, s.at.y + .4);
+    if (Math.abs(y - s.at.y) > .3 || !AttacksRef.room(ctx.city, x, s.at.y, z, .45)) return;
+    m.off = { x: m.off.x + dx / d * k, z: m.off.z + dz / d * k };
+    place(s); s.face = yawTo(s.at, you);
   }
   function strike(s, move, ctx) {
     var a = s.attack, you = ctx.you, up = { x: s.at.x, y: s.at.y + 1.3, z: s.at.z }, m = s.m, A = AttacksRef.constants;
@@ -753,11 +991,18 @@
       a.combo = { i: 0, n: A.COMBO_N };
       combo(s, ctx);
     } else if (move === 'lash') {
-      var from = { x: s.at.x + Math.sin(s.face) * .4, y: s.at.y + 1.35, z: s.at.z + Math.cos(s.face) * .4 };
+      var from = m.wall ? vchest(s) : { x: s.at.x + Math.sin(s.face) * .4, y: s.at.y + 1.35, z: s.at.z + Math.cos(s.face) * .4 };
       var aim = a.aim || chest(you), dir = { x: aim.x - from.x, y: aim.y - from.y, z: aim.z - from.z }, dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
       dir = { x: dir.x / dl, y: dir.y / dl, z: dir.z / dl };
       a.lash = { from: from, dir: dir, s: 0, reach: AttacksRef.lashReach(ctx.city, from, dir), out: true, hit: false };
       s.events.push({ type: 'lash', at: copy(from), dir: copy(dir) });
+    } else if (move === 'throw') {
+      // The debris leaves his hand, at where you'll be; he stands a moment after.
+      var from = point(s, 'hand', { x: s.at.x, y: s.path.y + A.HAND_Y, z: s.at.z });
+      var b = AttacksRef.throwDebris(from, chest(you), { x: you.vx || 0, z: you.vz || 0 }, s.nextId++);
+      s.bombs.push(b); a.held = false;
+      s.events.push({ type: 'throw', from: copy(from), id: b.id, debris: true });
+      m.state = 'rest'; m.rest = K.THROW_REST; m.v = 0;
     } else if (move === 'bomb') {
       throwAt(s, you);
     } else if (move === 'volley') {
@@ -843,8 +1088,8 @@
       var r = AttacksRef.stepBomb(b, dt, s.time, city, caps);
       if (!r) return true;
       var dmg = caps && caps.length ? AttacksRef.blastDamage(r.at, caps, s.rules, r.why) : 0;
-      s.events.push({ type: 'blast', at: copy(r.at), why: r.why, id: b.id, damage: dmg });
-      if (dmg > 0) hurt(s, dmg, { kind: 'bomb', from: r.at, push: AttacksRef.push(r.at, caps, dmg, s.rules) });
+      s.events.push({ type: 'blast', at: copy(r.at), why: r.why, id: b.id, damage: dmg, debris: b.kind === 'debris' });
+      if (dmg > 0) hurt(s, dmg, { kind: b.kind === 'debris' ? 'debris' : 'bomb', from: r.at, push: AttacksRef.push(r.at, caps, dmg, s.rules) });
       return false;
     });
     s.rounds = s.rounds.filter(function (r) {
@@ -904,7 +1149,11 @@
       s.elapsed += dt;
       s.dodgeRemaining = Math.max(0, s.dodgeRemaining - dt);
       if (s.kind === 'glider') { hunt(s, dt, ctx); if (s.m.dive) diving(s, dt, ctx); else moveGlider(s, dt); }
-      else if (s.kind === 'charge') { if (s.m.free) moveRhino(s, dt, ctx); else moveCharge(s, dt); }
+      else if (s.kind === 'charge') {
+        // (P8) With you in the fight, he leaves his avenue and hunts you.
+        if (!s.m.free && HuntRef && ctx && ctx.city && ctx.you) { freeRhino(s); s.m.hunting = true; s.m.state = 'hunt'; s.m.route = null; }
+        if (s.m.free) moveRhino(s, dt, ctx); else moveCharge(s, dt);
+      }
       else moveLeap(s, dt, ctx);
     }
     place(s);
@@ -989,6 +1238,7 @@
     if (!s.at || s.phase === 'thugs' || s.kind === 'glider') return null;
     if (s.kind === 'charge') return s.path.y;
     var m = s.m, P = s.path.perches, q = m.dest || P[m.to];
+    if (m.wall && !m.flying) return null;
     if (s.phase !== 'arrive' && m.flying && m.from && q) return lerp(m.from.y, q.y, Math.min(1, m.t / m.dur));
     if (m.spot) return m.spot.y;
     return P[m.at] ? P[m.at].y : s.at.y;
@@ -1001,7 +1251,7 @@
   // a fresh sample each frame, so keeping it by reference is safe.
   function snapshot(s) {
     return { villain: copy(s.at), body: s.body || null, thugs: s.thugs.map(function (t) { return { x: t.x, y: t.y, z: t.z }; }),
-      bombs: (s.bombs || []).map(function (b) { return { id: b.id, x: b.x, y: b.y, z: b.z }; }) };
+      bombs: (s.bombs || []).map(function (b) { return { id: b.id, x: b.x, y: b.y, z: b.z, r: b.r }; }) };
   }
 
   // The level way from a shot's line to the villain's middle.

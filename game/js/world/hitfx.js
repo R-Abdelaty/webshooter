@@ -36,7 +36,7 @@
     grit: { n: 16, v0: 3, v1: 8, cone: 60, life0: .3, life1: .7, size0: .05, size1: .12, drag: .5, g: 9.8 }
   };
   // How much dust each kind of impact throws (a share of the kinds' counts).
-  var DUST = { quake: 1.6, crash: .8, slam: .7 };
+  var DUST = { quake: 1.6, crash: .8, slam: .7, grab: .6, drop: .7, debris: 1.1 };   // (P8: the Rhino tearing up the road, dropping it, where it lands)
   // A blast: which kinds it throws, and its flash (colour and size in metres).
   var BLAST = { kinds: ['fire', 'sparks', 'smoke'], flash: [5, 2.6, .9], size: 5 };
   // Per villain: the particles of a hit, and the flash's colour (linear, and

@@ -33,7 +33,10 @@
     attack: ['snort', 0, 1],
     stun: ['grunt', .05, 1.2],
     hit_big: ['grunt', 0, 1], hit: ['grunt', 0, .6],
-    defeat: ['groan', 0, 1]
+    defeat: ['groan', 0, 1],
+    // (P8) Venom pushing off a wall; the Rhino heaving debris up (a grunt as it comes up).
+    cling_to_jump: ['whoosh', .15, .8],
+    throw: ['grunt', .25, 1.2]
   };
   // Clips whose sound isn't the clip's: the Goblin's attack is a throw, not
   // a snort (its wind-up has its own cue, attack-audio.js); Venom's swipes

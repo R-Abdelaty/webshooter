@@ -62,13 +62,20 @@
   //           it, a quake: it hurts if you're still on that building within
   //           QUAKE_R of where he hit (or still hanging from it).
   //   After a ram, or running into a wall, he's dazed (fight.js).
+  //   throw   (P8) you're up high, or in the air: he tears up a chunk of the
+  //           road (or picks up a car) and hurls it at you in an arc, with a
+  //           lead - a blast like a bomb's where it lands, and a web shoots it
+  //           to pieces in the air (the bomb rules). Its wind-up is longer
+  //           (THROW_TELE more): he has to crouch and tear it up first.
+  //   (P8) Stay on one building and the quake's reach grows (QUAKE_GROW).
   //
   // VENOM'S MOVES (P5).
   //   pounce  a leap aimed at you that lands next to you (a red ring shows
   //           where); being there when he lands is heavy.
   //   combo   close in: three swipes, one after another.
   //   lash    mid range: a tentacle whips out along a line that follows you
-  //           through the wind-up; it knocks you off a swing line.
+  //           through the wind-up; it knocks you off a swing line. (P8: it
+  //           reaches further, and he picks it more.)
   //
   // x east, z south, y up, metres, seconds.
 
@@ -134,12 +141,23 @@
     KNOCK_V: 11, KNOCK_UP: 5,   // and throws you this fast ahead of him, and up
     QUAKE_R: 16,            // a ram hurts you on that building within this of where he hit...
     QUAKE_INNER: 6,         // ...the most within this, the least at QUAKE_R
+    QUAKE_GROW: 1.5,        // (P8) and the reach grows this many metres a second you stay on that building...
+    QUAKE_GROW_MAX: 14,     // ...up to this much more
+    // The Rhino's throw (P8): how far he throws, the extra wind-up it takes,
+    // how far into the wind-up he has the thing in his hands (the clip's
+    // grab is timed to it), how high his hand is when it leaves it (for
+    // checking the arc before he commits), and the debris itself: its
+    // radius, its flight (seconds, near to far, growing a little a metre)
+    // and the throw's follow-through.
+    THROW_RANGE: 50, THROW_TELE: .45, GRAB_AT: .18, HAND_Y: 2.4,
+    DEBRIS_R: .9, DEBRIS_T: [.9, 1.6], DEBRIS_T_PER_M: .025, THROW_ACTIVE: .5,
     // Venom (P5).
     MELEE: 3.2,             // metres (chest to chest) for a combo
     COMBO_N: 3, COMBO_GAP: .65, COMBO_END: .4,  // swipes, seconds apart, and the follow-through after the last
     SWIPE_REACH: 1.4, SWIPE_R: 1,              // a swipe reaches this far ahead of his chest (a lunge), and hits this close to it
     SWIPE_SHARE: .35,
-    LASH_REACH: 13, LASH_MIN: 3.25,            // metres a tentacle reaches (and the least: nearer, it is claws)
+    LUNGE: 1.2,                                // (P8) a combo's first swipe steps him this far in at you, at most
+    LASH_REACH: 17, LASH_MIN: 3.25,            // metres a tentacle reaches (P8: was 13), and the least (nearer, it is claws)
     LASH_SPEED: 70, LASH_BACK: 45, LASH_R: .35, LASH_T: .5, LASH_TRACK: 3.5,
     LASH_SHARE: .6, LASH_PULL: 7,              // and it pulls you towards him this hard
     POUNCE_MIN: 4, POUNCE_MAX: 27,             // metres he pounces from
@@ -147,18 +165,22 @@
     POUNCE_HIT: 2.4,                           // ...and hurts you if you're this close to his chest when he does
     POUNCE_T: [.7, 1.15], POUNCE_T_PER_M: .025,
     POUNCE_SHARE: .85, POUNCE_PUSH: 7,
-    HOME: 12,               // he never pounces further than this past his beams
+    HOME: 12,               // he never pounces further than this past his beams (unless he's hunting you: P8)
+    ARC_N: 8,               // pieces a leap's arc is checked in
     // Which move, for what you're doing ('air': on a line, flying or zipping;
     // 'ground': on your feet or perched), and never the same one three times
     // running (unless it's the only one there is). On a line or in the air
     // the Goblin prefers the guns, on your feet the bombs.
     // The Goblin's dive only comes up when you're close, and then he likes it.
     PREFER: {
+      // (P8) the Rhino: up high, he throws a little more than he rams; you in
+      // the air near his street, it's throws.
+      charge: { air: { throw: 1, ram: .5, charge: 1 }, ground: { charge: 1, ram: .55, throw: .65 } },
       glider: { air: { guns: .45, volley: .3, bomb: .15, dive: .5 }, ground: { guns: .25, volley: .4, bomb: .35, dive: .5 } },
-      leap: { air: { lash: 1 }, ground: { combo: 1, lash: .45, pounce: .55 } }
+      leap: { air: { lash: 1 }, ground: { combo: 1, lash: .8, pounce: .6 } }
     }
   };
-  var MOVES = { glider: ['bomb', 'guns', 'volley', 'dive'], charge: ['charge', 'ram'], leap: ['combo', 'lash', 'pounce'] };
+  var MOVES = { glider: ['bomb', 'guns', 'volley', 'dive'], charge: ['charge', 'ram', 'throw'], leap: ['combo', 'lash', 'pounce'] };
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
@@ -180,6 +202,7 @@
     if (move === 'guns') return K.GUN_ROUNDS * K.GUN_EVERY + .1;
     if (move === 'bomb') return K.BOMB_ACTIVE;
     if (move === 'lash') return K.LASH_T;
+    if (move === 'throw') return K.THROW_ACTIVE;
     return null;
   }
   function airborne(state) { return state === 'swing' || state === 'fly' || state === 'zip'; }
@@ -219,7 +242,7 @@
       a.twice = m === a.last; a.last = m;
       a.phase = 'telegraph'; a.t = 0; a.clock = 0; a.move = m; a.n++; a.held = 0; a.quiet = 0;
       a.off = !c.onScreen; a.offLast = a.off;
-      a.tele = a.d.telegraph + (a.off ? a.d.offScreen || 0 : 0);
+      a.tele = a.d.telegraph + (a.off ? a.d.offScreen || 0 : 0) + (m === 'throw' ? K.THROW_TELE : 0);
       a.wait = DiffRef.span(a.d.cadence, u());
       ev.push({ type: 'telegraph', move: m, off: a.off, tele: a.tele });
       return ev;
@@ -332,14 +355,34 @@
   // --- pumpkin bombs -----------------------------------------------------------------
   // A bomb thrown from `from` to land on `target`, which is moving at `vel`
   // (it leads you, level, up to LEAD_MAX). Its flight is longer the further
-  // it goes. { id, x, y, z, vx, vy, vz, t, T, to, popAt }
-  function throwBomb(from, target, vel, id) {
-    var d = dist(from, target), T = clamp(K.BOMB_T[0] + d * K.BOMB_T_PER_M, K.BOMB_T[0], K.BOMB_T[1]);
+  // it goes. { id, x, y, z, vx, vy, vz, t, T, to, popAt, r, kind }
+  // o: { T: [near, far], perM, r, kind } for something else thrown the same
+  // way - the Rhino's debris (throwDebris).
+  function throwBomb(from, target, vel, id, o) {
+    o = o || {};
+    var TT = o.T || K.BOMB_T, d = dist(from, target), T = clamp(TT[0] + d * (o.perM === undefined ? K.BOMB_T_PER_M : o.perM), TT[0], TT[1]);
     var lx = (vel ? vel.x : 0) * T * K.LEAD, lz = (vel ? vel.z : 0) * T * K.LEAD, ll = Math.hypot(lx, lz);
     if (ll > K.LEAD_MAX) { lx *= K.LEAD_MAX / ll; lz *= K.LEAD_MAX / ll; }
     var to = { x: target.x + lx, y: target.y, z: target.z + lz };
-    return { id: id, x: from.x, y: from.y, z: from.z, from: copy(from), to: to, T: T, t: 0, popAt: null,
+    return { id: id, x: from.x, y: from.y, z: from.z, from: copy(from), to: to, T: T, t: 0, popAt: null, r: o.r || K.BOMB_R, kind: o.kind || 'bomb',
       vx: (to.x - from.x) / T, vy: (to.y - from.y) / T + .5 * K.GRAVITY * T, vz: (to.z - from.z) / T };
+  }
+  // The Rhino's throw (P8): a chunk of road, or a car, heavier and bigger
+  // than a bomb, thrown the same way. It goes off like one, and a web
+  // shoots it to pieces the same way.
+  function throwDebris(from, target, vel, id) {
+    return throwBomb(from, target, vel, id, { T: K.DEBRIS_T, perM: K.DEBRIS_T_PER_M, r: K.DEBRIS_R, kind: 'debris' });
+  }
+  // Would a throw from `from` at `to` get there, clear of the city (his
+  // hand's first metre and the last one at you not counted)?
+  function throwClear(city, from, to) {
+    var b = throwDebris(from, to, null, 0), n = 12, p0 = copy(from);
+    for (var i = 1; i <= n; i++) {
+      var p1 = bombAt(b, b.T * i / n), w = hitCity(city, p0, p1);
+      if (w && dist(w.point, from) > 1 && dist(w.point, to) > 1.2) return false;
+      p0 = p1;
+    }
+    return true;
   }
   // Where a bomb is `t` seconds into its flight (nothing in its way).
   function bombAt(b, t) {
@@ -360,7 +403,7 @@
       if (caps && caps.length) {
         for (var k = 0; k < caps.length; k++) {
           var c = caps[k];
-          if (segSeg(p0, p1, c.a, c.b) <= c.r + K.BOMB_R + K.TOUCH) return { at: p1, why: 'body' };
+          if (segSeg(p0, p1, c.a, c.b) <= c.r + (b.r || K.BOMB_R) + K.TOUCH) return { at: p1, why: 'body' };
         }
       }
       var w = hitCity(city, p0, p1);
@@ -395,10 +438,11 @@
     var tol = (Number.isFinite(deg) ? deg : K.BOMB_CONE) * Math.PI / 180, best = -1, bestA = Infinity;
     (bombs || []).forEach(function (b, i) {
       var v = sub(b, origin), d = len(v);
-      if (d < 1e-6 || d - K.BOMB_R > (Number.isFinite(blocked) ? blocked : Infinity) + .05) return;
+      var br = b.r || K.BOMB_R;
+      if (d < 1e-6 || d - br > (Number.isFinite(blocked) ? blocked : Infinity) + .05) return;
       var cos = clamp(dot(v, dir) / d, -1, 1);
       if (cos <= 0) return;
-      var off = Math.max(0, Math.acos(cos) - Math.asin(Math.min(1, K.BOMB_R / d)));
+      var off = Math.max(0, Math.acos(cos) - Math.asin(Math.min(1, br / d)));
       if (off <= tol && off < bestA) { bestA = off; best = i; }
     });
     return best;
@@ -545,11 +589,16 @@
   function touches(cap, caps) {
     return (caps || []).some(function (c) { return segSeg(cap.a, cap.b, c.a, c.b) <= cap.r + c.r; });
   }
-  // A ram's quake, for someone `d` metres (level) from where he hit.
-  function quakeDamage(d, diff) {
-    if (!(d <= K.QUAKE_R)) return 0;
-    return damage(d <= K.QUAKE_INNER ? 1 : 1 - (d - K.QUAKE_INNER) / (K.QUAKE_R - K.QUAKE_INNER), diff);
+  // A ram's quake, for someone `d` metres (level) from where he hit; its
+  // reach `R` (QUAKE_R, or more when you stayed put: quakeReach).
+  function quakeDamage(d, diff, R) {
+    R = R || K.QUAKE_R;
+    if (!(d <= R)) return 0;
+    return damage(d <= K.QUAKE_INNER ? 1 : 1 - (d - K.QUAKE_INNER) / (R - K.QUAKE_INNER), diff);
   }
+  // How far a ram's quake reaches when you've been on that building for
+  // `stay` seconds.
+  function quakeReach(stay) { return K.QUAKE_R + Math.min(K.QUAKE_GROW_MAX, Math.max(0, stay || 0) * K.QUAKE_GROW); }
 
   // --- venom -------------------------------------------------------------------------
   // Is there room for someone at (x, y, z): nothing taller than a step
@@ -578,11 +627,25 @@
   }
   // The arc of a leap from a to b (feet), as fight.js flies it: clear of the
   // city? (His chest, along the chord and over the top of the arc.)
+  // (P8: along the arc itself, ARC_N pieces of it, not the two chords over
+  // it - the arc sags below them, and a hop went through a beam.)
   function arcClear(city, a, b) {
-    var d = Math.hypot(b.x - a.x, b.z - a.z), top = d * .25 + 1.5;
-    var c0 = { x: a.x, y: a.y + 1.3, z: a.z }, c2 = { x: b.x, y: b.y + 1.3, z: b.z };
-    var c1 = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + 1.3 + top, z: (a.z + b.z) / 2 };
-    return !trimHit(city, c0, c1) && !trimHit(city, c1, c2);
+    var d = Math.hypot(b.x - a.x, b.z - a.z), top = d * .25 + 1.5, n = K.ARC_N, pts = [];
+    for (var i = 0; i <= n; i++) {
+      var u = i / n;
+      pts.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u + top * 4 * u * (1 - u) + 1.3, z: a.z + (b.z - a.z) * u });
+    }
+    // The first and last 0.6 m (the beam he stands on, the roof he lands on) don't count.
+    var total = 0, at = [0];
+    for (i = 1; i <= n; i++) { total += dist(pts[i - 1], pts[i]); at.push(total); }
+    for (i = 1; i <= n; i++) {
+      var s0 = Math.max(at[i - 1], .6), s1 = Math.min(at[i], total - .6), len = at[i] - at[i - 1];
+      if (s1 <= s0 || len < 1e-6) continue;
+      var p = pts[i - 1], q = pts[i], k0 = (s0 - at[i - 1]) / len, k1 = (s1 - at[i - 1]) / len;
+      if (hitCity(city, { x: p.x + (q.x - p.x) * k0, y: p.y + (q.y - p.y) * k0, z: p.z + (q.z - p.z) * k0 },
+        { x: p.x + (q.x - p.x) * k1, y: p.y + (q.y - p.y) * k1, z: p.z + (q.z - p.z) * k1 })) return false;
+    }
+    return true;
   }
   // A segment meeting the city, ignoring its first and last 0.6 m (the
   // beam he stands on, the roof he lands on).
@@ -634,10 +697,10 @@
   var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, windup: windup, quiet: quiet, busy: busy, pick: pick, MOVES: MOVES,
     activeFor: activeFor, airborne: airborne, damage: damage,
     onSeg: onSeg, segSeg: segSeg, gap: gap, centre: centre, standIn: standIn, hitCity: hitCity,
-    throwBomb: throwBomb, bombAt: bombAt, stepBomb: stepBomb, blastDamage: blastDamage, push: push, aimBomb: aimBomb,
+    throwBomb: throwBomb, throwDebris: throwDebris, throwClear: throwClear, bombAt: bombAt, stepBomb: stepBomb, blastDamage: blastDamage, push: push, aimBomb: aimBomb,
     lead: lead, track: track, burst: burst, stepRound: stepRound, onLine: onLine, passes: passes, gunDamage: gunDamage,
     under: under, anchored: anchored, wallPoint: wallPoint, blocked: blocked, clearRun: clearRun, rhinoBody: rhinoBody,
-    touches: touches, quakeDamage: quakeDamage,
+    touches: touches, quakeDamage: quakeDamage, quakeReach: quakeReach,
     room: room, landing: landing, arcClear: arcClear, sidesteps: sidesteps, claw: claw, swipeHits: swipeHits,
     stepLash: stepLash, lashReach: lashReach, constants: K };
   if (typeof module !== 'undefined') module.exports = api;

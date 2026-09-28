@@ -33,7 +33,8 @@
     bomb: 'Bomb coming · shoot it down or move', guns: 'Guns locking on · get out of the laser',
     volley: 'Bombs and guns · keep moving', dive: 'He\'s diving at you · get out of the way',
     charge: 'He\'s charging · get out of his way', ram: 'He\'s ramming your building · get off it',
-    pounce: 'He\'s pouncing · move off the ring', combo: 'Claws · back off', lash: 'Tentacle · out of its line'
+    pounce: 'He\'s pouncing · move off the ring', combo: 'Claws · back off', lash: 'Tentacle · out of its line',
+    throw: 'He\'s throwing debris · shoot it down or move'
   };
   var HOLD = { ram: 1, pounce: 1, volley: 1, dive: 1 };
 

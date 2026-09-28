@@ -86,9 +86,8 @@ test('rhino: you on the street - a wind-up facing you, then a straight charge th
   r.until(()=>r.s.m.state==='overrun');
   const past=(r.s.m.x-r.you.x)*r.s.m.hx+(r.s.m.z-r.you.z)*r.s.m.hz;assert.ok(past>=0,'he skids on past you');
   r.until(()=>r.s.m.state==='rest');assert.equal(r.s.attack.phase,'recover');assert.equal(r.s.m.v,0);
-  // Then back to his avenue and his patrol.
-  r.until(()=>!r.s.m.free,60*10);assert.equal(r.s.m.state,'turn');
-  assert.ok(Math.abs(r.s.at.x-rhino.path.x)<=rhino.path.lane+1e-6&&r.s.at.z>=rhino.path.z0-1e-6&&r.s.at.z<=rhino.path.z1+1e-6);
+  // (P8) Then he comes after you again - not back to his avenue.
+  r.until(()=>r.s.m.state==='hunt',60*3);assert.ok(r.s.m.free&&r.s.m.hunting);
 });
 test('rhino: step out of the charge\'s line as it comes and it misses',()=>{
   const r=fightWith(rhino,onStreet);
@@ -109,15 +108,16 @@ test('rhino: a charge that runs into a wall leaves him dazed - and never inside 
 });
 test('rhino: you up on his roof - he rams the building under you, a ring shows the quake\'s reach, and it hurts',()=>{
   const r=fightWith(rhino,{x:RV.x,y:RV.y,z:RV.z});
-  r.until(()=>r.s.attack.phase==='telegraph');
+  // (P8: he may throw at you first.)
+  r.until(()=>r.s.attack.phase==='telegraph'&&r.s.attack.move==='ram',60*20);
   const a=r.s.attack,box=Attacks.under(city,r.you);
-  assert.equal(a.move,'ram');assert.equal(a.box,box,'the building under you');
-  assert.ok(a.zone&&a.zone.r===A.QUAKE_R&&a.zone.clip,'the ring');
+  assert.equal(a.box,box,'the building under you');
+  assert.ok(a.zone&&a.zone.r===a.quakeR&&a.quakeR>=A.QUAKE_R&&a.zone.clip,'the ring');
   assert.ok(Math.abs(a.zone.y-box.y1)<1e-9,'on its roof');
   r.until(()=>r.events('quake').length>0,60*6);
   const q=r.events('quake')[0],h=r.events('hurt')[0];
   assert.ok(h&&h.kind==='quake'&&Math.abs(h.t-q.t)<1e-9,'the quake hurt you');
-  assert.equal(h.damage,Attacks.quakeDamage(d2(r.you,a.wall),H));
+  assert.equal(h.damage,Attacks.quakeDamage(d2(r.you,a.wall),H,a.quakeR));
   assert.equal(r.s.m.state,'stun');assert.ok(Fight.dazed(r.s),'dazed after a ram');
   assert.ok(!inside(r.s.at),'he went into the building');
   assert.ok(d2(r.s.at,a.wall)<=A.RHINO_R+.3,'he stopped at its wall');
@@ -183,7 +183,10 @@ test('rhino: HARD\'s stagger of hits during his wind-up staggers him and calls t
 });
 
 // --- venom --------------------------------------------------------------------------
-test('venom: in reach, he pounces - a ring where he\'ll land, a leap that comes down next to you, and it hurts if you stay',()=>{
+// P5's pounce, combo and lash, as they were from his beams: with P8's hunt
+// switched off (HUNT_R 0) so he doesn't come to you first.
+function noHunt(fn){const K=Fight.constants,was=K.HUNT_R;K.HUNT_R=0;try{return fn();}finally{K.HUNT_R=was;}}
+test('venom: in reach, he pounces - a ring where he\'ll land, a leap that comes down next to you, and it hurts if you stay',()=>noHunt(()=>{
   const r=fightWith(venom,{x:VV.x,y:VV.y,z:VV.z});
   r.until(()=>r.s.attack.phase==='telegraph');
   assert.equal(r.s.attack.move,'pounce');
@@ -205,8 +208,8 @@ test('venom: in reach, he pounces - a ring where he\'ll land, a leap that comes 
   const hp=q.s.you.hp,away={x:q.you.x-q.s.m.dest.x,z:q.you.z-q.s.m.dest.z},l=Math.hypot(away.x,away.z);
   q.you.x+=away.x/l*2.5;q.you.z+=away.z/l*2.5;
   q.until(()=>q.events('slam').length>0,60*3);assert.equal(q.s.you.hp,hp,'it hit you after you moved off');
-});
-test('venom: close in, a combo of three swipes COMBO_GAP apart - and it ends when you get out of reach',()=>{
+}));
+test('venom: close in, a combo of three swipes COMBO_GAP apart - and it ends when you get out of reach',()=>noHunt(()=>{
   const r=fightWith(venom,{x:VV.x,y:VV.y,z:VV.z});
   r.until(()=>r.events('slam').length>0,60*20);
   r.until(()=>r.s.attack.phase==='telegraph',60*10);
@@ -224,7 +227,7 @@ test('venom: close in, a combo of three swipes COMBO_GAP apart - and it ends whe
   q.you.x-=8;q.you.y=0;
   q.until(()=>q.s.attack.phase!=='active',60*3);
   assert.equal(q.events('swipe').length,1,'he kept swiping at nothing');
-});
+}));
 test('venom: at mid range - you on a line - the tentacle lash follows you through the wind-up, and pulls you off',()=>{
   let r=fightWith(venom,{x:0,y:0,z:0},{state:'swing'});
   // Hang 8 m off him, level with him, until he winds up.
@@ -256,8 +259,8 @@ test('venom: HARD\'s stagger of hits during a wind-up interrupts him (hit_big), 
   assert.ok(r.plays.some(p=>p.c==='hit_big'));
   r.for(1.5);assert.ok(!r.events('pounce').length,'the pounce went ahead');
 });
-test('venom: out of reach he keeps to his beams and never attacks',()=>{
-  const far={x:VV.x-60,y:0,z:VV.z};
+test('venom: out of reach (P8: further than HUNT_R) he keeps to his beams and never attacks',()=>{
+  const far={x:VV.x-Fight.constants.HUNT_R-25,y:0,z:VV.z};
   const r=fightWith(venom,far),perched=new Set();
   r.for(20,()=>{if(!r.s.m.flying)perched.add(r.s.m.at);});
   assert.equal(r.events('telegraph').length,0);assert.ok(perched.size>=3,'he stopped leaping: '+perched.size);
@@ -303,7 +306,7 @@ test('anim: the rhino winds up his charge to fit the wind-up, runs by speed, ski
   assert.ok(q.plays.some(p=>p.c==='loco'&&p.state==='charge'));
   for(const p of r.plays.concat(q.plays))assert.ok(p.c==='loco'||p.c in CLIPS.charge,'no clip '+p.c);
 });
-test('anim: venom\'s swipes and lash strike as the attack does, the pounce roars and crouches, and lands hard',()=>{
+test('anim: venom\'s swipes and lash strike as the attack does, the pounce roars and crouches, and lands hard',()=>noHunt(()=>{
   const r=fightWith(venom,{x:VV.x,y:VV.y,z:VV.z},{anim:true});
   r.until(()=>r.events('swipe').length>=A.COMBO_N,60*30);r.for(.5);
   const E=EVENTS.leap,tel=H.telegraph,ev=r.events('telegraph'),combo=ev.find(e=>e.move==='combo'),pnc=ev.find(e=>e.move==='pounce');
@@ -327,7 +330,7 @@ test('anim: venom\'s swipes and lash strike as the attack does, the pounce roars
   const t=L.plays.find(p=>p.c==='tentacles'&&p.phase==='telegraph');
   assert.ok(t&&Math.abs(t.clock+E.tentacles.release_seconds/t.opts.speed-tel)<DT+1e-6,'the lash\'s strike frame at the strike');
   assert.ok(t.opts.speed>=VillainAnim.constants.MIN_WIND);
-});
+}));
 test('sounds: venom\'s swipes and lash are heard from their strikes, not their wind-ups; the rhino grunts when stunned',()=>{
   const c=SoundCues.create('leap'),f={at:{x:0,y:0,z:0},mode:'playing',vel:{x:0,z:0}};
   assert.deepEqual(SoundCues.step(c,f,[['attack',{}],['attack2',{}],['attack3',{}],['tentacles',{}]],null,DT).cues,[]);

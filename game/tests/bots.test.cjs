@@ -14,6 +14,12 @@
 //               of the time.
 // The measured numbers are printed as test diagnostics (and are in the
 // P7 entry of PLAYER_PLAN.md's Status).
+//
+// P8: the Rhino and Venom hunt you, so the human-pace bot also runs their
+// fights. There it walks the street or the roof it's on (its feet follow
+// whatever is under it: walk off a roof and it drops to the street), and
+// when a red ring shows (a ram's quake, a pounce) it steps out of it, away
+// from its middle, rather than aside. Their numbers go in P8's entry.
 const test=require('node:test'),assert=require('node:assert/strict');
 const City=require('../js/world/city.js'),Encounters=require('../js/world/encounters.js');
 const Fight=require('../js/world/fight.js'),Attacks=require('../js/world/attacks.js'),Difficulty=require('../js/world/difficulty.js');
@@ -50,7 +56,7 @@ const passive=()=>{};
 // (square to him, either way, back toward where it started if it has
 // wandered) for DODGE seconds at a walk, then stands again.
 function human(o){
-  o=Object.assign({SHOT:1.2,MISS:.3,REACT:[.25,.45],DODGE:[.3,.9]},o);
+  o=Object.assign({SHOT:1.2,MISS:.3,REACT:[.25,.45],DODGE:[.3,.9],ground:false},o);
   let next=0,dodge=null,home=null,lockAt=0,lockN=-1;
   const react=u=>o.REACT[0]+u()*(o.REACT[1]-o.REACT[0]);
   return function({s,you,events,t,u}){
@@ -65,6 +71,9 @@ function human(o){
     }
     events.filter(e=>e.type==='telegraph').forEach(()=>{
       const to={x:s.at.x-you.x,z:s.at.z-you.z},l=Math.hypot(to.x,to.z)||1;let side={x:-to.z/l,z:to.x/l};
+      // (P8) A ring: out of it, away from its middle, for the whole wind-up.
+      const z=o.ground&&s.attack.zone;
+      if(z&&Math.hypot(you.x-z.x,you.z-z.z)<z.r+1){const ax=you.x-z.x,az=you.z-z.z,al=Math.hypot(ax,az)||1;dodge={at:t+react(u),until:t+2,dir:{x:ax/al,z:az/al}};return;}
       const back={x:home.x-you.x,z:home.z-you.z},sign=Math.hypot(back.x,back.z)>8?(side.x*back.x+side.z*back.z>0?1:-1):(u()<.5?1:-1);
       dodge={at:t+react(u),until:0,dir:{x:side.x*sign,z:side.z*sign}};
       dodge.until=dodge.at+o.DODGE[0]+u()*(o.DODGE[1]-o.DODGE[0]);
@@ -72,6 +81,7 @@ function human(o){
     const moving=dodge&&t>=dodge.at&&t<dodge.until;
     you.vx=moving?dodge.dir.x*WALK:0;you.vz=moving?dodge.dir.z*WALK:0;
     you.x+=you.vx*DT;you.z+=you.vz*DT;
+    if(o.ground)you.y=Encounters.groundAt(city,you.x,you.z,you.y+.6);
     if(s.phase!=='villain'||t<next||s.cooldownRemaining>0)return;
     next=t+o.SHOT;
     const eye={x:you.x,y:you.y+EYE,z:you.z},m={x:s.at.x,y:s.at.y+1.3,z:s.at.z};
@@ -99,4 +109,19 @@ test('bots: a human-pace player wins the Goblin fight most of the time, with und
   t.diagnostic('what hit it: '+JSON.stringify(kinds));
   assert.ok(won.length>N/2,'it won only '+won.length+' of '+N);
   assert.ok(under>won.length/2,'too easy: under 60% HP left in only '+under+' of '+won.length+' wins');
+});
+
+// P8: the Rhino and Venom hunt you. Measured, not held to a number (the plan
+// asks for them in Status): how often the human-pace bot wins, and with how much.
+test('bots: a human-pace player against the Rhino and Venom, who hunt it (measured)',t=>{
+  for(const enc of [rhino,venom]){
+    const N=20,res=[];
+    for(let seed=1;seed<=N;seed++)res.push(run(enc,human({ground:true}),seed,120));
+    const won=res.filter(r=>r.mode==='won'),hp=won.map(r=>r.hp).sort((a,b)=>a-b),secs=res.map(r=>r.secs).sort((a,b)=>a-b);
+    const kinds={};res.forEach(r=>r.hurts.forEach(h=>{const k=h.split(' ')[1];kinds[k]=(kinds[k]||0)+1;}));
+    const name=['Goblin','Rhino','Venom'][enc.index];
+    t.diagnostic(name+', human pace: won '+won.length+'/'+N+'; HP left in wins '+(hp.join(' ')||'-')+(hp.length?' (median '+hp[Math.floor(hp.length/2)]+')':'')+'; fights '+secs[0]+'-'+secs[secs.length-1]+' s');
+    t.diagnostic(name+': what hit it: '+JSON.stringify(kinds));
+    assert.ok(res.every(r=>r.mode!=='playing'),name+': a fight went past 120 s');
+  }
 });

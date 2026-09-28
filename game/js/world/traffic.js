@@ -26,6 +26,8 @@
   //   Traffic.near(sim, 'cars', eye, { range, max, density }, t, out) -> count
   //   Traffic.clear(sim, focus)        hide the loops that pass through a
   //                                    fight's action (Encounters.focus)
+  //   Traffic.hideCar(sim, car)        hide one car (the Rhino picked it
+  //                                    up and threw it: P8), until clear()
   //
   // x east, z south, y up, metres; yaw 0 faces north (-z) and positive yaw
   // turns left, as in player.js.
@@ -230,12 +232,12 @@
   var scratch = [];
   function near(sim, kind, eye, opts, t, out) {
     var cars = kind === 'cars', loops = cars ? sim.routes : sim.walks, list = cars ? sim.cars : sim.people;
-    var hidden = cars ? sim.hidden.routes : sim.hidden.walks, range = opts.range, dens = opts.density === undefined ? 1 : opts.density;
+    var hidden = cars ? sim.hidden.routes : sim.hidden.walks, gone = cars ? sim.hidden.cars || {} : {}, range = opts.range, dens = opts.density === undefined ? 1 : opts.density;
     var ok = {}, n = 0, i, e;
     for (i = 0; i < loops.length; i++) if (!hidden[i] && distToBox(loops[i], eye) <= range) ok[i] = true;
     for (i = 0; i < list.length; i++) {
       var it = list[i], li = cars ? it.route : it.walk;
-      if (!ok[li] || it.rank >= dens) continue;
+      if (!ok[li] || it.rank >= dens || gone[i]) continue;
       e = scratch[n] || (scratch[n] = {});
       if (cars) carAt(sim, it, t, e); else personAt(sim, it, t, e);
       e.d = Math.hypot(e.x - eye.x, e.z - eye.z);
@@ -263,6 +265,17 @@
     return sim.hidden;
   }
 
+  // Hide one car (P8: the Rhino has it). A new `hidden`, so life.js picks
+  // the nearest again at once. Returns whether it was one of the city's.
+  function hideCar(sim, car) {
+    var i = sim.cars.indexOf(car);
+    if (i < 0) return false;
+    var h = { routes: sim.hidden.routes, walks: sim.hidden.walks, cars: Object.assign({}, sim.hidden.cars || {}) };
+    h.cars[i] = true;
+    sim.hidden = h;
+    return true;
+  }
+
   // How loud the street is where you stand, 0..1: busier the more cars are
   // close, and quieter the higher you are above it.
   function noise(nearCars, eye) {
@@ -273,7 +286,7 @@
   }
 
   var api = { create: create, carAt: carAt, personAt: personAt, slot: slot, near: near, clear: clear, noise: noise,
-    loop: loop, pointOn: pointOn, tiles: tiles, distToLoop: distToLoop, constants: K };
+    hideCar: hideCar, loop: loop, pointOn: pointOn, tiles: tiles, distToLoop: distToLoop, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Traffic = api;
 })(typeof window === 'undefined' ? globalThis : window);
