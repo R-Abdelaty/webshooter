@@ -337,6 +337,9 @@ test('sounds: venom\'s swipes and lash are heard from their strikes, not their w
 });
 test('intro cards: the rhino and venom say they fight back, and there is no clock',()=>{
   for(const enc of [rhino,venom]){assert.match(enc.intro,/fights back/);assert.match(enc.intro,/No clock/);assert.doesNotMatch(enc.intro,/thirty|seconds/i);}
+  // P7: they try to kill you, and every card says so; the Goblin's says how to beat his laser.
+  for(const enc of [goblin,rhino,venom])assert.match(enc.intro,/out to kill you/,enc.id);
+  assert.match(goblin.intro,/laser locks/);assert.doesNotMatch(rhino.intro+venom.intro,/two hits/);
 });
 test('HUD: a wind-up turns the objective line into a red warning of what\'s coming - a ram\'s and a pounce\'s until they land',()=>{
   const r=fightWith(rhino,{x:RV.x,y:RV.y,z:RV.z}),st=()=>Hud.status({mode:'fight',fight:r.s,enc:rhino,villain:{name:'RHINO'},damage:20}).right;

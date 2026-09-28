@@ -139,9 +139,10 @@
       id: 'goblin', index: 0, level: 0, villain: 0, kind: 'glider',
       vantage: { x: spot.x, y: spot.y, z: spot.z, yaw: yaw, pitch: .06 },
       trigger: footOf(city, tower),
-      intro: 'He hunts you across the rooftops on his glider, and he fights back: pumpkin bombs, and his glider guns. ' +
-        'When he winds up, get moving - swing out of the red laser\'s line, and shoot the bombs out of the air. ' +
-        'Hit him anywhere. No clock: it ends when he goes down, or you do.',
+      intro: 'He hunts you across the rooftops on his glider, and he is out to kill you: pumpkin bombs, two or three at a time ' +
+        'while his glider guns charge, the guns\' red laser right in your eyes, and dives straight at you when you get close. ' +
+        'Stand still and he bombs you. When the laser locks, change direction or swing out of its line; shoot the bombs out of ' +
+        'the air; step aside from a dive. Hit him anywhere. No clock: it ends when he goes down, or you do.',
       path: { cx: spot.x, cz: spot.z, y: t.y1, r0: G.R0, r1: G.R1, h0: G.H0, h1: G.H1, scale: G.SCALE,
         // He starts in front of you.
         start: Math.atan2(-Math.cos(yaw), -Math.sin(yaw)) }
@@ -182,9 +183,9 @@
       id: 'rhino', index: 1, level: 1, villain: 1, kind: 'charge',
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yawToward(eye, mid), pitch: round2(pitchToward(eye, mid) * .75) },
       trigger: { x: round2(s.edge + s.side * 2), z: round2(s.z), y: 0 },
-      intro: 'He is charging up and down the avenue below, and he fights back. Down on the street he charges straight at you - ' +
-        'get out of his way. Up high, he rams the building under you: when the red ring shows, get off that roof. ' +
-        'A ram, or running into a wall, leaves him dazed - hit him then for double. Hit him anywhere; two hits while he winds up stop him. ' +
+      intro: 'He is charging up and down the avenue below, and he fights back - he is out to kill you, and he doesn\'t let up. ' +
+        'Down on the street he charges straight at you - get out of his way. Up high, he rams the building under you: when the red ' +
+        'ring shows, get off that roof. A ram, or running into a wall, leaves him dazed - hit him then for double. Hit him anywhere. ' +
         'No clock: it ends when he goes down, or you do.',
       path: { x: s.ax, z0: round2(s.z0), z1: round2(s.z1), y: 0, lane: C.LANE, scale: C.SCALE }
     };
@@ -254,9 +255,9 @@
       vantage: { x: v.x, y: v.y, z: v.z, yaw: yaw, pitch: .1 },
       trigger: { x: site.gate.x, z: round2(site.gate.z + 2.5), y: 0 },
       intro: thugs.length ? 'Clear the masked thugs first - one or two hits each. Then Venom comes for you.' :
-        'He drops onto the steel frame and leaps from beam to beam, and he fights back: he pounces on you (move off the red ring), ' +
-        'claws you up close, and whips a tentacle at you from further off that pulls you off a line. ' +
-        'Hit him anywhere - he dashes along a beam when you shoot; two hits while he winds up stop him. ' +
+        'He drops onto the steel frame and leaps from beam to beam, and he fights back - he is out to kill you: he pounces on you ' +
+        '(move off the red ring), claws you up close, and whips a tentacle at you from further off that pulls you off a line. ' +
+        'Hit him anywhere - he dashes along a beam when you shoot. ' +
         'No clock: it ends when he goes down, or you do.',
       path: { perches: perches, hopMin: L.HOP_MIN, hopMax: L.HOP_MAX, scale: L.SCALE },
       thugs: thugs
