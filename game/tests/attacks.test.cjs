@@ -200,9 +200,11 @@ test('guns: the laser follows you through the wind-up, locks, and the burst hits
   // Again, but move out of the line as it locks.
   const q=fightWith(goblin).tough();
   q.until(()=>{q.restless();return q.s.attack.phase==='telegraph'&&q.s.attack.move==='guns';},60*120);
+  q.s.rounds=[];q.s.bombs=[];                                   // nothing else of his in the air: just this burst
   q.until(()=>q.s.attack.phase==='active');
-  const hp2=q.s.you.hp;q.you.x+=2.5;q.you.z+=1;
-  q.until(()=>q.s.attack.phase==='recover');q.until(()=>!q.s.rounds.length);
+  q.tick();const hp2=q.s.you.hp,mine=q.s.rounds.slice();
+  const to={x:q.s.at.x-q.you.x,z:q.s.at.z-q.you.z},tl=Math.hypot(to.x,to.z);q.you.x+=-to.z/tl*2.7;q.you.z+=to.x/tl*2.7;   // a step square to his line
+  q.until(()=>mine.every(m=>q.s.rounds.indexOf(m)<0));            // this burst's rounds, spent
   assert.equal(q.s.you.hp,hp2,'the burst hit you out of its line');
 });
 // P7: the laser must visibly target you.

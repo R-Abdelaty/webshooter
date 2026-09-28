@@ -87,8 +87,8 @@
     LEAD_MAX: 9,            // ...at most this far ahead of you (level)
     FUSE: 2.6,              // seconds after the throw it goes off wherever it is
     TOUCH: .25,             // it goes off this close to your body
-    BLAST_R: 5,             // metres the blast reaches
-    BLAST_INNER: 1.2,       // full damage within this
+    BLAST_R: 4,             // metres the blast reaches (P7: was 5 - out of it at a walk was luck)
+    BLAST_INNER: 1,         // full damage within this
     PUSH: 8,                // m/s it throws you at full damage
     BOMB_CONE: 3,           // degrees: a web aimed this close to one in flight shoots it down
     BOMB_ACTIVE: .45,       // the throw's follow-through
@@ -100,7 +100,7 @@
     GUN_LEAD_MAX: 4,        // ...at most this far
     GUN_ROUNDS: 6,
     GUN_EVERY: .065,        // seconds between rounds (they alternate guns)
-    GUN_SPEED: 120,         // m/s
+    GUN_SPEED: 45,          // m/s: bolts you can see coming, slow enough to react to the lock (P7: was 120)
     GUN_RANGE: 70,          // metres a round flies
     GUN_R: .22,             // how close to your body a round has to pass to hit
     GUN_SPREAD: .006,       // radians of scatter per round
@@ -110,11 +110,12 @@
     // from the wind-up).
     VOLLEY_N: [2, 3], VOLLEY_EVERY: .3, VOLLEY_CHARGE: .9,
     // The dive (P7): he dives from within DIVE_RANGE metres of your chest, at
-    // DIVE_V m/s, at where you'll be DIVE_LEAD s on, and on DIVE_PAST metres
+    // DIVE_V m/s, at where you'll be DIVE_LEAD s on (0: where you are - a
+    // lead punished the sidestep everyone makes), and on DIVE_PAST metres
     // past you, levelling out DIVE_LIFT above that point. His body hits
     // yours within DIVE_R; it does DIVE_SHARE of the damage range and throws
     // you DIVE_PUSH m/s along his line.
-    DIVE_RANGE: 14, DIVE_V: 24, DIVE_LEAD: .2, DIVE_PAST: 9, DIVE_LIFT: 1.5, DIVE_R: .8, DIVE_SHARE: .85, DIVE_PUSH: 9,
+    DIVE_RANGE: 17, DIVE_V: 24, DIVE_LEAD: 0, DIVE_PAST: 9, DIVE_LIFT: 1.5, DIVE_R: .6, DIVE_SHARE: .85, DIVE_PUSH: 9,
     // Standing still (P7): within STILL_R metres of one spot on a roof for
     // STILL_T seconds, and the Goblin's next attack is bombs, at once.
     STILL_R: 1.5, STILL_T: 2,

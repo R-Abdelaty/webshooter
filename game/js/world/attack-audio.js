@@ -105,7 +105,8 @@
       var f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 1.4;
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(K.WARN * .5, t + T * .8); g.gain.linearRampToValueAtTime(0, t + T + .05);
       osc.connect(f).connect(g).connect(o); osc.start(t); osc.stop(t + T + .1); lfo.start(t); lfo.stop(t + T + .1);
-      tone(o, t + T - .06, .08, 'square', 2400, 2400, K.WARN * .35);          // the lock
+      // The lock: the moment the laser steadies - change what you're doing.
+      tone(o, t + Math.max(0, T - ((root.Attacks && root.Attacks.constants.GUN_LOCK) || .15)), .08, 'square', 2400, 2400, K.WARN * .35);
     } else if (move === 'charge' || move === 'ram') {
       // The Rhino building up: a low growl rising, and his hooves scraping.
       tone(o, t, T, 'sawtooth', 48, 90, K.WARN * .55, T * .7);
