@@ -322,6 +322,202 @@ After the user plays with the real shooter: adjust `Difficulty.HARD`, swing feel
 speed cap, steering), the camera comfort caps, the aim-assist cones for anchors and bombs, and the
 third-person camera. Only change what the notes ask for, and keep the tests passing.
 
+## Round 2 (2026-09-28): the user's notes after playing P1–P5
+
+The user played the result and asked for the following. **This is not one session's worth**: it's five
+sessions, P7–P11 below. P6 (tuning) is folded into P7 and P8.
+
+1. **A bug:** in POV, after dying and pressing RETRY, the character's height sinks to the ground.
+2. **Stick to buildings and climb them**, with arm animations that match the climbing movement.
+3. **Arms in the air don't feel alive** (in POV): add animation while jumping, falling and between swings.
+4. **The Goblin's laser doesn't target me.**
+5. **The graphics are not good enough.**
+6. **Not hard enough:** the three villains don't target me enough and don't seem to be trying to kill me.
+
+**What the code says about each** (read before starting; found by the planning session):
+- **The RETRY bug.** On death, `player-anim.js` sends `death` and `fp_death` with `hold: true`. `rig.js` keeps a
+  held one-shot until something cuts it. RETRY → `enterFight` → `place()` makes a fresh `PlayerAnim`, but **nothing
+  resets the two player rigs in `WorldPlayer`** (`player-view.js`). The held `death`/`fp_death` shots most likely
+  survive into the next fight: the arms stay slumped, the body lies on the floor, and the view looks like it has
+  sunk. Reproduce it first (die, then RETRY, in both camera modes; compare the camera's y with `player.y +
+  Player.constants.EYE`), confirm, then fix it at the root: a `WorldPlayer.reset()` that cuts every shot and
+  rebases both rigs, called from `place()`. Look for any other per-life state that isn't reset (the slump,
+  perch, crouch, `lines`, the camera's pull-in).
+- **The laser.** `Attacks.track` eases the aim toward **your chest** at `GUN_TRACK` 2.5/s, and the beam stops
+  `LASER.short` (1.2 m) short of you. In POV your chest is below and behind the view, so the beam visibly points
+  under you and ends in front of you. It lags whenever you move, and the rounds go where it locked 0.9 s
+  earlier.
+- **Not trying to kill you.** P4 and P5 built in restraint:
+  - **Cadence:** an attack every 3–5 s, plus a 0.8 s `breather` after each.
+  - **Off-screen rule:** after an off-screen attack, the next waits **until he's in view**. Look away and
+    he never attacks.
+  - **Range:** the Goblin holds his attacks beyond `ATTACK_RANGE` 40 m.
+  - **The Rhino** only rams from his street. He never leaves it to come after you, and charges only when
+    you're down on it.
+  - **Venom** keeps to his beams when you're out of his reach.
+  - **Stagger:** 2 hits in a wind-up cancel any attack. With good aim, every attack is cancelled.
+- **Graphics.** C4 measured and tuned everything on the laptop's **Intel UHD integrated GPU** and deleted
+  the HIGH tier (post chain: SSAO, bloom, SMAA) because it ran at 20 fps there. The laptop also has an
+  **RTX 4070 Laptop GPU**, which Chrome is probably not using. The city is procedural with flat canvas
+  textures. The post chain is still in git at `b2c83db` (`world.js` `buildPost`).
+
+### The user's part before these sessions
+
+- **Before P8 and P10: Mixamo clips — done on 2026-09-28** (see Status). The planning session can download these into the source folders from
+  the user's signed-in Mixamo tab, as it did for P1 (FBX Binary, Without Skin, 30 fps, In Place where offered,
+  from X Bot):
+  - `game/assets-src/characters/spiderman/`:
+    - `anim_climb_up.fbx` ("Climbing Up Wall")
+    - `anim_climb_down.fbx` ("Climbing Down Wall")
+    - `anim_shimmy_l.fbx` ("Left Shimmy", free-hanging)
+    - `anim_shimmy_r.fbx` ("Right Shimmy")
+    - `anim_climb_top.fbx` ("Climbing To Top", up and over onto a standing pose)
+  - `game/assets-src/characters/rhino/`:
+    - `anim_throw.fbx` ("Throw Object": he picks something up and hurls it). The Rhino's rig has Mixamo
+      bone names too, so this maps by name; retarget with rest-pose correction as `rhino.py` does.
+- **Before P11: make Chrome use the RTX 4070.** Windows Settings → System → Display → Graphics → add Chrome
+  (or find it) → Options → **High performance** (NVIDIA). Restart Chrome, open `chrome://gpu`, and check
+  that the WebGL renderer names the NVIDIA GPU. Play on mains power: on battery, Chrome caps at 30 fps (P5
+  saw this). Claude can't change Windows settings; this one is the user's.
+
+## Session P7 — Fix the RETRY bug, aim the Goblin's laser at you, and make HARD actually hard
+
+- **The RETRY bug**, as described above: reproduce, fix at the root, and add a test that a RETRY after
+  dying leaves both rigs with no held shot, and the camera at `player.y + EYE` in POV.
+- **The laser must visibly target you:**
+  - aim at **the camera eye in POV** (and at the head or chest in third person, whichever is on screen);
+  - track fast, with a small lead on your velocity;
+  - lock only in the last ~0.15 s of the wind-up, and fire the rounds at the locked point with lead;
+  - the beam reaches you, and in POV you see it come *at* the lens: a red glare and a dot near screen
+    centre, and a red edge chevron when it's off-screen.
+  - **Test:** standing still in POV, the locked aim lies within 1° of the view centre; moving at walking
+    pace, the rounds pass within `GUN_R` of you unless you sidestep after the lock.
+- **HARD, for real, for all three.** Rework `Difficulty.HARD` and the `Attacks` framework's restraint:
+  - cadence about 1.6–2.8 s, no breather (or 0.2 s), telegraph 0.6–0.7 s (still always there);
+  - `stagger` 4 hits in a wind-up (not 2);
+  - invulnerability 0.4 s;
+  - the Goblin's range 80 m.
+  - **Off-screen attacks are allowed:** a longer telegraph (+0.5 s), the red chevron and a sound, never
+    silent. Two in a row from off-screen are allowed, but the second waits until the first lands.
+  - An **aggression director**: if 4 s pass with no attack or projectile heading your way, the next attack
+    starts now.
+  - **The Goblin:** mixes bombs and bursts (a bomb volley of 2–3 while the guns charge), dives at you
+    when you're close, and punishes standing still on a roof.
+  - Keep "every attack is telegraphed and avoidable" true: that is what makes it fair.
+- **Prove it with bots** (node tests, plus a headless run of each fight):
+  - a **passive player** (stands still, never shoots) dies within 30 s in every fight;
+  - a **human-pace player** (a shot every 1.2 s, 30% misses, dodging only after a telegraph) wins the
+    Goblin fight with under 60% HP left most of the time;
+  - write down the measured win rates and remaining HP in Status.
+- Update the intro cards (they now try to kill you) and the README.
+
+## Session P8 — The Rhino and Venom hunt you
+
+Needs `rhino/anim_throw.fbx`. Build it into `rhino.glb` first, as `throw`, retargeted by extending
+`rhino.py`. Contact-sheet it and rebuild with `build-models.cjs`.
+
+- **The Rhino leaves his street.**
+  - He follows you along the streets (a path on the city grid, never through buildings) at a jog, and
+    charges when he has a clear line.
+  - When you're up high he **tears up debris and throws it**: a chunk of road or a car from the traffic
+    (hide that car from `Traffic` while he holds it). The `throw` clip, an arcing projectile with lead,
+    a blast like the bombs, and it can be shot to pieces in the air (the bomb rules).
+  - He still rams the building you're on. The quake reach grows if you stay put.
+  - He is never idle for more than 2 s while you're within 80 m.
+- **Venom hunts you across the rooftops:**
+  - he leaps from roof to roof toward you (`leap_*` arcs, now between buildings, with clear-arc checks);
+  - he **climbs walls** to reach you with his `cling_idle`, `crawl_to_cling` and `cling_to_jump` clips. These
+    are wall poses, so orient him to the wall's normal; this is what they were for;
+  - he pounces from a wall;
+  - he lashes more often at range, and the lash can pull you off a wall or a line;
+  - he never waits on his beams while you're within 80 m.
+- **Both** use P7's director and fairness rules. Update the intro cards.
+- **Bots** as in P7: a passive player dies within 30 s; the human-pace win rate and HP go in Status.
+- **Done when:** both fights feel like being hunted. Ask the user to play them with the wrist.
+
+## Session P9 — Arms alive in the air (first person, and the body in third)
+
+- **New first-person clips**, scripted in `spiderman.py` in the style of the existing `fp_*` ones (camera
+  space, eased keys, overlap, no flips):
+  - `fp_air`: arms out for balance, fingers spread, a slow float (a loop);
+  - `fp_fall_fast`: arms swept back and streamlined (a loop);
+  - `fp_jump`: a push up from the ground;
+  - `fp_land`: the hands absorb the landing;
+  - `fp_release_reach`: after letting go of a line, the free hand reaches ahead for the next one;
+  - `fp_perch_idle`: the hands on the ledge, a slight shift.
+  - Rebuild, contact-sheet, and `build-models.cjs`.
+- **A procedural "alive" layer** in `player-view.js` or a new `arm-motion.js` (logic tested, no Three.js),
+  added on top of any clip:
+  - **inertia:** the arms lag the camera's turn and your acceleration, through a damped spring, and settle;
+  - **wind flutter:** with speed, small noise on the forearms and fingers;
+  - **swing counter-motion:** the free arm counterbalances with the pendulum's phase;
+  - **landing dip:** scaled by the impact speed;
+  - a breathing sway when idle;
+  - all bounded, so the hands never cover the crosshair, and toned down by CAMERA MOTION: REDUCED.
+- **`PlayerAnim`** picks `fp_air` / `fp_fall_fast` by vertical speed and `fp_jump`/`fp_land` at the
+  transitions. In third person, blend `fall`/`jump` by vertical speed, and add a lean into the direction of
+  travel.
+- **Tests:** the spring settles, its offsets stay bounded, the clip selection by vertical speed, and REDUCED
+  scales things down.
+
+## Session P10 — Stick to buildings and climb them
+
+Needs the Spider-Man climb clips. Build them into `spiderman.glb` as `climb_up`, `climb_down`, `shimmy_l`,
+`shimmy_r` and `climb_top`, retargeted from X Bot as P1 did.
+
+- **`world/climb.js`** (logic, tested; no Three.js), on the city's building boxes:
+  - **Sticking:** you stick when you walk, jump, fall or swing into a wall, or when a flick or click hits a
+    wall within 3 m. You get a wall frame (normal, up, right).
+  - **Climbing:** from `Move.vector()` (W up, S down, A/D sideways; the analog stick later), at about 3 m/s up
+    and 3.5 m/s sideways.
+  - **Corners:** wrap round outside corners onto the next face.
+  - **Top-out:** at the roof edge you climb over onto the roof (`climb_top`).
+  - **Leaving:** Space jumps off the wall, away and up. A flick or click at an anchor swings from the
+    wall, using `Swing.decide` as it is. S at the bottom drops you to the street.
+  - Shots work from the wall.
+  - Being hit hard knocks you off (P4's `knock`).
+  - Never inside geometry.
+- **Wrist-only players** (no stick yet): a flick at a point higher up the same wall **crawls you there**
+  (a short climb, not a zip). A flick at the roof edge above climbs to the top.
+- **Arms that match the climb.**
+  - **POV:** new scripted clips `fp_climb_up`, `fp_climb_down`, `fp_climb_l` and `fp_climb_r`:
+    hand-over-hand cycles with the palms flat to the wall and the fingers splayed. The runtime **locks the
+    clip's phase to the distance climbed** (so hands never slide), and **IK plants each hand on the wall
+    plane** while it's down. `fp_wall_idle` when still. The camera sits about 0.5 m off the wall, and you
+    can look around (up the wall, back over your shoulder).
+  - **Third person:** `climb_*` and `shimmy_*` with the rate from speed, the body aligned to the wall normal,
+    and the same hand IK to the wall.
+- Sounds: hand and foot slaps in time with the plants, and the thwip for a jump-off.
+- **Fights:** the villains' attacks work on a wall. The Rhino's ram knocks you off the building he hits.
+  Venom (P8) can climb after you.
+- **Tests:** stick and unstick cases, climbing speed, corner wrapping, top-out, jump-off direction, and
+  that the phase lock keeps a planted hand still to within 1 cm.
+- **Done when:** in both views you can run at a building, stick, climb to the roof, wrap a corner, jump off
+  into a swing, and fight from a wall.
+
+## Session P11 — Graphics: make it look good on the RTX
+
+Needs the user's GPU step above (Chrome on the RTX 4070, mains power).
+
+- **Detect the GPU** (`WEBGL_debug_renderer_info`) and **add HIGH (and ULTRA if it holds 60)**, picked
+  automatically on a discrete GPU. MED and LOW stay exactly as they are for integrated GPUs.
+- **Bring back the post chain** from `b2c83db` (`buildPost`): GTAO or SSAO, bloom for glowing eyes, the
+  laser and blasts, SMAA, and the grade. Put it back inside HIGH only.
+- **Better shadows:** a larger map, or two cascades (near and far) on HIGH, and contact shadows under
+  characters.
+- **The city** (the biggest gap to the reference videos; see C4's notes):
+  - PBR facades: normal and roughness maps generated for the canvas textures;
+  - **window glass that reflects** the sky and city (PMREM environment, a fresnel mix, some lit windows);
+  - varied building tops (water towers, AC units, parapets, antennas — some exist; make them read);
+  - baked ambient occlusion at the building bases and in the streets;
+  - kerbs, lamp posts, trees along the avenues;
+  - a better sky: a sun disk, lit clouds, and aerial perspective in the fog colour toward the sun;
+  - a golden-hour option like video 3.
+- Check the villains and Spider-Man under the new light: rim, environment, SSS-like softening on Venom.
+- **Measure in a real Chrome window on the RTX**, at 1080p and 1440p, in every fight and while swinging:
+  HIGH must hold 60 fps. Compare screenshots against `docs/reference/video1-combat.jpg`, `video2-traversal.jpg`
+  and `video3-swinging.jpg`, and save before/after shots.
+
 ## Status
 
 _Each session appends a dated entry: what was done, what was deliberately left, constants to tune, and
@@ -953,3 +1149,21 @@ anything the next session must know._
       `QUAKE`, `CRASH`, `SWIPE`, `LASH`; the shake reaches in world-game.js `fightEvents`; the `WARN` texts in hud.js.
   - **For P6.** Everything the plan lists, plus: the stagger count, how far Venom lands from you (and that view's frame rate), and
     whether the Rhino should ever charge the street under his building rather than ram it.
+- 2026-09-28 — **Round 2 planned** (P7–P11, above) from the user's notes after playing. The RETRY bug's likely cause and
+  the reasons the villains hold back were found in the code and are written down there. Mixamo clips for climbing
+  and the Rhino's throw are listed under *The user's part*; the RTX step is the user's own.
+- 2026-09-28 — **Round 2's Mixamo clips downloaded** from the user's signed-in Mixamo tab, as in P1: FBX Binary, Without
+  Skin, 30 fps, from **X Bot** (65-bone `mixamorig:` skeleton, so retarget with rest-pose correction). Every file was checked:
+  65 bones, 315 curves, one `mixamo.com` stack, `mixamorig:Hips` present. Mixamo applied **In Place** where it offers it (the
+  climbs and shimmies). **`anim_climb_top` and `anim_throw` have no in-place option, so they carry root motion.** For
+  `climb_top`, the rise up and over the edge *is* the move: drive the player's position from the game, and strip or read
+  the Hips path as the top-out needs. For `throw` he steps into it: strip the horizontal Hips motion.
+
+  | file | Mixamo animation | length | size |
+  |---|---|---|---|
+  | `spiderman/anim_climb_up.fbx` | Climbing Up Wall [in place] | 2.0 s | 468 KB |
+  | `spiderman/anim_climb_down.fbx` | Climbing Down Wall [in place] (a different file from `_up`, though the same size) | 2.0 s | 468 KB |
+  | `spiderman/anim_shimmy_l.fbx` | Left Shimmy (free hanging) [in place] | 1.37 s | 400 KB |
+  | `spiderman/anim_shimmy_r.fbx` | Right Shimmy (free hanging) [in place] | 1.4 s | 405 KB |
+  | `spiderman/anim_climb_top.fbx` | Climbing To Top (up and over onto a standing pose) | 4.0 s | 673 KB |
+  | `rhino/anim_throw.fbx` | Throw Object (picks it up and throws it) | 4.87 s | 706 KB |
