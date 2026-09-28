@@ -196,11 +196,20 @@
   function place(v) {
     player = Player.create(v);
     player.pitch = v.pitch || 0;
-    look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear(); stopUntil = 0;
+    look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear();
+    swing = Swing.create(); held = null;
+    newLife();
+  }
+  // A new life, wherever you are: nothing of going down, being hit or the
+  // last fight carries over - the slump of the view (deadAt), the red edge,
+  // a shake, the hit-stop, and the models' held death (you.reset). place()
+  // does this, and so does leaving a fight for free roam where you stand
+  // (FREE ROAM on the DEFEAT card left the view sunk and tipped for good).
+  // The swing line, the view history and the webs are left as they are.
+  function newLife() {
     anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null; lastState = 'idle';
-    swing = Swing.create(); held = null; fxv = { fov: 0, roll: 0, lines: 0 };
+    fxv = { fov: 0, roll: 0, lines: 0 }; stopUntil = 0;
     hurtAt = -1e9; hurtDmg = 0; deadAt = null; beeps = {}; popped = {}; shakeAt = -1e9;
-    // The models too: a death held from the last life mustn't carry over (RETRY).
     if (you) you.reset();
     $('world-hurt').style.opacity = '0';
   }
@@ -210,6 +219,7 @@
     you.setEnvironment(null);
     Traffic.clear(traffic, null);
     if (fromSpawn || !player) { place(city.spawn); player.pitch = -.22; }  // out and down over the city
+    else newLife();
     // Standing in a fight's trigger (a fight you just left, say) doesn't
     // start it again until you have stepped out.
     armed = !Encounters.triggered(allSpots(), player);
