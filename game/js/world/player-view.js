@@ -218,6 +218,18 @@
       return ev;
     }
 
+    // A new life (place() in world-game.js: a RETRY, a new fight, roaming):
+    // both models back on their base at once. Without this a held death
+    // (Rig: a held one-shot stays until a new base is asked for) carried
+    // over - the body lay on the floor and the arms stayed slumped out of
+    // view until the next fight's first step. The hang's tilt and the
+    // line's IK go too.
+    function reset() {
+      tilt.identity(); ikW.l = ikW.r = 0; last.l = last.r = null;
+      if (!ready) return;
+      bodyRig.reset(PlayerAnim.BASE.body); armsRig.reset(PlayerAnim.BASE.arms);
+    }
+
     // The arms, over the picture (first person only).
     function render() { if (ready && mode === 'first') world.renderOver(armsCam); }
 
@@ -246,7 +258,7 @@
     function sample() { return ready ? bodyRig.sample() : null; }
 
     return {
-      load: load, update: update, render: render, wrist: wrist, sample: sample, setMode: setMode, setCast: setCast,
+      load: load, update: update, reset: reset, render: render, wrist: wrist, sample: sample, setMode: setMode, setCast: setCast,
       setEnvironment: setEnvironment, get group() { return group; }, get ready() { return ready; }, get mode() { return mode; },
       get body() { return bodyRig; }, get arms() { return armsRig; }, get armsCamera() { return armsCam; }
     };

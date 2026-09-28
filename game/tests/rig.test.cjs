@@ -181,6 +181,14 @@ test('machine: defeat holds its last frame until a new base state',()=>{
   Rig.play(m,'idle');run(m,1);
   assert.deepEqual(weights(m),{idle:1});
 });
+test('machine: reset puts it back on a base at once, dropping a held defeat and any hit, with no end reported',()=>{
+  const m=mk();Rig.play(m,'fly');run(m,1);Rig.play(m,'defeat',{hold:true});run(m,3);Rig.play(m,'hit');run(m,.05);
+  assert.equal(Rig.reset(m,'idle'),'idle');
+  assert.deepEqual(weights(m),{idle:1},'no fade: the base is all there is, now');
+  assert.deepEqual(Rig.state(m),{base:'idle',shot:null,additive:[]});
+  assert.deepEqual(run(m,1),[]);
+  assert.equal(Rig.reset(m,'nothing like it'),'idle','an unknown base falls back like any other');
+});
 test('machine: a new base state can cut a one-shot short',()=>{
   const m=mk();Rig.play(m,'roar');run(m,.3);
   Rig.play(m,'fly');run(m,.3);

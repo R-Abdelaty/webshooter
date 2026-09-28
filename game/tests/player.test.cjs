@@ -118,6 +118,40 @@ test('anim: perched, swinging, zipping, hit and dead each have their clips, in b
   assert.equal(r.arms.filter(c=>c==='fp_death').length,1,'death once, held');
   const d=r.log.flatMap(o=>o.arms).find(c=>c[0]==='fp_death');assert.equal(d[1].hold,true);
 });
+// RETRY (P7): world-game.js place() makes a new PlayerAnim and PlayerCamera,
+// and resets both rigs (WorldPlayer.reset -> Rig.reset). Played here on the
+// two rigs' machines, as player-view.js drives them.
+test('retry: after dying, a RETRY leaves both rigs with no held shot, and the first-person eye at player.y + EYE',()=>{
+  const body=bodyMachine(),arms=armsMachine(),drive=(a,p,x)=>{const o=PlayerAnim.step(a,p,DT,x);
+    o.body.forEach(c=>Rig.play(body,c[0],c[1]));o.arms.forEach(c=>Rig.play(arms,c[0],c[1]));Rig.step(body,DT);Rig.step(arms,DT);return o;};
+  let a=PlayerAnim.create();
+  for(let t=0;t<.5;t+=DT)drive(a,P(),{});
+  // Perched and hit, then down: both death clips play and hold.
+  for(let t=0;t<.3;t+=DT)drive(a,P(),{perched:true,hits:3,big:true});
+  for(let t=0;t<3;t+=DT)drive(a,P(),{dead:true});
+  assert.equal(Rig.state(body).shot,'death');assert.equal(Rig.state(arms).shot,'fp_death');
+  // The bug: a new PlayerAnim alone doesn't touch the rigs, and while the INTRO
+  // card is up nothing steps it, so the held deaths were still posed.
+  a=PlayerAnim.create();
+  assert.equal(Rig.state(body).shot,'death','without the reset the death is still held');
+  // The fix: back to each model's base at once, nothing else in the pose.
+  assert.equal(Rig.reset(body,PlayerAnim.BASE.body),'loco');assert.equal(Rig.reset(arms,PlayerAnim.BASE.arms),'fp_idle');
+  for(const m of [body,arms]){
+    assert.equal(Rig.state(m).shot,null,'no one-shot');assert.deepEqual(Rig.state(m).additive,[]);assert.deepEqual(Rig.layers(m),{});
+    const pose=Rig.pose(m);assert.ok(pose.every(x=>x.clip!=='death'&&x.clip!=='fp_death'),'no death in the pose');
+    near(pose.filter(x=>!x.layer&&!x.additive).reduce((s,x)=>s+x.w,0),1,1e-9,'the base at full weight');
+  }
+  assert.equal(Rig.state(arms).base,'fp_idle');assert.ok(Rig.pose(arms).some(x=>x.clip==='fp_idle'&&Math.abs(x.w-1)<1e-9));
+  // ...and it stays that way once the fight is played again: nothing asks for a death, and the first steps change nothing.
+  for(let t=0;t<.5;t+=DT){const o=drive(a,P(),{hits:0});assert.ok(!o.body.concat(o.arms).some(c=>/death/.test(c[0])));}
+  assert.equal(Rig.state(body).shot,null);assert.equal(Rig.state(arms).shot,null);
+  // The first-person camera of the new life: at the eye, no crouch, dip or slump.
+  const p=Player.create({x:3,y:20.9,z:-7}),cam=PlayerCamera.create();
+  const eye=PlayerCamera.first(cam,p,Player.eye(p),DT,false,'full',false),sl=PlayerCamera.slump(null,false);
+  near(eye.y-sl.drop,p.y+Player.constants.EYE,1e-9,'eye height');assert.equal(sl.pitch,0);assert.equal(sl.roll,0);
+  // (while down, the slump does sink the eye - that is the one that mustn't outlive the life)
+  assert.ok(PlayerCamera.slump(2,false).drop>1);
+});
 test('anim: every clip it asks for is one the models have (or, for shoot_l, make)',()=>{
   const r=run([[P(),.3],[P({vz:-6}),.3],[P({grounded:false,vy:6}),.3],[P({grounded:false,vy:-9}),.6],[P(),.5],[P(),.2,{perched:true}],
     [P({grounded:false}),.3,{swing:'l'}],[P({grounded:false}),.3,{swing:'r'}],[P({grounded:false}),.2],[P(),.2,{zip:true}],[P(),.1,{hits:1}],[P(),.1,{hits:2,big:true}],[P(),.2,{dead:true}]]);

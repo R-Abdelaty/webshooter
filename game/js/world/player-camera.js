@@ -216,8 +216,10 @@
   // Going down: `t` seconds after the killing hit the view sinks toward the
   // ground and tips down, with a slight lean - eased, once, never a spin.
   // Third person just tips the boom down a little. Returns { drop (metres
-  // off the eye), pitch (radians to add, down is negative), roll }.
+  // off the eye), pitch (radians to add, down is negative), roll }: all
+  // nothing while t is null (not gone down this life).
   function slump(t, third) {
+    if (t === null || t === undefined) return { drop: 0, pitch: 0, roll: 0 };
     var u = sstep(0, K.SLUMP_T, t > 0 ? t : 0);
     if (third) return { drop: 0, pitch: -K.SLUMP_PITCH * .4 * u, roll: 0 };
     return { drop: K.SLUMP_DROP * u, pitch: -K.SLUMP_PITCH * u, roll: K.SLUMP_ROLL * u };

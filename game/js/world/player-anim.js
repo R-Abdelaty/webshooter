@@ -142,6 +142,10 @@
     return out;
   }
 
+  // The base each model starts on, and goes back to on a RETRY
+  // (WorldPlayer.reset puts both rigs there at once, dropping a held death).
+  var BASE = { body: 'loco', arms: 'fp_idle' };
+
   // Send the clips for the state again on the next step (models that have
   // just loaded missed them).
   function resync(a) { a.body = a.arms = null; a.dead = false; }
@@ -180,7 +184,7 @@
   }
   function wrap(x) { return Math.atan2(Math.sin(x), Math.cos(x)); }
 
-  var api = { create: create, step: step, resync: resync, shoot: shoot, hand: hand, face: face, constants: K };
+  var api = { BASE: BASE, create: create, step: step, resync: resync, shoot: shoot, hand: hand, face: face, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.PlayerAnim = api;
 })(typeof window === 'undefined' ? globalThis : window);

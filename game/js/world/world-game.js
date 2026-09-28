@@ -197,9 +197,11 @@
     player = Player.create(v);
     player.pitch = v.pitch || 0;
     look = Look.create(); due = []; lines.clear(); webs.clear(); fx.clear(); stopUntil = 0;
-    anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null;
+    anim = PlayerAnim.create(); anim.face = player.yaw; pcam = PlayerCamera.create(); shots = []; view = null; lastState = 'idle';
     swing = Swing.create(); held = null; fxv = { fov: 0, roll: 0, lines: 0 };
-    hurtAt = -1e9; hurtDmg = 0; deadAt = null; beeps = {}; popped = {};
+    hurtAt = -1e9; hurtDmg = 0; deadAt = null; beeps = {}; popped = {}; shakeAt = -1e9;
+    // The models too: a death held from the last life mustn't carry over (RETRY).
+    if (you) you.reset();
     $('world-hurt').style.opacity = '0';
   }
   function enterRoam(fromSpawn) {
@@ -406,8 +408,8 @@
       S.muted ? 0 : (Number.isFinite(+S.sfx) ? +S.sfx : 80) / 100);
     viewPlace(moves.state, paused ? 0 : dt);
     // Gone down: the view sinks and tips (PlayerCamera.slump).
-    var slump = deadAt !== null ? PlayerCamera.slump((now - deadAt) / 1000, camMode().camera === 'third') : null;
-    if (slump) view.eye = { x: view.eye.x, y: view.eye.y - slump.drop, z: view.eye.z };
+    var slump = PlayerCamera.slump(deadAt === null ? null : (now - deadAt) / 1000, camMode().camera === 'third');
+    if (slump.drop) view.eye = { x: view.eye.x, y: view.eye.y - slump.drop, z: view.eye.z };
     var eye = view.eye;
     AttackAudio.frame(eye, player.yaw, player.pitch, paused || S.muted ? 0 : (Number.isFinite(+S.sfx) ? +S.sfx : 80) / 100);
     // The villain's model: its clips move on while the fight is played, and
@@ -426,8 +428,8 @@
       world.setShadowFocus({ x: H.cx, y: H.y + (P.h0 + P.h1) / 2 + (fight.m.lift || 0), z: H.cz, r: P.r1 + 2 });
     }
     world.setFov(fov() + fxv.fov);
-    world.update(dt, eye, player.yaw, player.pitch + (slump ? slump.pitch : 0));
-    world.camera.rotation.z = fxv.roll + (slump ? slump.roll : 0);
+    world.update(dt, eye, player.yaw, player.pitch + slump.pitch);
+    world.camera.rotation.z = fxv.roll + slump.roll;
     shake(now);
     world.camera.updateMatrixWorld();
     // You, as the camera now sees you, with the shots taken since last frame.

@@ -262,6 +262,17 @@
     return out;
   }
 
+  // Start over on a base state at full weight, as if just made: every
+  // one-shot (a held defeat too), hit and layer clip is dropped at once, with
+  // no fade and no 'end' reported. For a character put back at the start
+  // (the player on a RETRY), where the last life's pose must not carry over.
+  function reset(m, base) {
+    var name = resolve(m.names, base || 'idle') || m.names[0];
+    m.slots = name ? [slot(m, name, 'base', 1, 1)] : [];
+    m.adds = []; m.layers = []; m.speed = 0; m.phase = 0;
+    return name || null;
+  }
+
   // Walking speed for 'loco', in m/s.
   function setSpeed(m, v) { m.speed = Math.max(0, v || 0); }
 
@@ -486,7 +497,7 @@
   var api = {
     WEAK_SPOTS: WEAK_SPOTS, STANDARD: STANDARD, FALLBACKS: FALLBACKS, ADDITIVE: ADDITIVE, FADE: FADE, LOCO: LOCO,
     validate: validate, mirror: mirror, bonesOf: bonesOf, check: check, resolve: resolve, missing: missing,
-    machine: machine, play: play, layer: layer, layers: layers, layerWeight: layerWeight, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
+    machine: machine, play: play, reset: reset, layer: layer, layers: layers, layerWeight: layerWeight, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
     updateEvery: updateEvery, pointOn: pointOn, sample: sample, rayCapsule: rayCapsule, rayBody: rayBody, along: along
   };
   if (typeof module !== 'undefined') module.exports = api;

@@ -201,6 +201,8 @@
     if (!got) warnOnce(this.id + ':' + name, 'model ' + this.id + ' has no clip for ' + name);
     return got;
   };
+  // Back to a base state at once, nothing else playing (Rig.reset), posed now.
+  CharacterRig.prototype.reset = function (base) { Rig.reset(this.machine, base); this.frame = 0; this.apply(); };
   CharacterRig.prototype.setSpeed = function (v) { Rig.setSpeed(this.machine, v); };
   CharacterRig.prototype.state = function () { return Rig.state(this.machine); };
   // A clip on its layer only (Rig.layer); see play.
