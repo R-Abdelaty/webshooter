@@ -47,7 +47,8 @@
   // tick(s, dt, ctx) is told about you: ctx = { you: { x, y, z, vx, vy, vz }
   // (your feet), body: your capsules (the model's, or Attacks.standIn),
   // state: 'ground' | 'perch' | 'swing' | 'fly' | 'zip', onScreen: whether he
-  // is in your view, city }. Without it (older tests) he neither hunts nor
+  // is in your view, city, target: where the Goblin's guns aim - your eye
+  // in first person (your chest when left out) }. Without it (older tests) he neither hunts nor
   // attacks. What happens goes on s.events - telegraph, throw, round, blast,
   // hurt - for the render side to show and empty.
   //
@@ -559,6 +560,32 @@
   // A point on the model the render side sampled (villain-view.js puts the
   // manifest's attack bones in body.points), or `or`.
   function point(s, name, or) { var p = s.body && s.body.points && s.body.points[name]; return p || or; }
+  // The glider's two guns (the model's, or either side of him).
+  function guns(s) {
+    var L = left(s.face);
+    return point(s, 'guns', null) || [{ x: s.at.x + L.x * .4, y: s.at.y + .1, z: s.at.z + L.z * .4 }, { x: s.at.x - L.x * .4, y: s.at.y + .1, z: s.at.z - L.z * .4 }];
+  }
+  function between(list) {
+    var c = { x: 0, y: 0, z: 0 };
+    list.forEach(function (p) { c.x += p.x / list.length; c.y += p.y / list.length; c.z += p.z / list.length; });
+    return c;
+  }
+  // What the guns aim at: ctx.target (world-game.js: your eye in first
+  // person, your head - or chest, if that's what's on screen - in third),
+  // else your chest; led for how long until the rounds get there.
+  function gunAim(s, ctx, wait) {
+    var y = ctx.you, t = ctx.target || chest(y);
+    return AttacksRef.lead(t, { x: y.vx || 0, y: 0, z: y.vz || 0 }, between(guns(s)), wait);
+  }
+  // The laser (attack-view.js draws a.laser): through the guns' wind-up it
+  // follows you fast, a little ahead, and in its last GUN_LOCK seconds it
+  // holds still - the line the burst goes down.
+  function laser(s, dt, ctx) {
+    var a = s.attack, A = AttacksRef.constants, left = AttacksRef.windup(a) - a.t;
+    if (left > A.GUN_LOCK) a.aim = AttacksRef.track(a.aim, gunAim(s, ctx, left), dt);
+    else a.locked = true;
+    a.laser = { aim: copy(a.aim), k: Math.min(1, a.t / AttacksRef.windup(a)), locked: !!a.locked };
+  }
   function attacking(s, dt, ctx) {
     var a = s.attack, you = ctx.you, A = AttacksRef.constants;
     if (!a) return;
@@ -571,8 +598,9 @@
     if (a.phase === 'telegraph' && s.kind !== 'glider' && s.hits - a.hits0 >= s.rules.stagger) stagger(s);
     // What follows you through a wind-up: the guns' laser, the tentacle's
     // aim, the charge's target, the ring where he'll land.
+    a.laser = null;
     if (a.phase === 'telegraph') {
-      if (a.move === 'guns') a.aim = AttacksRef.track(a.aim, chest(you), dt);
+      if (a.move === 'guns') laser(s, dt, ctx);
       else if (a.move === 'lash') a.aim = AttacksRef.track(a.aim, chest(you), dt, A.LASH_TRACK);
       else if (a.move === 'charge') a.goal = { x: you.x, y: s.path.y, z: you.z };
       else if (a.move === 'pounce') { var L = AttacksRef.landing(ctx.city, you, s.at); if (L) a.zone = { x: L.x, y: L.y, z: L.z, r: A.POUNCE_HIT }; }
@@ -624,7 +652,8 @@
   // The start of a wind-up.
   function windUp(s, e, ctx) {
     var a = s.attack, you = ctx.you, m = s.m;
-    a.aim = e.move === 'guns' || e.move === 'lash' ? chest(you) : null;
+    a.aim = e.move === 'guns' ? gunAim(s, ctx, AttacksRef.windup(a)) : e.move === 'lash' ? chest(you) : null;
+    a.locked = false; a.laser = null;
     a.hits0 = s.hits; a.goal = null; a.zone = null; a.box = null; a.wall = null; a.combo = null; a.lash = null;
     if (s.kind === 'charge') {
       freeRhino(s); m.state = 'brace'; m.hit = false; m.ram = false;
@@ -637,7 +666,7 @@
           clip: { x0: a.box.x0, z0: a.box.z0, x1: a.box.x1, z1: a.box.z1 } };
       } else a.goal = { x: you.x, y: s.path.y, z: you.z };
     } else if (s.kind === 'leap') m.crouch = 0;
-    s.events.push({ type: 'telegraph', move: e.move, off: e.off, at: copy(s.at) });
+    s.events.push({ type: 'telegraph', move: e.move, off: e.off, tele: AttacksRef.windup(a), at: copy(s.at) });
   }
   // Hit enough during a wind-up: he staggers, and the attack is off.
   function stagger(s) {
@@ -698,8 +727,8 @@
       s.bombs.push(b);
       s.events.push({ type: 'throw', from: copy(from), id: b.id });
     } else if (move === 'guns') {
-      var L = left(s.face), guns = point(s, 'guns', null) || [{ x: s.at.x + L.x * .4, y: s.at.y + .1, z: s.at.z + L.z * .4 }, { x: s.at.x - L.x * .4, y: s.at.y + .1, z: s.at.z - L.z * .4 }];
-      s.rounds = s.rounds.concat(AttacksRef.burst(guns, a.aim || chest(you), s.time, function () { return rand(s); }));
+      a.laser = null;
+      s.rounds = s.rounds.concat(AttacksRef.burst(guns(s), a.aim || gunAim(s, ctx, 0), s.time, function () { return rand(s); }));
     }
   }
   // Bombs in flight and rounds on their way: what they hit, when they get there.
@@ -740,7 +769,7 @@
   }
   function stopAttacks(s) {
     s.bombs = []; s.rounds = [];
-    if (s.attack) { AttacksRef.cancel(s.attack); s.attack.lash = null; s.attack.zone = null; s.attack.goal = null; }
+    if (s.attack) { AttacksRef.cancel(s.attack); s.attack.lash = null; s.attack.laser = null; s.attack.zone = null; s.attack.goal = null; }
   }
 
   // --- the fight's time -------------------------------------------------------------

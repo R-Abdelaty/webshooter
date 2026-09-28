@@ -448,7 +448,7 @@
     cross.style.left = r.crosshair.x * 100 + '%'; cross.style.top = r.crosshair.y * 100 + '%';
     cross.classList.toggle('is-turning', r.turning);
     webs.update(now);
-    attacksView.update(fight, now);
+    attacksView.update(fight, now, eye);
     fx.update(paused && !(fight && (fight.mode === 'won' || fight.mode === 'lost')) ? 0 : fdt, now, world.camera, canvas.height);
     // The traffic and walkers near you, moving on while nothing is paused.
     nearCars = life.update(paused ? 0 : dt, eye, world.tier);
@@ -457,6 +457,7 @@
     you.render();
     fxc.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
     speedLines(fxc, overlay.clientWidth, overlay.clientHeight, fxv.lines, now);
+    laserGlare(fxc, overlay.clientWidth, overlay.clientHeight, now);
     // The arrow to the villain off the view - red, at him or at a bomb, when
     // an attack is coming from out there.
     var threat = fight && !paused ? Hud.threat(fight, visible) : null;
@@ -479,7 +480,36 @@
     var mid = fight.at && { x: fight.at.x, y: fight.at.y + 1.2, z: fight.at.z };
     return { you: { x: player.x, y: player.y, z: player.z, vx: player.vx, vy: player.vy, vz: player.vz }, body: caps,
       state: swing.mode === 'none' ? (player.grounded ? 'ground' : 'fly') : swing.mode, onScreen: !!mid && visible(mid), city: city,
-      anchor: swing.mode === 'swing' ? swing.anchor : null };
+      anchor: swing.mode === 'swing' ? swing.anchor : null, target: gunTarget(caps) };
+  }
+  // What the Goblin's guns aim at (P7): your eye in first person, so the
+  // laser comes at the lens; in third person your head, or your chest if
+  // the head is off the screen.
+  function gunTarget(caps) {
+    if (camMode().camera !== 'third') return view ? view.eye : Player.eye(player);
+    var head = null, torso = null, at = function (c, k) { return { x: c.a.x + (c.b.x - c.a.x) * k, y: c.a.y + (c.b.y - c.a.y) * k, z: c.a.z + (c.b.z - c.a.z) * k }; };
+    (caps || []).forEach(function (c) { if (!c.bones) return; if (c.bones[1] === 'mixamorig:Head') head = at(c, .5); if (c.bones[0] === 'mixamorig:Hips') torso = at(c, .7); });
+    return head && visible(head) ? head : torso || head;
+  }
+  // First person, the laser on you: a red glare over the guns it comes from
+  // (the beam itself is end-on, a point), brighter as it charges, steady
+  // once it locks. Off the screen, the red chevron shows where it is.
+  function laserGlare(g, w, h, now) {
+    var L = fight && fight.mode === 'playing' && fight.attack && fight.attack.laser;
+    if (!L || camMode().camera === 'third' || !fight.at || !view) return;
+    var guns = (fight.body && fight.body.points && fight.body.points.guns) || [{ x: fight.at.x, y: fight.at.y + .1, z: fight.at.z }];
+    var gc = guns[0], P = Attacks.passes(gc, L.aim, view.eye);
+    if (P.d > 1.2) return;
+    var e = world.project(gc);
+    if (!Hud.onScreen(e, 0)) return;
+    var x = e.x * w, y = e.y * h, pulse = L.locked ? 1 : .6 + .4 * Math.abs(Math.sin(now / 1000 * (6 + 20 * L.k) * Math.PI));
+    var a = (.25 + .6 * L.k) * pulse * (1 - P.d / 1.2), r = Math.min(w, h) * (.05 + .07 * L.k);
+    var gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(255,235,225,' + a.toFixed(3) + ')'); gr.addColorStop(.18, 'rgba(255,40,30,' + (a * .85).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(255,0,0,0)');
+    g.save(); g.fillStyle = gr; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+    // A thin horizontal streak, as a bright point through a lens flares.
+    g.globalAlpha = a * .5; g.fillStyle = 'rgba(255,60,40,1)'; g.fillRect(x - r * 2.2, y - 1, r * 4.4, 2);
+    g.restore();
   }
   function visible(p) { return Hud.onScreen(world.project(p)); }
   // What PlayerAnim needs besides Player: the swing's (line, zip, perch) and
@@ -495,7 +525,7 @@
     var up = function (p) { return p && { x: p.x, y: p.y + 1.2, z: p.z }; }, motion = camMode().cameraMotion;
     ev.forEach(function (e) {
       if (e.type === 'telegraph') {
-        AttackAudio.warn(up(e.at), e.move, fight.rules.telegraph);
+        AttackAudio.warn(up(e.at), e.move, e.tele || fight.rules.telegraph);
         // Reaching for a bomb, he cackles; Venom snarls before he claws or lashes.
         if (e.move === 'bomb' && WSAudio.roar) WSAudio.roar(up(e.at), 'glider', .45);
         if ((e.move === 'combo' || e.move === 'lash') && WSAudio.roar) WSAudio.roar(up(e.at), 'leap', .35);

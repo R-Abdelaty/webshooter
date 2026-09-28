@@ -7,8 +7,11 @@
   //    its light blinking faster as the fuse runs down, with an orange glow
   //    round it so you can find it against the sky - and shoot it down;
   //  - the glider guns' wind-up: a red laser from each gun (the manifest's
-  //    gun bones, which villain-view.js samples) to the point it is locked
-  //    on, flickering faster as it's about to fire, with a red dot there;
+  //    gun bones, which villain-view.js samples) to the point it is on (the
+  //    fight's attack.laser), flickering faster as it's about to fire, with a
+  //    red dot there. Aimed at your eye (first person), it comes right up to
+  //    the lens: it stops just in front of it, where its dot is a small
+  //    bright point over the gun (world-game.js adds the glare);
   //  - the rounds: bright tracer streaks down the line.
   //
   // And the Rhino's and Venom's (P5):
@@ -28,9 +31,10 @@
   // to it: added to a bright sky, red and orange both come out white.
   var GLOW = { size: 1.3, color: [1.6, .62, .12], opacity: .8 };
   // The laser: a thin red beam tapering from the gun (FAR, metres of radius)
-  // to NEAR where it stops, SHORT metres before the point it's locked on
-  // (so it never runs past the camera), and a red dot there.
-  var LASER = { far: .022, near: .003, short: 1.2, color: [1.5, .06, .04], opacity: .85, dot: .2 };
+  // to NEAR at the point it's on, and a red dot there (DOT metres). If it
+  // passes within LENS of the eye, it stops FRONT short of the eye instead
+  // (never through the camera), its dot LENS_DOT metres there.
+  var LASER = { far: .022, near: .003, color: [1.5, .06, .04], opacity: .85, dot: .2, lens: 1.2, front: .6, lensDot: .022 };
   var TRACER = { length: 4, color: [7, 4.2, 1.6], max: 16 };
   // The ring: its line's width (share of the radius), colour and opacity.
   var RING = { width: .06, color: [1.4, .08, .05], opacity: .75, fill: .12 };
@@ -134,8 +138,8 @@
     lash.material.emissive.setRGB(LASH.sheen[0], LASH.sheen[1], LASH.sheen[2]);
     lash.frustumCulled = false; lash.visible = false; lash.castShadow = false; group.add(lash);
 
-    // Each frame. f: the fight (or null); t: the fight's time; now: ms.
-    function update(f, now) {
+    // Each frame. f: the fight (or null); now: ms; eye: the camera, world.
+    function update(f, now, eye) {
       var live = f && (f.mode === 'playing' || f.mode === 'paused') ? f : null, i;
       // Bombs.
       var list = live ? live.bombs : [];
@@ -152,19 +156,23 @@
         b.glow.scale.setScalar(GLOW.size * (.8 + .4 * on));
       }
       // The lasers, while he winds up the guns.
-      var a = live && live.attack, lasing = !!(a && a.phase === 'telegraph' && a.move === 'guns' && a.aim && live.at);
+      var a = live && live.attack, L = a && a.laser && live.at ? a.laser : null;
       beams.forEach(function (m) { m.visible = false; });
-      dot.visible = lasing;
-      if (lasing) {
+      dot.visible = !!L;
+      if (L) {
         var guns = (live.body && live.body.points && live.body.points.guns) || [{ x: live.at.x, y: live.at.y + .1, z: live.at.z }];
-        var k = Math.min(1, a.t / a.d.telegraph), flick = .55 + .45 * Math.abs(Math.sin(now / 1000 * (8 + 30 * k) * Math.PI));
+        var k = L.k, flick = L.locked ? 1 : .55 + .45 * Math.abs(Math.sin(now / 1000 * (8 + 30 * k) * Math.PI)), dotAt = L.aim, dotSize = LASER.dot * (1 + k);
         guns.slice(0, 2).forEach(function (g, n) {
-          var d = v2.set(a.aim.x - g.x, a.aim.y - g.y, a.aim.z - g.z), l = d.length() || 1, e = Math.max(.5, l - LASER.short);
-          var end = { x: g.x + d.x / l * e, y: g.y + d.y / l * e, z: g.z + d.z / l * e };
+          var end = L.aim, P = eye && Attacks.passes(g, L.aim, eye);
+          if (P && P.d < LASER.lens && P.s - LASER.front < Attacks.passes(g, L.aim, L.aim).s) {
+            var e = Math.max(.5, P.s - LASER.front);
+            end = { x: g.x + P.dir.x * e, y: g.y + P.dir.y * e, z: g.z + P.dir.z * e };
+            if (n === 0) { dotAt = end; dotSize = LASER.lensDot * (1 + k); }
+          }
           stretch(beams[n], g, end, LASER.far * (1 + .6 * k));
           beams[n].material.opacity = LASER.opacity * flick; beams[n].visible = true;
         });
-        dot.position.set(a.aim.x, a.aim.y, a.aim.z); dot.scale.setScalar(LASER.dot * (1 + k)); dot.material.opacity = flick;
+        dot.position.set(dotAt.x, dotAt.y, dotAt.z); dot.scale.setScalar(dotSize); dot.material.opacity = flick;
       }
       // The rounds in flight.
       var n = 0, R = live ? live.rounds : [];
@@ -186,7 +194,7 @@
       var z = a && a.zone && (a.phase === 'telegraph' || a.phase === 'active') ? a.zone : null;
       ring.visible = fill.visible = !!z;
       if (z) {
-        var u = a.phase === 'telegraph' ? Math.min(1, a.t / a.d.telegraph) : 1, pulse = .6 + .4 * Math.abs(Math.sin(now / 1000 * (3 + 9 * u) * Math.PI));
+        var u = a.phase === 'telegraph' ? Math.min(1, a.t / Attacks.windup(a)) : 1, pulse = .6 + .4 * Math.abs(Math.sin(now / 1000 * (3 + 9 * u) * Math.PI));
         ring.position.set(z.x, z.y + .06, z.z); fill.position.copy(ring.position);
         ring.scale.setScalar(z.r); fill.scale.setScalar(Math.max(.01, z.r * (a.phase === 'telegraph' ? u : 1)));
         ring.material.uniforms.opacity.value = RING.opacity * pulse; fill.material.uniforms.opacity.value = RING.fill * (.5 + .5 * u);

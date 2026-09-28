@@ -80,7 +80,7 @@
     if (at && at.n > a.attacks) {
       a.attacks = at.n;
       if (at.phase === 'telegraph' && at.move === 'bomb' && a.clips.attack) {
-        var rel = (a.events.attack && a.events.attack.release_seconds) || a.clips.attack / 2, tel = (at.d && at.d.telegraph) || .9;
+        var rel = (a.events.attack && a.events.attack.release_seconds) || a.clips.attack / 2, tel = at.tele || (at.d && at.d.telegraph) || .9;
         play('attack', { speed: rel / tel, fade: .12 });
       }
       a.plan = plan(a, at);
@@ -141,7 +141,7 @@
     if (MOVING[st] || (st === 'brace' && s.m.v > .5)) { base('loco', { fade: .2 }); out.speed = s.m.v; }
     else { base('idle', { fade: .3 }); out.speed = 0; }
     if (!changed) return;
-    var tel = (s.attack && s.attack.d && s.attack.d.telegraph) || .9, D = s.rules || {};
+    var tel = (s.attack && (s.attack.tele || (s.attack.d && s.attack.d.telegraph))) || .9, D = s.rules || {};
     if (st === 'turn') play(s.m.turn > 0 ? 'turn_l' : 'turn_r', { fade: .15 });
     else if (st === 'windup') play('attack', { fade: .15 });
     else if (st === 'brace') play('attack', { speed: dur(a, 'attack') / tel || 1, fade: .15 });
@@ -154,7 +154,7 @@
   // A wind-up plays its clip slowed so the strike frame comes as the wind-up
   // ends, then the clip carries on at its own speed from there.
   function plan(a, at) {
-    var tel = (at.d && at.d.telegraph) || .9, out = [], AK = (root.Attacks && root.Attacks.constants) || {};
+    var tel = at.tele || (at.d && at.d.telegraph) || .9, out = [], AK = (root.Attacks && root.Attacks.constants) || {};
     if (a.kind !== 'leap') return out;
     function strikeAt(c) { return (a.events[c] && a.events[c].release_seconds) || dur(a, c) / 3; }
     function windUp(c) {

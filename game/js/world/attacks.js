@@ -36,8 +36,11 @@
   //         blast that hurts by distance. A web at one in flight shoots it
   //         down (aimBomb has its own small cone).
   //   guns  a red laser from the glider's guns follows you through the
-  //         wind-up, then locks, and a short burst of tracers goes down that
-  //         line - at where you were. Move or swing out of it.
+  //         wind-up - your eye in first person, so you see it come at the
+  //         lens - fast, and a little ahead of where you're going. In the
+  //         wind-up's last GUN_LOCK seconds it locks, and a short burst of
+  //         tracers goes down that line. Change direction or swing out of it
+  //         once it locks.
   //
   // THE RHINO'S MOVES (P5). fight.js runs him; these are the sums.
   //   charge  you're down on the street: he winds up (a snort), then runs
@@ -80,7 +83,10 @@
     BOMB_ACTIVE: .45,       // the throw's follow-through
     DIRECT: 1,              // a bomb that hits you does this share of the damage range (the most)
     // The glider's guns.
-    GUN_TRACK: 2.5,         // the laser follows you this fast through the wind-up (1/s, eased)
+    GUN_TRACK: 14,          // the laser follows you this fast through the wind-up (1/s, eased)...
+    GUN_LOCK: .15,          // ...and locks this long before the burst
+    GUN_LEAD: 1,            // it leads you by this share of your velocity times the time until the rounds get to you...
+    GUN_LEAD_MAX: 4,        // ...at most this far
     GUN_ROUNDS: 6,
     GUN_EVERY: .065,        // seconds between rounds (they alternate guns)
     GUN_SPEED: 120,         // m/s
@@ -190,8 +196,8 @@
       return ev;
     }
     a.t += dt; a.clock += dt;
-    if (a.phase === 'telegraph' && a.t >= a.d.telegraph) {
-      a.t -= a.d.telegraph; a.phase = 'active'; ev.push({ type: 'strike', move: a.move });
+    if (a.phase === 'telegraph' && a.t >= windup(a)) {
+      a.t -= windup(a); a.phase = 'active'; ev.push({ type: 'strike', move: a.move });
     }
     var len = activeFor(a.move);
     if (a.phase === 'active' && len !== null && a.t >= len) {
@@ -214,6 +220,8 @@
   // Called off (a stagger, the end of the fight): straight to recovering.
   function cancel(a) { if (a.phase === 'telegraph' || a.phase === 'active') { a.phase = 'recover'; a.t = 0; a.rest = null; } }
   function winding(a) { return !!a && a.phase === 'telegraph'; }
+  // How long this attack's wind-up is.
+  function windup(a) { return (a && (a.tele || (a.d && a.d.telegraph))) || .9; }
   function busy(a) { return !!a && (a.phase === 'telegraph' || a.phase === 'active'); }
 
   // --- geometry ---------------------------------------------------------------------
@@ -360,9 +368,20 @@
   }
 
   // --- the glider's guns ------------------------------------------------------------
+  // Where the guns aim to meet you: `target` (your eye, or your head or
+  // chest) moved on by your velocity `vel` for as long as the rounds will
+  // take - `wait` seconds until they fire, then their flight from `from` -
+  // times GUN_LEAD, at most GUN_LEAD_MAX. Keep going the same way and they
+  // meet you; change direction after the lock and they miss.
+  function lead(target, vel, from, wait) {
+    var t = Math.max(0, wait || 0) + (from ? dist(from, target) / K.GUN_SPEED : 0);
+    var v = vel || {}, l = { x: (v.x || 0) * t * K.GUN_LEAD, y: (v.y || 0) * t * K.GUN_LEAD, z: (v.z || 0) * t * K.GUN_LEAD }, n = len(l);
+    if (n > K.GUN_LEAD_MAX) { l.x *= K.GUN_LEAD_MAX / n; l.y *= K.GUN_LEAD_MAX / n; l.z *= K.GUN_LEAD_MAX / n; }
+    return { x: target.x + l.x, y: target.y + l.y, z: target.z + l.z };
+  }
   // The laser through the wind-up: from `aim` (null the first frame) toward
-  // `target`, eased (at `rate`, GUN_TRACK by default), so moving fast makes
-  // it trail you.
+  // `target`, eased (at `rate`, GUN_TRACK by default): quick, but a sudden
+  // change of direction still pulls it off you for a moment.
   function track(aim, target, dt, rate) {
     if (!aim) return copy(target);
     var k = 1 - Math.exp(-(rate || K.GUN_TRACK) * (dt > 0 ? dt : 0));
@@ -411,6 +430,13 @@
   function onLine(from, aim, caps) {
     var d = unit(sub(aim, from)), end = { x: from.x + d.x * K.GUN_RANGE, y: from.y + d.y * K.GUN_RANGE, z: from.z + d.z * K.GUN_RANGE };
     return (caps || []).some(function (c) { return segSeg(from, end, c.a, c.b) <= c.r + K.GUN_R; });
+  }
+  // How close the guns' line (from `from` through `aim`, on to GUN_RANGE)
+  // passes to `p` (an eye): { d (metres), s (metres along the line), point }.
+  function passes(from, aim, p) {
+    var d = unit(sub(aim, from)), end = { x: from.x + d.x * K.GUN_RANGE, y: from.y + d.y * K.GUN_RANGE, z: from.z + d.z * K.GUN_RANGE };
+    var q = onSeg(p, from, end);
+    return { d: dist(p, q), s: q.t * K.GUN_RANGE, point: { x: q.x, y: q.y, z: q.z }, dir: d };
   }
   function gunDamage(diff) { return Math.round(DiffRef.span((diff || DiffRef.HARD).damage, K.GUN_SHARE)); }
   // What a move does, as a share of the damage range (15-30 on HARD).
@@ -568,11 +594,11 @@
     return w ? s0 + (K.LASH_REACH - s0) * w.t : K.LASH_REACH;
   }
 
-  var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, busy: busy, pick: pick, MOVES: MOVES,
+  var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, windup: windup, busy: busy, pick: pick, MOVES: MOVES,
     activeFor: activeFor, airborne: airborne, damage: damage,
     onSeg: onSeg, segSeg: segSeg, gap: gap, centre: centre, standIn: standIn, hitCity: hitCity,
     throwBomb: throwBomb, bombAt: bombAt, stepBomb: stepBomb, blastDamage: blastDamage, push: push, aimBomb: aimBomb,
-    track: track, burst: burst, stepRound: stepRound, onLine: onLine, gunDamage: gunDamage,
+    lead: lead, track: track, burst: burst, stepRound: stepRound, onLine: onLine, passes: passes, gunDamage: gunDamage,
     under: under, anchored: anchored, wallPoint: wallPoint, blocked: blocked, clearRun: clearRun, rhinoBody: rhinoBody,
     touches: touches, quakeDamage: quakeDamage,
     room: room, landing: landing, arcClear: arcClear, sidesteps: sidesteps, claw: claw, swipeHits: swipeHits,

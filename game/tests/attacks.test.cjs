@@ -118,8 +118,9 @@ test('bombs: a web aimed near one in flight shoots it down - its own small cone,
 function fightWith(enc){
   const s=Fight.play(Fight.start(enc,levels)),v=enc.vantage;
   const you={x:v.x,y:v.y,z:v.z,vx:0,vy:0,vz:0};
-  const r={s,you,ev:[],state:'ground',onScreen:true,
-    tick(dt){Fight.tick(s,dt||DT,{you,body:Attacks.standIn(you),state:r.state,onScreen:r.onScreen,city});r.ev.push(...Fight.drain(s).map(e=>({...e,t:s.time})));return r;},
+  const r={s,you,ev:[],state:'ground',onScreen:true,pov:false,
+    // pov: the guns aim at your eye, as world-game.js tells them to in first person.
+    tick(dt){Fight.tick(s,dt||DT,{you,body:Attacks.standIn(you),state:r.state,onScreen:r.onScreen,city,target:r.pov?{x:you.x,y:you.y+1.7,z:you.z}:undefined});r.ev.push(...Fight.drain(s).map(e=>({...e,t:s.time})));return r;},
     until(fn,max){for(let n=0;n<(max||60*60)&&!fn();n++)r.tick();assert.ok(fn(),'never happened: '+fn);return r;}};
   r.until(()=>s.phase==='villain');
   return r;
@@ -182,6 +183,42 @@ test('guns: the laser follows you through the wind-up, locks, and the burst hits
   const hp2=q.s.you.hp;q.you.x+=2.5;q.you.z+=1;
   q.until(()=>q.s.attack.phase==='recover');q.until(()=>!q.s.rounds.length);
   assert.equal(q.s.you.hp,hp2,'the burst hit you out of its line');
+});
+// P7: the laser must visibly target you.
+const gunsOf=s=>({x:s.at.x,y:s.at.y+.1,z:s.at.z});   // between the two fallback guns
+const deg=(u,v)=>Math.acos(Math.max(-1,Math.min(1,(u.x*v.x+u.y*v.y+u.z*v.z)/(Math.hypot(u.x,u.y,u.z)*Math.hypot(v.x,v.y,v.z)))))*180/Math.PI;
+test('guns: in first person the laser comes at your eye - locked on it within a degree when you stand still - and locks only at the very end',()=>{
+  const r=fightWith(goblin),s=r.s;r.pov=true;
+  r.until(()=>s.attack.phase==='telegraph'&&s.attack.move==='guns',60*120);
+  const tele=Attacks.windup(s.attack);let lockedAt=null,laserSeen=false;
+  r.until(()=>{if(s.attack.laser){laserSeen=true;if(s.attack.laser.locked&&lockedAt===null)lockedAt=s.attack.t;}return s.attack.phase!=='telegraph';});
+  assert.ok(laserSeen,'no laser for the renderer');
+  assert.ok(lockedAt!==null&&tele-lockedAt<=A.GUN_LOCK+DT&&tele-lockedAt>=A.GUN_LOCK-2*DT,'locks '+(tele-lockedAt).toFixed(3)+' s before the burst');
+  const eye={x:r.you.x,y:r.you.y+1.7,z:r.you.z},g=gunsOf(s),aim=s.attack.aim;
+  const off=deg({x:aim.x-g.x,y:aim.y-g.y,z:aim.z-g.z},{x:eye.x-g.x,y:eye.y-g.y,z:eye.z-g.z});
+  assert.ok(off<1,'the locked aim is '+off.toFixed(2)+' deg off your eye');
+  // It reaches you: the line passes through your head, not in front of or under you.
+  assert.ok(Attacks.passes(g,aim,eye).d<.05);
+  r.until(()=>!s.rounds.length&&s.attack.phase!=='active');
+  assert.ok(r.ev.some(e=>e.type==='hurt'&&e.kind==='guns'),'standing still, the burst missed');
+});
+test('guns: walking steadily the rounds meet you (they lead you); change direction after the lock and they miss',()=>{
+  const W=6;                                               // Player's walk, m/s
+  function walk(turnAtLock){
+    const r=fightWith(goblin),s=r.s;r.pov=true;
+    r.until(()=>s.attack.phase==='telegraph'&&s.attack.move==='guns',60*120);
+    const hp=s.you.hp;let dir=1,flipped=false;
+    // Walk square to his line of sight, as you might along a roof.
+    const to={x:s.at.x-r.you.x,z:s.at.z-r.you.z},l=Math.hypot(to.x,to.z),side={x:-to.z/l,z:to.x/l};
+    const step=()=>{if(turnAtLock&&s.attack.locked&&!flipped){dir=-1;flipped=true;}
+      r.you.vx=side.x*W*dir;r.you.vz=side.z*W*dir;r.you.x+=r.you.vx*DT;r.you.z+=r.you.vz*DT;};
+    for(let n=0;n<60*3&&(s.attack.phase==='telegraph'||s.attack.phase==='active'||s.rounds.length);n++){step();r.tick();}
+    const lost=hp-s.you.hp,passes=r.ev.filter(e=>e.type==='hurt'&&e.kind==='guns').length;
+    return {lost,passes,flipped};
+  }
+  const steady=walk(false),dodged=walk(true);
+  assert.ok(steady.passes>0&&steady.lost===Attacks.gunDamage(H),'walking steadily, the burst missed');
+  assert.ok(dodged.flipped);assert.equal(dodged.passes,0,'turned back after the lock and it still hit');
 });
 test('the goblin hunts you: his circuit follows you across the roofs, keeping his distance and clear of the buildings',()=>{
   const r=fightWith(goblin),s=r.s;
