@@ -1309,3 +1309,13 @@ anything the next session must know._
         you, so P8's "never idle for more than 2 s within 80 m" has to come from giving him a move.
     - `bots.test.cjs`'s `run(enc, bot, seed)` and `human()` are reusable. Add the Rhino and Venom human-pace runs to it,
       and give the bot a street or roof walk, as their fights need.
+  - **Follow-up (same day, the user): the bug was still there after dying and choosing FREE ROAM.** Reproduced first: after
+    DEFEAT → FREE ROAM, the first-person view stayed **1.15 m below the eye, tipped 0.45 rad down and leaning 0.12**, for as
+    long as you roamed (in third person, tipped down 0.18). The death slump is keyed on `deadAt`, which only `place()`
+    cleared, and FREE ROAM (`enterRoam(false)`) keeps you where you stand without calling it. The per-life reset is now
+    `newLife()` in world-game.js (the models, the slump, the red edge, the shake, the hit-stop, the camera state), called by
+    `place()` and by `enterRoam` when it doesn't move you. The swing line, the view history and the webs stay. Verified in
+    the page: after DEFEAT → FREE ROAM the camera is at `player.y + EYE` with no tip or lean in either view; FREE ROAM from
+    PAUSED while on a swing line keeps the line; RETRY is unchanged. Every other way out of a fight (RETRY, NEXT, TRAINING,
+    MENU then START or CONTINUE) already went through `place()`. There is no node test for this one: it is page glue in
+    world-game.js, which the tests don't load; the logic it calls (`Rig.reset`, `PlayerCamera.slump(null)`) is tested.
