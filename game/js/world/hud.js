@@ -27,6 +27,15 @@
     LOW_HP: .3                // your bar turns red at this share of your health or less
   };
 
+  // What the objective line says while he winds up each attack (and, for
+  // those in HOLD, until it lands): the move, and how to get out of it.
+  var WARN = {
+    bomb: 'Bomb coming · shoot it down or move', guns: 'Guns locking on · get out of the laser',
+    charge: 'He\'s charging · get out of his way', ram: 'He\'s ramming your building · get off it',
+    pounce: 'He\'s pouncing · move off the ring', combo: 'Claws · back off', lash: 'Tentacle · out of its line'
+  };
+  var HOLD = { ram: 1, pounce: 1 };
+
   // --- the minimap ------------------------------------------------------------------
   // p relative to you, in minimap pixels from its centre: x to the right, y
   // down, with the way you face pointing up.
@@ -90,6 +99,7 @@
   // `low` that it is red. right.foe is the villain's bar in a fight, else
   // null: { title, health, segments, value }. `frac` is the thin bar under
   // the objective (training's accuracy), or null. There is no clock.
+  // right.warn: the text is a wind-up's warning (drawn red).
   function status(g) {
     var f = g.fight, r = g.range;
     if (g.mode === 'fight' && f && g.enc) {
@@ -108,9 +118,12 @@
         return { left: left, right: { title: 'OBJECTIVE', text: 'Clear the thugs · ' + up + ' left', timer: 'WAVE', low: false, frac: null,
           foe: { title: 'MASKED THUGS', health: all ? up / all : 0, segments: { count: Math.min(K.SEGMENTS_MAX, all), lit: up, frac: all ? up / all : 0 }, value: up } } };
       }
+      // A wind-up (P5): what's coming and what to do, in red.
+      var a = f.attack, warn = f.mode === 'playing' && f.phase === 'villain' && a && (a.phase === 'telegraph' || (a.phase === 'active' && HOLD[a.move])) && WARN[a.move];
       var text = f.phase === 'arrive' ? 'Get ready: ' + name + ' is coming' :
-        f.mode === 'won' ? name + ' is down' : f.mode === 'lost' ? 'You went down' : 'Take down ' + name + ' · he fights back';
-      return { left: left, right: { title: 'OBJECTIVE', text: text, timer: '', low: false, frac: null, foe: foe } };
+        f.mode === 'won' ? name + ' is down' : f.mode === 'lost' ? 'You went down' : warn ? warn :
+        f.time < f.dazedUntil ? name + ' is dazed · hits do double' : 'Take down ' + name + ' · he fights back';
+      return { left: left, right: { title: 'OBJECTIVE', text: text, timer: '', low: false, frac: null, foe: foe, warn: !!warn } };
     }
     if (g.mode === 'train' && r) {
       var acc = Math.round((g.accuracy || 0) * 100);

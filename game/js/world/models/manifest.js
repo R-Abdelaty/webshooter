@@ -269,7 +269,33 @@ window.CharacterManifest = {
     "upperarm_l",
     "upperarm_r"
    ],
-   "notes": "All clips are in place (the root bone never moves). The jump clips lift the pelvis: leap_start rises from 0.92 m to 1.96 m and leap_air holds ~1.95 m, versus 1.13 m standing, so when he follows a leap arc in code, lower the model by ~0.85 m while leap_start/leap_air/land play. defeat is Dead_F (falls backwards ~1.3 m). hit is a short flinch toward the start of Knockout's recoil. dodge_l/r are his dash-leap, landed and settled back into idle (0.9 s), so move him sideways in code while they play. cling_*/crawl_* are for the steel frame's columns and beams; descent_* is his entrance from above.",
+   "events": {
+    "attack": {
+     "release_frame": 10,
+     "fps": 30,
+     "release_seconds": 0.33,
+     "what": "the strike: the right claw swipes through, straight out ahead"
+    },
+    "attack2": {
+     "release_frame": 6,
+     "fps": 30,
+     "release_seconds": 0.2,
+     "what": "the strike: the left claw rakes across"
+    },
+    "attack3": {
+     "release_frame": 8,
+     "fps": 30,
+     "release_seconds": 0.27,
+     "what": "the strike: the left claw slams down and out"
+    },
+    "tentacles": {
+     "release_frame": 7,
+     "fps": 30,
+     "release_seconds": 0.23,
+     "what": "the strike: the right hand flings the tentacles out"
+    }
+   },
+   "notes": "All clips are in place (the root bone never moves). The events are each attack clip's strike frame (docs/PLAYER_PLAN.md P5), measured where the hand is fastest and furthest out; VillainAnim times each wind-up so it lands as the attack does. The jump clips lift the pelvis: leap_start rises from 0.92 m to 1.96 m and leap_air holds ~1.95 m, versus 1.13 m standing, so when he follows a leap arc in code, lower the model by ~0.85 m while leap_start/leap_air/land play. defeat is Dead_F (falls backwards ~1.3 m). hit is a short flinch toward the start of Knockout's recoil. dodge_l/r are his dash-leap, landed and settled back into idle (0.9 s), so move him sideways in code while they play. cling_*/crawl_* are for the steel frame's columns and beams; descent_* is his entrance from above.",
    "weakSpots": [
     {
      "name": "CHEST",
@@ -369,6 +395,7 @@ window.CharacterManifest = {
      "leap_start",
      "leap_air",
      "land",
+     "land_heavy",
      "descent_start",
      "descent_loop",
      "descent_end"

@@ -8,7 +8,8 @@
   // combat.js) and is not touched by any of this.
   //
   // There is no clock in the 3D fights: a fight ends when the villain or the
-  // player reaches 0.
+  // player reaches 0. Each attack's own share of `damage` (how hard a charge
+  // hits, next to a swipe) is in attacks.js's constants.
 
   var HARD = {
     name: 'HARD',
@@ -22,7 +23,11 @@
     telegraph: .9,           // seconds of wind-up (clip, sound, laser, chevron) before it lands
     recover: .8,             // seconds after it when he is open
     invulnerable: .6,        // seconds after you're hit when nothing else can hurt you
-    firstAttack: 1.5         // seconds after his entrance before his first wind-up
+    firstAttack: 1.5,        // seconds after his entrance before his first wind-up
+    breather: .8,            // at least this long after one attack's recovery before the next wind-up (P5)
+    stagger: 2,              // this many of your hits during one wind-up stagger him and call it off (P5)
+    dazed: 2.5,              // seconds the Rhino is dazed after a ram or running into a wall (P5)...
+    dazedDamage: 2           // ...when each of your hits does this many times its damage
   };
 
   function copy(d) { return JSON.parse(JSON.stringify(d)); }

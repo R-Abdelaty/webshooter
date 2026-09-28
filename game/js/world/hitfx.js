@@ -29,8 +29,14 @@
     // A pumpkin bomb going off (P4): a ball of fire thrown out every way, and
     // smoke that lingers and rises.
     fire: { n: 40, v0: 3, v1: 11, cone: 180, life0: .18, life1: .45, size0: .35, size1: .8, drag: 4, g: -1 },
-    smoke: { n: 18, v0: .8, v1: 3, cone: 180, life0: .9, life1: 1.8, size0: .7, size1: 1.5, drag: 1.5, g: -1.2 }
+    smoke: { n: 18, v0: .8, v1: 3, cone: 180, life0: .9, life1: 1.8, size0: .7, size1: 1.5, drag: 1.5, g: -1.2 },
+    // Dust (P5): the Rhino ramming a building or running into a wall, Venom
+    // coming down from a pounce - thrown out low and hanging in the air.
+    dust: { n: 26, v0: 2, v1: 7, cone: 80, life0: .8, life1: 1.6, size0: .5, size1: 1.2, drag: 2.2, g: -.3 },
+    grit: { n: 16, v0: 3, v1: 8, cone: 60, life0: .3, life1: .7, size0: .05, size1: .12, drag: .5, g: 9.8 }
   };
+  // How much dust each kind of impact throws (a share of the kinds' counts).
+  var DUST = { quake: 1.6, crash: .8, slam: .7 };
   // A blast: which kinds it throws, and its flash (colour and size in metres).
   var BLAST = { kinds: ['fire', 'sparks', 'smoke'], flash: [5, 2.6, .9], size: 5 };
   // Per villain: the particles of a hit, and the flash's colour (linear, and
@@ -114,7 +120,15 @@
     return out;
   }
 
-  var api = { HITSTOP_MS: HITSTOP_MS, DISSOLVE: DISSOLVE, KINDS: KINDS, STYLES: STYLES, BLAST: BLAST, blast: blast, style: style, inCone: inCone,
+  // Dust thrown off an impact at `point`, out round `normal` (up by
+  // default): `kind` is 'quake', 'crash' or 'slam' (DUST says how much).
+  function dust(kind, point, normal, opts) {
+    var o = Object.assign({}, opts || {}), n = normal || { x: 0, y: 1, z: 0 };
+    o.scale = (o.scale === undefined ? 1 : o.scale) * (DUST[kind] || 1);
+    return burst('dust', point, n, o).concat(burst('grit', point, n, o));
+  }
+
+  var api = { HITSTOP_MS: HITSTOP_MS, DISSOLVE: DISSOLVE, KINDS: KINDS, STYLES: STYLES, BLAST: BLAST, DUST: DUST, dust: dust, blast: blast, style: style, inCone: inCone,
     burst: burst, hit: hit, step: step, alpha: alpha, stopUntil: stopUntil, stopped: stopped, dissolve: dissolve };
   if (typeof module !== 'undefined') module.exports = api;
   root.HitFx = api;

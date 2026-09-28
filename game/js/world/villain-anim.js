@@ -7,6 +7,13 @@
   // real arc, and for all three the dodges, hits and defeat. No Three.js:
   // villain-view.js passes the commands to the model's CharacterRig.
   //
+  // Their attacks (P4, P5): the Goblin's throw, timed so the bomb leaves his
+  // hand as the wind-up ends; the Rhino's charge wind-up, run, skid past and
+  // dazed stun; Venom's pounce (a roar, then the crouch), his combo's three
+  // swipes and his tentacle lash - each wind-up slowed so the clip's strike
+  // frame (the manifest's events) lands just as the attack does. A stagger
+  // plays hit_big.
+  //
   //   var a = VillainAnim.create(kind, clips)   clips: { name: seconds }
   //   var out = VillainAnim.step(a, fight, dt)
   //   out.play:  [[clip, opts], ...] for CharacterRig.play, in order
@@ -34,14 +41,15 @@
     LAND_LEAD: .12,                 // seconds before touching down that land starts (its impact frame)
     DROP_LEAD: .17,                 // ...and descent_end, for venom's entrance
     TURNING: 1,                     // a clip whose chest swings more than this (radians) turns the body itself
-    GRAVITY: 9.8
+    GRAVITY: 9.8,
+    MIN_WIND: .4                    // a wind-up is never slowed below this: it starts later instead
   };
 
   // events: the manifest's clip events ({ attack: { release_seconds } }), so
   // a throw's wind-up can be timed to end on its release.
   function create(kind, clips, events) {
     return { kind: kind, clips: clips || {}, events: events || {}, started: false, seen: null, base: null,
-      roll: 0, pitch: 0, turning: 0, flights: 0, landed: -1, arrived: {}, attacks: 0 };
+      roll: 0, pitch: 0, turning: 0, flights: 0, landed: -1, arrived: {}, attacks: 0, plan: [], staggers: 0 };
   }
   function dur(a, c) { return a.clips[c] || 0; }
 
@@ -75,13 +83,26 @@
         var rel = (a.events.attack && a.events.attack.release_seconds) || a.clips.attack / 2, tel = (at.d && at.d.telegraph) || .9;
         play('attack', { speed: rel / tel, fade: .12 });
       }
+      a.plan = plan(a, at);
+    }
+    // The rest of Venom's attack clips, as the attack's clock reaches them.
+    if (at && a.plan.length) {
+      a.plan = a.plan.filter(function (e) {
+        var phase = e.during || 'active';
+        if (at.phase !== 'telegraph' && at.phase !== 'active') return false;       // called off, or over
+        if (e.swipe && at.combo && e.swipe >= at.combo.n) return false;             // the combo was cut short
+        if (at.clock < e.t || at.phase !== phase) return at.phase === 'telegraph' || phase === 'active';
+        play(e.clip, e.opts);
+        return false;
+      });
     }
     // Shot at: a hit flinches (the last hit before the end staggers him), a
-    // dodge shows which way he went.
+    // dodge shows which way he went. Laid into during a wind-up, he staggers.
     var big = false;
     if (now.hits > was.hits && s.mode === 'playing') {
       if (s.health <= DAMAGE) { big = true; play('hit_big'); } else play('hit');
     }
+    if ((s.staggers || 0) > a.staggers) { a.staggers = s.staggers; if (!big) { big = true; play('hit_big', { fade: .08 }); } }
     if (now.dodge > was.dodge && s.dodge.side && !big) play(s.dodge.side === 'l' ? 'dodge_l' : 'dodge_r');
     return settle(a, s, dt, out, false);
   }
@@ -111,14 +132,49 @@
     base(a.turning > 0 ? 'fly_turn_l' : a.turning < 0 ? 'fly_turn_r' : 'fly', { fade: .35 });
   }
 
+  // The rhino: his patrol (turn, the first wind-up, run, skid) and, off it
+  // (P5), a charge's wind-up (his attack clip, sped up to fit), the run at
+  // you, the skid past, the dazed stun, and trotting back.
+  var MOVING = { run: 1, skid: 1, charge: 1, overrun: 1, 'return': 1 };
   function charge(a, s, was, now, base, play, out) {
     var st = now.state, changed = st !== was.state || was.phase !== 'villain';
-    if (st === 'run' || st === 'skid') { base('loco', { fade: .2 }); out.speed = s.m.v; }
+    if (MOVING[st] || (st === 'brace' && s.m.v > .5)) { base('loco', { fade: .2 }); out.speed = s.m.v; }
     else { base('idle', { fade: .3 }); out.speed = 0; }
     if (!changed) return;
+    var tel = (s.attack && s.attack.d && s.attack.d.telegraph) || .9, D = s.rules || {};
     if (st === 'turn') play(s.m.turn > 0 ? 'turn_l' : 'turn_r', { fade: .15 });
     else if (st === 'windup') play('attack', { fade: .15 });
-    else if (st === 'skid') play('skid', { fade: .2 });
+    else if (st === 'brace') play('attack', { speed: dur(a, 'attack') / tel || 1, fade: .15 });
+    else if (st === 'skid' || st === 'overrun') play('skid', { fade: .2 });
+    else if (st === 'stun') play('stun', { speed: dur(a, 'stun') / (D.dazed || dur(a, 'stun')) || 1, fade: .1 });
+  }
+
+  // Venom's attack clips, as { t (seconds after the wind-up began), clip,
+  // opts, during: 'telegraph' (else the strike), swipe: which of a combo's }.
+  // A wind-up plays its clip slowed so the strike frame comes as the wind-up
+  // ends, then the clip carries on at its own speed from there.
+  function plan(a, at) {
+    var tel = (at.d && at.d.telegraph) || .9, out = [], AK = (root.Attacks && root.Attacks.constants) || {};
+    if (a.kind !== 'leap') return out;
+    function strikeAt(c) { return (a.events[c] && a.events[c].release_seconds) || dur(a, c) / 3; }
+    function windUp(c) {
+      var h = strikeAt(c), v = Math.max(K.MIN_WIND, h / tel);
+      out.push({ t: tel - h / v, clip: c, opts: { speed: v, fade: .12 }, during: 'telegraph' });
+      out.push({ t: tel, clip: c, opts: { from: h, fade: .05 } });
+    }
+    if (at.move === 'combo') {
+      windUp('attack');
+      ['attack2', 'attack3'].forEach(function (c, i) {
+        out.push({ t: tel + (i + 1) * (AK.COMBO_GAP || .65) - strikeAt(c), clip: c, opts: { fade: .08 }, swipe: i + 1 });
+      });
+    } else if (at.move === 'lash') windUp('tentacles');
+    else if (at.move === 'pounce') {
+      // He rears up and roars, then crouches: the crouch's take-off ends the wind-up.
+      var crouch = (root.Fight && root.Fight.constants.CROUCH) || .23;
+      out.push({ t: 0, clip: 'roar', opts: { fade: .15 }, during: 'telegraph' });
+      out.push({ t: Math.max(0, tel - crouch), clip: 'leap_start', opts: { speed: K.LEAP_SPEED, fade: .08 }, during: 'telegraph' });
+    }
+    return out;
   }
 
   function leaper(a, s, was, now, base, play) {
@@ -127,7 +183,8 @@
     if (now.flying && !was.flying) { a.flights++; base('leap_air', { fade: .15 }); }
     if (now.flying && a.landed !== a.flights && m.dur - m.t <= K.LAND_LEAD) {
       a.landed = a.flights;
-      play('land', { fade: .05 }); base('idle', { fade: .05 });
+      // A pounce comes down hard.
+      play(m.pounce && a.clips.land_heavy ? 'land_heavy' : 'land', { fade: .05 }); base('idle', { fade: .05 });
     }
     // A leap too short to catch its landing lead still ends standing.
     if (!now.flying && a.base === 'leap_air') base('idle');

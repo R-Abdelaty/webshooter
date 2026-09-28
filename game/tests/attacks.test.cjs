@@ -50,8 +50,9 @@ test('attacks: the goblin mixes bombs and guns - more guns at you in the air - n
   const air=count('swing'),ground=count('ground');
   assert.ok(air>ground,'guns in the air '+air.toFixed(2)+' vs on the ground '+ground.toFixed(2));
   assert.ok(ground>.15&&air<.85);
-  // Rhino and Venom have no moves until P5: they never attack.
-  assert.deepEqual(runAttack(Attacks.create('charge',H,1),30,{onScreen:true}),[]);
+  // Since P5 the Rhino and Venom have moves too - but with none open to them (allow: []) they wait.
+  assert.deepEqual(Attacks.MOVES.charge,['charge','ram']);assert.deepEqual(Attacks.MOVES.leap,['combo','lash','pounce']);
+  assert.deepEqual(runAttack(Attacks.create('charge',H,1),30,{onScreen:true,allow:[]}),[]);
 });
 test('attacks: none during his entrance, and none in a fight without you in it',()=>{
   const s=Fight.play(Fight.start(goblin,levels)),you={x:goblin.vantage.x,y:goblin.vantage.y,z:goblin.vantage.z};

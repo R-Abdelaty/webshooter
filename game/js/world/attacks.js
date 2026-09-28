@@ -15,12 +15,20 @@
   // One starts every `cadence` seconds (3-5, from the start of the last),
   // never during his entrance (fight.js only runs this once it's over), and
   // never two in a row from off the screen: if the last one began with him
-  // out of view, the next waits until you can see him.
+  // out of view, the next waits until you can see him. A long move (a charge
+  // down the avenue, a dazed Rhino) is followed by at least Difficulty's
+  // `breather` before the next wind-up. Which moves he can use depends on
+  // how far you are and what you're doing, so fight.js passes them in
+  // (`allow`); with none he waits, as off the screen.
   //
   //   var a = Attacks.create(kind, difficulty, seed)
-  //   var events = Attacks.step(a, dt, { onScreen, state, rand })
+  //   var events = Attacks.step(a, dt, { onScreen, state, rand, allow })
   //     events: { type: 'telegraph', move, off } | { type: 'strike', move } |
   //             { type: 'recover', move } | { type: 'ready' }
+  //   Attacks.finish(a, rest)   a move whose strike lasts as long as it lasts
+  //                             (a charge, a pounce, a combo) is over: recover,
+  //                             for `rest` seconds if given
+  //   Attacks.cancel(a)         called off (a stagger): straight to recovering
   //
   // THE GOBLIN'S MOVES.
   //   bomb  a pumpkin bomb thrown in an arc at where you'll be. It goes off
@@ -31,11 +39,29 @@
   //         wind-up, then locks, and a short burst of tracers goes down that
   //         line - at where you were. Move or swing out of it.
   //
+  // THE RHINO'S MOVES (P5). fight.js runs him; these are the sums.
+  //   charge  you're down on the street: he winds up (a snort), then runs
+  //           straight at where you are and skids on past. Being hit is
+  //           heavy and throws you. Swing, zip or step out of the way.
+  //   ram     you're up high - on a roof, or on a line anchored to one near
+  //           his street: he charges the building under you. When he hits
+  //           it, a quake: it hurts if you're still on that building within
+  //           QUAKE_R of where he hit (or still hanging from it).
+  //   After a ram, or running into a wall, he's dazed (fight.js).
+  //
+  // VENOM'S MOVES (P5).
+  //   pounce  a leap aimed at you that lands next to you (a red ring shows
+  //           where); being there when he lands is heavy.
+  //   combo   close in: three swipes, one after another.
+  //   lash    mid range: a tentacle whips out along a line that follows you
+  //           through the wind-up; it knocks you off a swing line.
+  //
   // x east, z south, y up, metres, seconds.
 
   function need(name, file) { return root[name] || (typeof require === 'function' ? require(file) : null); }
   var CityRef = need('City', './city.js');
   var DiffRef = need('Difficulty', './difficulty.js');
+  var EncRef = need('Encounters', './encounters.js');
 
   var K = {
     // Pumpkin bombs.
@@ -62,11 +88,45 @@
     GUN_R: .22,             // how close to your body a round has to pass to hit
     GUN_SPREAD: .006,       // radians of scatter per round
     GUN_SHARE: .35,         // a burst does this share of the damage range (once: then you're invulnerable)
-    // Which move: on a line or in the air he prefers the guns, on your feet
-    // the bombs, and never the same one three times running.
-    PREFER: { air: { guns: .7, bomb: .3 }, ground: { guns: .35, bomb: .65 } }
+    // The Rhino (P5).
+    HIGH: 2.5,              // metres over his street at which you're up high (a ram, not a charge)
+    CHARGE_RANGE: 45,       // metres (level) from him you can be for a charge...
+    RAM_RANGE: 45,          // ...and the building's wall for a ram
+    CHARGE_V: 12,           // m/s his charge reaches...
+    CHARGE_ACCEL: 16,       // ...speeding up this hard
+    BRAKE: 16,              // how hard he stops for a wind-up (m/s/s)
+    CHARGE_MAX: 70,         // metres a charge goes, at most, before he skids
+    RHINO_R: 1,             // his footprint: this close to a wall he's run into it
+    RAM_R: .75,             // his body, for running you over: a capsule this thick...
+    RAM_LOW: .6, RAM_TOP: 1.9, RAM_FRONT: .8,   // ...from his hips to his shoulders, reaching ahead of him
+    CHARGE_SHARE: 1,        // being run over does this share of the damage range
+    KNOCK_V: 11, KNOCK_UP: 5,   // and throws you this fast ahead of him, and up
+    QUAKE_R: 16,            // a ram hurts you on that building within this of where he hit...
+    QUAKE_INNER: 6,         // ...the most within this, the least at QUAKE_R
+    // Venom (P5).
+    MELEE: 3.2,             // metres (chest to chest) for a combo
+    COMBO_N: 3, COMBO_GAP: .65, COMBO_END: .4,  // swipes, seconds apart, and the follow-through after the last
+    SWIPE_REACH: .9, SWIPE_R: 1,               // a swipe reaches this far ahead of his chest, and hits this close to it
+    SWIPE_SHARE: .35,
+    LASH_REACH: 13, LASH_MIN: 2.5,             // metres a tentacle reaches (and the least it's worth lashing at)
+    LASH_SPEED: 70, LASH_BACK: 45, LASH_R: .35, LASH_T: .5, LASH_TRACK: 3.5,
+    LASH_SHARE: .6, LASH_PULL: 7,              // and it pulls you towards him this hard
+    POUNCE_MIN: 4, POUNCE_MAX: 27,             // metres he pounces from
+    POUNCE_GAP: 1.6,                           // he lands this far from you...
+    POUNCE_HIT: 1.6,                           // ...and hurts you if you're this close to his chest when he does
+    POUNCE_T: [.7, 1.15], POUNCE_T_PER_M: .025,
+    POUNCE_SHARE: .85, POUNCE_PUSH: 7,
+    HOME: 12,               // he never pounces further than this past his beams
+    // Which move, for what you're doing ('air': on a line, flying or zipping;
+    // 'ground': on your feet or perched), and never the same one three times
+    // running (unless it's the only one there is). On a line or in the air
+    // the Goblin prefers the guns, on your feet the bombs.
+    PREFER: {
+      glider: { air: { guns: .7, bomb: .3 }, ground: { guns: .35, bomb: .65 } },
+      leap: { air: { lash: 1 }, ground: { combo: 1, lash: .45, pounce: .55 } }
+    }
   };
-  var MOVES = { glider: ['bomb', 'guns'], charge: [], leap: [] };
+  var MOVES = { glider: ['bomb', 'guns'], charge: ['charge', 'ram'], leap: ['combo', 'lash', 'pounce'] };
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
@@ -79,26 +139,37 @@
   // --- the framework ---------------------------------------------------------------
   function create(kind, diff, seed) {
     var d = diff || DiffRef.get('HARD');
-    return { kind: kind, d: d, moves: (MOVES[kind] || []).slice(), phase: 'wait', t: 0, wait: d.firstAttack,
-      move: null, last: null, twice: false, n: 0, off: false, offLast: false, held: 0, aim: null, seed: (seed || 1) >>> 0 };
+    return { kind: kind, d: d, moves: (MOVES[kind] || []).slice(), phase: 'wait', t: 0, clock: 0, wait: d.firstAttack,
+      move: null, last: null, twice: false, n: 0, off: false, offLast: false, held: 0, aim: null, rest: null, seed: (seed || 1) >>> 0 };
   }
   function rnd(a) { a.seed = (a.seed * 1103515245 + 12345) & 0x7fffffff; return a.seed / 0x7fffffff; }
-  function activeFor(move) { return move === 'guns' ? K.GUN_ROUNDS * K.GUN_EVERY + .1 : K.BOMB_ACTIVE; }
+  // How long a move's strike lasts; null: until fight.js says it's over (finish).
+  function activeFor(move) {
+    if (move === 'guns') return K.GUN_ROUNDS * K.GUN_EVERY + .1;
+    if (move === 'bomb') return K.BOMB_ACTIVE;
+    if (move === 'lash') return K.LASH_T;
+    return null;
+  }
+  function airborne(state) { return state === 'swing' || state === 'fly' || state === 'zip'; }
 
-  // Which move, for what you're doing: 'swing' / 'fly' / 'zip' are in the air.
-  function pick(a, state, u) {
-    if (!a.moves.length) return null;
-    if (a.moves.length === 1) return a.moves[0];
-    var P = K.PREFER[state === 'swing' || state === 'fly' || state === 'zip' ? 'air' : 'ground'], w = a.moves.map(function (m) { return P[m] || 1; });
+  // Which move, for what you're doing, from those allowed (all of his when
+  // `allow` is left out).
+  function pick(a, state, u, allow) {
+    var list = allow ? a.moves.filter(function (m) { return allow.indexOf(m) >= 0; }) : a.moves;
+    if (!list.length) return null;
+    if (list.length === 1) return list[0];
+    var P = (K.PREFER[a.kind] || {})[airborne(state) ? 'air' : 'ground'] || {}, w = list.map(function (m) { return P[m] === undefined ? 1 : P[m]; });
     // Not three of the same in a row.
-    if (a.twice) w = w.map(function (x, i) { return a.moves[i] === a.last ? 0 : x; });
+    if (a.twice) w = w.map(function (x, i) { return list[i] === a.last ? 0 : x; });
     var sum = w.reduce(function (s, x) { return s + x; }, 0), k = u * sum;
-    for (var i = 0; i < w.length; i++) { k -= w[i]; if (k < 0 && w[i] > 0) return a.moves[i]; }
-    return a.moves[w.lastIndexOf(Math.max.apply(null, w))];
+    for (var i = 0; i < w.length; i++) { k -= w[i]; if (k < 0 && w[i] > 0) return list[i]; }
+    for (i = w.length - 1; i >= 0; i--) if (w[i] > 0) return list[i];
+    return list[0];
   }
 
   // ctx: { onScreen: is he in view, state: yours ('ground', 'perch',
-  // 'swing', 'fly', 'zip'), rand: optional random source }.
+  // 'swing', 'fly', 'zip'), rand: optional random source, allow: the moves
+  // he can use now (all when left out) }.
   function step(a, dt, ctx) {
     var ev = [], c = ctx || {}, u = c.rand || function () { return rnd(a); };
     dt = dt > 0 ? dt : 0;
@@ -108,29 +179,42 @@
       if (a.wait > 0) return ev;
       // Fairness: never two in a row from off the screen.
       if (!c.onScreen && a.offLast) { a.held += dt; return ev; }
-      var m = pick(a, c.state, u());
+      var m = pick(a, c.state, u(), c.allow);
+      // Nothing he can do from where he is: he waits for you.
+      if (!m) { a.held += dt; return ev; }
       a.twice = m === a.last; a.last = m;
-      a.phase = 'telegraph'; a.t = 0; a.move = m; a.n++; a.held = 0;
+      a.phase = 'telegraph'; a.t = 0; a.clock = 0; a.move = m; a.n++; a.held = 0;
       a.off = !c.onScreen; a.offLast = a.off;
       a.wait = DiffRef.span(a.d.cadence, u());
       ev.push({ type: 'telegraph', move: m, off: a.off });
       return ev;
     }
-    a.t += dt;
+    a.t += dt; a.clock += dt;
     if (a.phase === 'telegraph' && a.t >= a.d.telegraph) {
       a.t -= a.d.telegraph; a.phase = 'active'; ev.push({ type: 'strike', move: a.move });
     }
-    if (a.phase === 'active' && a.t >= activeFor(a.move)) {
-      a.t -= activeFor(a.move); a.phase = 'recover'; ev.push({ type: 'recover', move: a.move });
+    var len = activeFor(a.move);
+    if (a.phase === 'active' && len !== null && a.t >= len) {
+      a.t -= len; a.phase = 'recover'; ev.push({ type: 'recover', move: a.move });
     }
-    if (a.phase === 'recover' && a.t >= a.d.recover) {
-      a.t = 0; a.phase = 'wait'; ev.push({ type: 'ready' });
+    if (a.phase === 'recover' && a.t >= (a.rest !== null ? a.rest : a.d.recover)) {
+      a.t = 0; a.phase = 'wait'; a.rest = null;
+      a.wait = Math.max(a.wait, a.d.breather || 0);
+      ev.push({ type: 'ready' });
     }
     return ev;
   }
+  // A strike that lasts as long as it lasts is over: recover (for `rest`
+  // seconds, or Difficulty's `recover`).
+  function finish(a, rest) {
+    if (a.phase !== 'active') return false;
+    a.phase = 'recover'; a.t = 0; a.rest = Number.isFinite(rest) ? rest : null;
+    return true;
+  }
   // Called off (a stagger, the end of the fight): straight to recovering.
-  function cancel(a) { if (a.phase === 'telegraph' || a.phase === 'active') { a.phase = 'recover'; a.t = 0; } }
+  function cancel(a) { if (a.phase === 'telegraph' || a.phase === 'active') { a.phase = 'recover'; a.t = 0; a.rest = null; } }
   function winding(a) { return !!a && a.phase === 'telegraph'; }
+  function busy(a) { return !!a && (a.phase === 'telegraph' || a.phase === 'active'); }
 
   // --- geometry ---------------------------------------------------------------------
   // The nearest point of segment a-b to p, and how far along (0..1).
@@ -277,10 +361,11 @@
 
   // --- the glider's guns ------------------------------------------------------------
   // The laser through the wind-up: from `aim` (null the first frame) toward
-  // `target`, eased, so moving fast makes it trail you.
-  function track(aim, target, dt) {
+  // `target`, eased (at `rate`, GUN_TRACK by default), so moving fast makes
+  // it trail you.
+  function track(aim, target, dt, rate) {
     if (!aim) return copy(target);
-    var k = 1 - Math.exp(-K.GUN_TRACK * (dt > 0 ? dt : 0));
+    var k = 1 - Math.exp(-(rate || K.GUN_TRACK) * (dt > 0 ? dt : 0));
     return { x: aim.x + (target.x - aim.x) * k, y: aim.y + (target.y - aim.y) * k, z: aim.z + (target.z - aim.z) * k };
   }
   // A burst at the locked aim: rounds from `muzzles` (one or two points,
@@ -328,11 +413,170 @@
     return (caps || []).some(function (c) { return segSeg(from, end, c.a, c.b) <= c.r + K.GUN_R; });
   }
   function gunDamage(diff) { return Math.round(DiffRef.span((diff || DiffRef.HARD).damage, K.GUN_SHARE)); }
+  // What a move does, as a share of the damage range (15-30 on HARD).
+  function damage(share, diff) { return Math.round(DiffRef.span((diff || DiffRef.HARD).damage, share)); }
 
-  var api = { create: create, step: step, cancel: cancel, winding: winding, pick: pick, MOVES: MOVES,
+  // --- the rhino ----------------------------------------------------------------------
+  function near(c, x, z, pad) { return x >= c.x0 - pad && x <= c.x1 + pad && z >= c.z0 - pad && z <= c.z1 + pad; }
+  // The building someone standing at p is on: the box of it that stands on
+  // the street (a roof's parapet or plant is on top of that), or null if
+  // they're not up on one - on the street, or in the air.
+  function under(city, p) {
+    if (!city || !CityRef) return null;
+    var list = CityRef.query(city, p.x - .4, p.z - .4, p.x + .4, p.z + .4), top = null;
+    list.forEach(function (c) { if (near(c, p.x, p.z, .4) && c.y1 <= p.y + .3 && c.y1 >= p.y - .6 && (!top || c.y1 > top.y1)) top = c; });
+    if (!top || top.y1 < K.HIGH) return null;
+    return baseAt(list, p) || top;
+  }
+  function baseAt(list, p) {
+    var base = null;
+    list.forEach(function (c) {
+      if (c.y0 > .5 || c.y1 < K.HIGH || !near(c, p.x, p.z, .4)) return;
+      if (!base || (c.x1 - c.x0) * (c.z1 - c.z0) > (base.x1 - base.x0) * (base.z1 - base.z0)) base = c;
+    });
+    return base;
+  }
+  // The building a line is anchored to (the anchor is on one of its walls).
+  function anchored(city, p) {
+    if (!city || !CityRef || !p) return null;
+    return baseAt(CityRef.query(city, p.x - .5, p.z - .5, p.x + .5, p.z + .5), { x: p.x, z: p.z });
+  }
+  // Where on a building's wall a charge from `from` meets it: the nearest
+  // point of its footprint, and where his middle stops (RHINO_R out from it).
+  function wallPoint(box, from) {
+    var x = clamp(from.x, box.x0, box.x1), z = clamp(from.z, box.z0, box.z1), dx = from.x - x, dz = from.z - z, l = Math.hypot(dx, dz);
+    if (l < 1e-6) return null;
+    return { x: x, z: z, stop: { x: x + dx / l * K.RHINO_R, z: z + dz / l * K.RHINO_R }, d: l };
+  }
+  // What a Rhino standing at (x, z) on the street at height y runs into: a
+  // box taller than a kerb in his way, the edge of the walkable city
+  // ({ edge: true }), or null.
+  function blocked(city, x, z, y) {
+    if (!city || !CityRef) return null;
+    var w = city.walk, r = K.RHINO_R, hit = null;
+    if (w && (x < w.x0 + r || x > w.x1 - r || z < w.z0 + r || z > w.z1 - r)) return { edge: true };
+    CityRef.query(city, x - r, z - r, x + r, z + r).forEach(function (c) {
+      if (hit || c.y1 <= (y || 0) + 1 || c.y0 >= (y || 0) + 2) return;
+      var cx = clamp(x, c.x0, c.x1), cz = clamp(z, c.z0, c.z1);
+      if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < r * r) hit = c;
+    });
+    return hit;
+  }
+  // A clear run along the street from a to b (level points at height y):
+  // nothing in the way but, at the end, `box` itself.
+  function clearRun(city, a, b, y, box) {
+    var d = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(d / .5));
+    for (var i = 1; i <= n; i++) {
+      var h = blocked(city, a.x + (b.x - a.x) * i / n, a.z + (b.z - a.z) * i / n, y);
+      if (h && h !== box) return false;
+    }
+    return true;
+  }
+  // His body, running (for running you over): a capsule from his hips to
+  // his shoulders, reaching ahead of him along `dir` (level, unit).
+  function rhinoBody(at, dir) {
+    return { a: { x: at.x - dir.x * .5, y: at.y + K.RAM_LOW, z: at.z - dir.z * .5 },
+      b: { x: at.x + dir.x * K.RAM_FRONT, y: at.y + K.RAM_TOP, z: at.z + dir.z * K.RAM_FRONT }, r: K.RAM_R };
+  }
+  // Does a capsule { a, b, r } touch a body (a list of capsules)?
+  function touches(cap, caps) {
+    return (caps || []).some(function (c) { return segSeg(cap.a, cap.b, c.a, c.b) <= cap.r + c.r; });
+  }
+  // A ram's quake, for someone `d` metres (level) from where he hit.
+  function quakeDamage(d, diff) {
+    if (!(d <= K.QUAKE_R)) return 0;
+    return damage(d <= K.QUAKE_INNER ? 1 : 1 - (d - K.QUAKE_INNER) / (K.QUAKE_R - K.QUAKE_INNER), diff);
+  }
+
+  // --- venom -------------------------------------------------------------------------
+  // Is there room for someone at (x, y, z): nothing taller than a step
+  // within r of it, up to head height?
+  function room(city, x, y, z, r) {
+    if (!city || !CityRef) return true;
+    return !CityRef.query(city, x - r, z - r, x + r, z + r).some(function (c) {
+      if (c.y1 <= y + .45 || c.y0 >= y + 2.2) return false;
+      var cx = clamp(x, c.x0, c.x1), cz = clamp(z, c.z0, c.z1);
+      return (x - cx) * (x - cx) + (z - cz) * (z - cz) < r * r;
+    });
+  }
+  function floorAt(city, x, z, below) { return EncRef ? EncRef.groundAt(city, x, z, below) : 0; }
+  // Where a pounce from `from` lands next to you (standing at `you`):
+  // POUNCE_GAP from you, on what you stand on (within a step or so of it),
+  // with room, on his side of you first. Null if there's nowhere.
+  function landing(city, you, from) {
+    var a0 = Math.atan2(from.z - you.z, from.x - you.x);
+    for (var k = 0; k < 8; k++) {
+      var a = a0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * Math.PI / 4;
+      var x = you.x + Math.cos(a) * K.POUNCE_GAP, z = you.z + Math.sin(a) * K.POUNCE_GAP, y = floorAt(city, x, z, you.y + .6);
+      if (Math.abs(y - you.y) > 1.2 || !room(city, x, y, z, .45)) continue;
+      return { x: x, y: y, z: z };
+    }
+    return null;
+  }
+  // The arc of a leap from a to b (feet), as fight.js flies it: clear of the
+  // city? (His chest, along the chord and over the top of the arc.)
+  function arcClear(city, a, b) {
+    var d = Math.hypot(b.x - a.x, b.z - a.z), top = d * .25 + 1.5;
+    var c0 = { x: a.x, y: a.y + 1.3, z: a.z }, c2 = { x: b.x, y: b.y + 1.3, z: b.z };
+    var c1 = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + 1.3 + top, z: (a.z + b.z) / 2 };
+    return !trimHit(city, c0, c1) && !trimHit(city, c1, c2);
+  }
+  // A segment meeting the city, ignoring its first and last 0.6 m (the
+  // beam he stands on, the roof he lands on).
+  function trimHit(city, a, b) {
+    var d = dist(a, b);
+    if (d < 1.3) return false;
+    var k = .6 / d, p = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k };
+    var q = { x: b.x - (b.x - a.x) * k, y: b.y - (b.y - a.y) * k, z: b.z - (b.z - a.z) * k };
+    return !!hitCity(city, p, q);
+  }
+  // Which way (of the four along the city's grid) he can dash from a spot on
+  // the ground, and how far: [{ x, z, len }], like a perch's beams.
+  function sidesteps(city, p, len) {
+    var out = [];
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(function (d) {
+      var x = p.x + d[0] * len, z = p.z + d[1] * len, y = floorAt(city, x, z, p.y + .5);
+      if (Math.abs(y - p.y) < .3 && room(city, x, p.y, z, .45) && room(city, (p.x + x) / 2, p.y, (p.z + z) / 2, .45)) out.push({ x: d[0], z: d[1], len: len + .3 });
+    });
+    return out;
+  }
+  // A swipe: his claw, SWIPE_REACH ahead of his chest along `face`. Does it
+  // reach your body?
+  function claw(at, face) { return { x: at.x + Math.sin(face) * K.SWIPE_REACH, y: at.y + 1.2, z: at.z + Math.cos(face) * K.SWIPE_REACH }; }
+  function swipeHits(at, face, caps) { return gap(claw(at, face), caps) <= K.SWIPE_R; }
+  // The tentacle: out from `from` along `dir` at LASH_SPEED to `reach` (or
+  // the city), then back. Moves it on by dt; returns 'body' when it first
+  // meets you, else null. l: { from, dir, s, reach, out, hit }.
+  function stepLash(l, dt, caps) {
+    if (!(dt > 0)) return null;
+    var s0 = l.s;
+    if (l.out) { l.s = Math.min(l.reach, l.s + K.LASH_SPEED * dt); if (l.s >= l.reach) l.out = false; }
+    else { l.s = Math.max(0, l.s - K.LASH_BACK * dt); return null; }
+    if (l.hit || !caps) return null;
+    var a = { x: l.from.x + l.dir.x * s0, y: l.from.y + l.dir.y * s0, z: l.from.z + l.dir.z * s0 };
+    var b = { x: l.from.x + l.dir.x * l.s, y: l.from.y + l.dir.y * l.s, z: l.from.z + l.dir.z * l.s };
+    for (var k = 0; k < caps.length; k++) if (segSeg(a, b, caps[k].a, caps[k].b) <= caps[k].r + K.LASH_R) { l.hit = true; return 'body'; }
+    return null;
+  }
+  // How far a tentacle from `from` along `dir` can reach: LASH_REACH, or
+  // less where the city is in the way. Its first 0.6 m don't count: on a
+  // beam he stands at a node, inside its column.
+  function lashReach(city, from, dir) {
+    var s0 = .6, a = { x: from.x + dir.x * s0, y: from.y + dir.y * s0, z: from.z + dir.z * s0 };
+    var end = { x: from.x + dir.x * K.LASH_REACH, y: from.y + dir.y * K.LASH_REACH, z: from.z + dir.z * K.LASH_REACH };
+    var w = hitCity(city, a, end);
+    return w ? s0 + (K.LASH_REACH - s0) * w.t : K.LASH_REACH;
+  }
+
+  var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, busy: busy, pick: pick, MOVES: MOVES,
+    activeFor: activeFor, airborne: airborne, damage: damage,
     onSeg: onSeg, segSeg: segSeg, gap: gap, centre: centre, standIn: standIn, hitCity: hitCity,
     throwBomb: throwBomb, bombAt: bombAt, stepBomb: stepBomb, blastDamage: blastDamage, push: push, aimBomb: aimBomb,
-    track: track, burst: burst, stepRound: stepRound, onLine: onLine, gunDamage: gunDamage, constants: K };
+    track: track, burst: burst, stepRound: stepRound, onLine: onLine, gunDamage: gunDamage,
+    under: under, anchored: anchored, wallPoint: wallPoint, blocked: blocked, clearRun: clearRun, rhinoBody: rhinoBody,
+    touches: touches, quakeDamage: quakeDamage,
+    room: room, landing: landing, arcClear: arcClear, sidesteps: sidesteps, claw: claw, swipeHits: swipeHits,
+    stepLash: stepLash, lashReach: lashReach, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.Attacks = api;
 })(typeof window === 'undefined' ? globalThis : window);

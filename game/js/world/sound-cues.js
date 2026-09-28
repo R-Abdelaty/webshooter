@@ -26,13 +26,20 @@
     entrance: ['thud', K.ENTRANCE_THUD, 1.3],
     descent_end: ['thud', K.DROP_THUD, 1.1],
     land: ['thud', 0, .7],
+    land_heavy: ['thud', .08, 1.3],
     leap_start: ['whoosh', .1, .7],
     dodge_l: ['whoosh', 0, 1], dodge_r: ['whoosh', 0, 1],
     skid: ['skid', 0, 1],
     attack: ['snort', 0, 1],
+    stun: ['grunt', .05, 1.2],
     hit_big: ['grunt', 0, 1], hit: ['grunt', 0, .6],
     defeat: ['groan', 0, 1]
   };
+  // Clips whose sound isn't the clip's: the Goblin's attack is a throw, not
+  // a snort (its wind-up has its own cue, attack-audio.js); Venom's swipes
+  // and lash are heard when they strike, from the fight's events
+  // (world-game.js), not when their slowed wind-up starts.
+  var QUIET = { glider: { attack: 1 }, leap: { attack: 1, attack2: 1, attack3: 1, tentacles: 1 } };
 
   function create(kind) { return { kind: kind, step: .5 }; }
 
@@ -42,9 +49,7 @@
     var at = { x: f.at.x, y: f.at.y + 1.2, z: f.at.z };
     (plays || []).forEach(function (p) {
       var s = CLIPS[p[0]];
-      // The goblin's attack is a throw, not a snort: its wind-up has its own
-      // cue (attack-audio.js).
-      if (p[0] === 'attack' && c.kind === 'glider') return;
+      if (QUIET[c.kind] && QUIET[c.kind][p[0]]) return;
       if (s) out.cues.push({ name: s[0], at: at, delay: s[1], gain: s[2], voice: c.kind });
     });
     // The rhino's feet: a footfall every stride while he runs.
@@ -60,7 +65,7 @@
     return out;
   }
 
-  var api = { create: create, step: step, CLIPS: CLIPS, constants: K };
+  var api = { create: create, step: step, CLIPS: CLIPS, QUIET: QUIET, constants: K };
   if (typeof module !== 'undefined') module.exports = api;
   root.SoundCues = api;
 })(typeof window === 'undefined' ? globalThis : window);
