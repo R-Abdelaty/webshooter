@@ -10,6 +10,8 @@
   // - a small animation state machine: a base state that loops (idle, fly,
   //   or 'loco' - idle/walk/run blended by speed with their strides matched),
   //   one-shots that cross-fade in over it and hand back to it when they end,
+//   blends (the manifest's 'blends': the player's 'air', a jump's rising pose
+//   and the fall mixed by how fast he rises - setBlend) as base states too,
   //   and additive clips (hit) layered on top, so a hit doesn't stop a run.
   //   Layers (the manifest's `layers`: the player's shoot, a first-person
   //   arm's shot) drive only their own bones over all of that, one clip per
@@ -105,6 +107,10 @@
       Object.keys(v.mirrors || {}).forEach(function (c) {
         if (!isStr(v.mirrors[c])) err.push(at + 'mirrors.' + c + ' must name the clip it mirrors');
       });
+      Object.keys(v.blends || {}).forEach(function (k) {
+        var b = v.blends[k];
+        if (!b || !isStr(b.a) || !isStr(b.b) || !isNum(b.at) || b.at < 0) err.push(at + 'blends.' + k + ' needs clips a and b, and at (seconds into a)');
+      });
       if (v.airborne !== undefined) {
         var a = v.airborne || {};
         if (!Array.isArray(a.feet) || !a.feet.length || !a.feet.every(isStr) || !isNum(a.ankle) || !Array.isArray(a.clips) || !a.clips.every(isStr))
@@ -130,6 +136,9 @@
     (entry.loops || []).forEach(function (c) { if (!has(clips, c)) warn.push('no loop clip ' + c); });
     Object.keys(entry.events || {}).forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for its event'); });
     Object.keys(entry.mirrors || {}).forEach(function (c) { if (!has(clips, entry.mirrors[c])) warn.push('no clip ' + entry.mirrors[c] + ' to mirror as ' + c); });
+    Object.keys(entry.blends || {}).forEach(function (k) {
+      [entry.blends[k].a, entry.blends[k].b].forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for blend ' + k); });
+    });
     Object.keys(entry.layers || {}).forEach(function (k) {
       entry.layers[k].bones.forEach(function (b) { if (!has(bones, b)) warn.push('no bone ' + b + ' for layer ' + k); });
       entry.layers[k].clips.forEach(function (c) { if (!has(clips, c)) warn.push('no clip ' + c + ' for layer ' + k); });
@@ -156,7 +165,7 @@
   // spec: { clips: { name: seconds }, loops: [names], speeds: { walk, run }
   //   (m/s, for 'loco'), additive: [names], events: { clip: { release_seconds } },
   //   base: the first base state (default 'idle'), layers: the manifest's
-  //   { key: { bones, clips } } }.
+  //   { key: { bones, clips } }, blends: the manifest's { name: { a, at, b } } }.
   function machine(spec) {
     var names = Object.keys(spec.clips || {});
     var m = {
@@ -164,8 +173,14 @@
       loops: (spec.loops || []).filter(function (c) { return names.indexOf(c) >= 0; }),
       additive: (spec.additive || ADDITIVE).slice(), speeds: spec.speeds || null,
       events: spec.events || {}, fade: spec.fade || FADE,
-      slots: [], adds: [], layers: [], layerOf: {}, speed: 0, phase: 0, time: 0, missing: []
+      slots: [], adds: [], layers: [], layerOf: {}, speed: 0, phase: 0, time: 0, missing: [], blends: {}, mix: {}
     };
+    // A blend is a base state made of two clips: a at its time 'at' (held) and
+    // b running, mixed by setBlend's weight for a. Only if both clips exist.
+    Object.keys(spec.blends || {}).forEach(function (k) {
+      var b = spec.blends[k];
+      if (b && names.indexOf(b.a) >= 0 && names.indexOf(b.b) >= 0) { m.blends[k] = { a: b.a, at: Math.min(b.at, m.clips[b.a]), b: b.b }; m.mix[k] = 0; }
+    });
     Object.keys(spec.layers || {}).forEach(function (k) {
       (spec.layers[k].clips || []).forEach(function (c) { if (names.indexOf(c) >= 0) m.layerOf[c] = k; });
     });
@@ -184,7 +199,9 @@
     return { name: name, kind: kind, t: 0, w: w, target: target, rate: 1 / m.fade.base,
       speed: 1, loop: isLoop(m, name), hold: false, fadeOut: m.fade.shotOut, oneShot: kind === 'shot', ended: false };
   }
-  function isLoop(m, name) { return name === LOCO || m.loops.indexOf(name) >= 0; }
+  function isLoop(m, name) { return name === LOCO || !!m.blends[name] || m.loops.indexOf(name) >= 0; }
+  // The clip to play for 'want' on this machine: a blend by its name, else resolve().
+  function pick(m, want) { return m.blends[want] ? want : resolve(m.names, want); }
   function dur(m, name) { return m.clips[name] || 0; }
   function baseSlot(m) { for (var i = 0; i < m.slots.length; i++) if (m.slots[i].kind === 'base') return m.slots[i]; return null; }
   function shotSlot(m) { for (var i = 0; i < m.slots.length; i++) if (m.slots[i].kind === 'shot') return m.slots[i]; return null; }
@@ -195,12 +212,14 @@
   // cross-fades in over the base and hands back to it at its end - or holds
   // its last frame (opts.hold, for defeat). opts: { speed, fade, hold, loop,
   // restart, cut (a new base state ends the one-shot playing), from (seconds
-  // into a one-shot to start it: skip a slow wind-up) }. Returns the clip
+  // into a one-shot to start it: skip a slow wind-up), stop (a layer's clip:
+  // fade it out now if it is playing, over opts.fade; not playing is fine) }. Returns the clip
   // actually used, or null if there is none. A layer's clip goes to layer().
   function play(m, want, opts) {
     opts = opts || {};
-    var name = resolve(m.names, want);
+    var name = pick(m, want);
     if (!name) { if (m.missing.indexOf(want) < 0) m.missing.push(want); return null; }
+    if (opts.stop) { stop(m, name, opts.fade); return name; }
     if (m.layerOf[name] !== undefined && !opts.loop) return layer(m, name, opts);
     var shot = shotSlot(m), base = baseSlot(m);
     if (name !== LOCO && m.additive.indexOf(name) >= 0 && !opts.loop) {
@@ -255,6 +274,21 @@
       rate: 1 / Math.max(1e-3, fin), fadeOut: Math.min((to - from) / (opts.speed || 1), opts.fadeOut !== undefined ? opts.fadeOut : m.fade.shotOut), ended: false, gone: false });
     return name;
   }
+  // A layer clip let go before its end (the hand that was reaching for a line
+  // takes it): it fades out over 'fade' from where it is. Returns the clip, or
+  // null if it wasn't playing.
+  function stop(m, name, fade) {
+    var hit = null, f = fade !== undefined ? fade : m.fade.shotOut;
+    m.layers.forEach(function (l) {
+      if (l.name !== name || l.gone) return;
+      l.gone = l.ended = true; l.target = 0; l.rate = 1 / Math.max(1e-3, f); hit = name;
+      if (!(f > 0)) l.w = 0;
+    });
+    return hit;
+  }
+  // How much of a blend's a (0..1) is in it: the player's rise, by how fast he climbs.
+  function setBlend(m, name, k) { if (m.blends[name]) m.mix[name] = Math.max(0, Math.min(1, +k || 0)); }
+
   // What each layer is playing now: { key: clip }.
   function layers(m) {
     var out = {};
@@ -267,7 +301,7 @@
   // no fade and no 'end' reported. For a character put back at the start
   // (the player on a RETRY), where the last life's pose must not carry over.
   function reset(m, base) {
-    var name = resolve(m.names, base || 'idle') || m.names[0];
+    var name = pick(m, base || 'idle') || m.names[0];
     m.slots = name ? [slot(m, name, 'base', 1, 1)] : [];
     m.adds = []; m.layers = []; m.speed = 0; m.phase = 0;
     return name || null;
@@ -308,7 +342,7 @@
     var base = baseSlot(m);
     m.slots.forEach(function (s) {
       var d = s.name === LOCO ? 0 : dur(m, s.name), t0 = s.t;
-      if (s.name === LOCO) { s.t += dt; }
+      if (s.name === LOCO || m.blends[s.name]) { s.t += dt * (s.name === LOCO ? 1 : s.speed); }
       else if (s.loop) { s.t = d > 0 ? (s.t + dt * s.speed) % d : 0; }
       else {
         s.t = Math.min(d, s.t + dt * s.speed);
@@ -362,6 +396,13 @@
       list.push({ clip: clip, t: t, w: w, additive: false }); sum += w;
     }
     m.slots.forEach(function (s) {
+      var bl = m.blends[s.name];
+      if (bl) {
+        var k = m.mix[s.name];
+        add(bl.a, bl.at, s.w * k);
+        add(bl.b, s.t % Math.max(1e-6, dur(m, bl.b) || 1), s.w * (1 - k));
+        return;
+      }
       if (s.name !== LOCO) { add(s.name, s.t, s.w); return; }
       var b = locoBlend(m, m.speed);
       add(resolve(m.names, 'idle'), s.t % Math.max(1e-6, dur(m, resolve(m.names, 'idle')) || 1), s.w * b.idle);
@@ -497,7 +538,7 @@
   var api = {
     WEAK_SPOTS: WEAK_SPOTS, STANDARD: STANDARD, FALLBACKS: FALLBACKS, ADDITIVE: ADDITIVE, FADE: FADE, LOCO: LOCO,
     validate: validate, mirror: mirror, bonesOf: bonesOf, check: check, resolve: resolve, missing: missing,
-    machine: machine, play: play, reset: reset, layer: layer, layers: layers, layerWeight: layerWeight, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
+    machine: machine, play: play, stop: stop, setBlend: setBlend, reset: reset, layer: layer, layers: layers, layerWeight: layerWeight, setSpeed: setSpeed, step: step, pose: pose, state: state, locoBlend: locoBlend,
     updateEvery: updateEvery, pointOn: pointOn, sample: sample, rayCapsule: rayCapsule, rayBody: rayBody, along: along
   };
   if (typeof module !== 'undefined') module.exports = api;

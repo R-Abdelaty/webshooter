@@ -15,6 +15,10 @@
   //   out.body, out.arms  [[clip, opts], ...] for CharacterRig.play, in order
   //   out.speed          ground speed for the body's 'loco' (idle/run by speed)
   //   out.armSpeed       how fast the arms' run cycle turns (1 = its own pace)
+  //   out.rise           in the air, how much of the body's 'air' blend is the
+  //                      jump's rising pose (0 falling .. 1 climbing), by vy
+  //   out.lean           { x, z }: the body leans this many radians toward
+  //                      world x and z - into the way he flies (third person)
   //
   //   var s = PlayerAnim.shoot(a)   a web shot: which hand, and the clips
   //     s.hand  'l' or 'r'. Shots alternate hands, unless one hand is holding
@@ -28,6 +32,14 @@
   //
   // The models only show the player: animation never moves him (fixed
   // decision 7). Every clip here is in place.
+  //
+  // In the air (P9): the arms hold out for balance (fp_air), or sweep back
+  // once you drop fast (fp_fall_fast, with a margin so they don't flicker
+  // between the two); a jump pushes off (fp_jump) and a landing is taken on
+  // the palms (fp_land). Letting go of a line, the free hand reaches ahead for
+  // the next one (fp_release_reach_*), stopped if it takes a line. Perched,
+  // the hands rest on the ledge (fp_perch_idle). The body's jump and fall mix
+  // by how fast he rises ('air'), and he leans into the way he's flying.
 
   var K = {
     IDLE_V: .3,            // m/s: slower than this on the ground is standing
@@ -52,12 +64,19 @@
     AIM_HOLD: .6,          // seconds the body keeps facing the aim after a shot
     TURN: 10,              // how fast the body turns to face (per second, eased)
     TURN_AIM: 40,          // ...and to face a shot, so the casting arm points where the web goes
-    FACE_V: .8             // m/s: slower than this he keeps facing where he was
+    FACE_V: .8,            // m/s: slower than this he keeps facing where he was
+    FAST_VY: -13,          // m/s: falling faster than this sweeps the arms back...
+    SLOW_VY: -9.5,         // ...until slower than this again
+    RISE_VY: [-4, 5],      // the body's air blend: all fall at the first, all rise at the second
+    FP_LAND_RUN: 1.7,      // running out of a landing, the arms take it this much faster
+    LEAN_PER: .03,         // radians of lean per m/s of flight across the ground...
+    LEAN_MAX: .35,         // ...up to this
+    LEAN_EASE: 5
   };
 
   function create() {
     return { state: 'idle', body: null, arms: null, next: 'r', air: 0, jumped: false, landT: 0, fallVy: 0,
-      grounded: true, swing: null, hits: 0, dead: false, face: null, aimT: 0, aimYaw: 0 };
+      grounded: true, swing: null, hits: 0, dead: false, face: null, aimT: 0, aimYaw: 0, fast: false, lean: { x: 0, z: 0 } };
   }
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
@@ -88,7 +107,7 @@
   }
 
   function step(a, p, dt, extra) {
-    var x = extra || {}, out = { state: a.state, body: [], arms: [], speed: 0, armSpeed: 1 };
+    var x = extra || {}, out = { state: a.state, body: [], arms: [], speed: 0, armSpeed: 1, rise: 0, lean: a.lean };
     dt = dt > 0 ? dt : 0;
     var was = a.state, st = classify(a, p, dt, x), v = Math.hypot(p.vx || 0, p.vz || 0);
     a.grounded = !!p.grounded;
@@ -98,9 +117,17 @@
     function bodyBase(c, o) { if (a.body !== c) { a.body = c; body(c, o); } }
     function armsBase(c, o) { if (a.arms !== c) { a.arms = c; arms(c, o); } }
 
-    // Letting go of a line: that hand opens and drops back.
-    if (a.swing && x.swing !== a.swing) arms('fp_release_' + a.swing);
+    // Letting go of a line: that hand opens and drops back, and, flying on,
+    // the other reaches ahead for the next line. Taking a line, a hand that
+    // was still reaching stops.
+    if (a.swing && x.swing !== a.swing) {
+      arms('fp_release_' + a.swing);
+      if (!x.swing && !x.zip && !x.perched && st !== 'dead') arms('fp_release_reach_' + other(a.swing));
+    }
+    if (x.swing && x.swing !== a.swing) arms('fp_release_reach_' + x.swing, { stop: true, fade: .08 });
     a.swing = x.swing || null;
+    lean(a, p, st, dt);
+    out.lean = a.lean;
 
     if (st === 'dead') {
       if (!a.dead) { a.dead = true; a.body = a.arms = null; body('death', { hold: true, fade: .15 }); arms('fp_death', { hold: true, fade: .1 }); }
@@ -112,11 +139,13 @@
       bodyBase('loco', { fade: .2 }); out.speed = v;
       if (v >= K.ARMS_RUN_V) { armsBase('fp_run', { fade: .2 }); out.armSpeed = clamp(v / K.RUN_V, K.ARMS_RATE[0], K.ARMS_RATE[1]); }
       else armsBase('fp_idle', { fade: .3 });
-    } else if (st === 'jump') {
-      if (was !== 'jump') { bodyBase('fall', { fade: .3 }); body('jump', { from: K.JUMP_FROM, fade: .05 }); }
-      armsBase('fp_idle', { fade: .25 });
-    } else if (st === 'fall') {
-      bodyBase('fall', { fade: .25 }); armsBase('fp_idle', { fade: .25 });
+    } else if (st === 'jump' || st === 'fall') {
+      // The body: the jump's rising pose and the fall, mixed by how fast he climbs.
+      out.rise = clamp(((p.vy || 0) - K.RISE_VY[0]) / (K.RISE_VY[1] - K.RISE_VY[0]), 0, 1);
+      if (st === 'jump' && was !== 'jump') { bodyBase('air', { fade: .3 }); body('jump', { from: K.JUMP_FROM, fade: .05 }); }
+      else bodyBase('air', { fade: .25 });
+      armsBase(airArms(a, p), { fade: .25 });
+      if (st === 'jump' && was !== 'jump') arms('fp_jump', { fade: .05 });
     } else if (st === 'land') {
       if (was !== 'land') {
         // Running on out of it, the landing is only a dip.
@@ -125,8 +154,9 @@
       }
       out.speed = v;
       armsBase(v >= K.ARMS_RUN_V ? 'fp_run' : 'fp_idle', { fade: .2 });
+      if (was !== 'land') arms('fp_land', v >= K.ARMS_RUN_V ? { speed: K.FP_LAND_RUN, fade: .04 } : { fade: .04 });
     } else if (st === 'perch') {
-      bodyBase('perch', { fade: .2 }); armsBase('fp_idle', { fade: .25 });
+      bodyBase('perch', { fade: .2 }); armsBase('fp_perch_idle', { fade: .25 });
     } else if (st === 'swing') {
       bodyBase('hang', { fade: .15 }); armsBase('fp_swing_hold_' + x.swing, { fade: .1 });
     } else if (st === 'zip') {
@@ -142,13 +172,31 @@
     return out;
   }
 
+  function other(h) { return h === 'l' ? 'r' : 'l'; }
+  // The arms in the air: out for balance, or swept back once falling fast
+  // (and until the fall slows well below that again).
+  function airArms(a, p) {
+    var vy = p.vy || 0;
+    a.fast = a.fast ? vy < K.SLOW_VY : vy < K.FAST_VY;
+    return a.fast ? 'fp_fall_fast' : 'fp_air';
+  }
+  // The body's lean into the way he flies (third person): off a line, in the
+  // air, toward his velocity across the ground; eased, and back upright on
+  // the ground, a line or a perch (the line's own hang tilt takes over there).
+  function lean(a, p, st, dt) {
+    var air = st === 'jump' || st === 'fall', vx = p.vx || 0, vz = p.vz || 0, h = Math.hypot(vx, vz);
+    var ang = air && h > 1e-3 ? Math.min(K.LEAN_MAX, K.LEAN_PER * h) : 0;
+    var wx = ang ? vx / h * ang : 0, wz = ang ? vz / h * ang : 0, e = 1 - Math.exp(-K.LEAN_EASE * dt);
+    a.lean = { x: a.lean.x + (wx - a.lean.x) * e, z: a.lean.z + (wz - a.lean.z) * e };
+  }
+
   // The base each model starts on, and goes back to on a RETRY
   // (WorldPlayer.reset puts both rigs there at once, dropping a held death).
   var BASE = { body: 'loco', arms: 'fp_idle' };
 
   // Send the clips for the state again on the next step (models that have
   // just loaded missed them).
-  function resync(a) { a.body = a.arms = null; a.dead = false; }
+  function resync(a) { a.body = a.arms = null; a.dead = false; a.fast = false; a.lean = { x: 0, z: 0 }; }
 
   // Which hand shoots next, without taking the shot.
   function hand(a) {

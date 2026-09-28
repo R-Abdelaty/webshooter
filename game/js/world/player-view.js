@@ -30,6 +30,16 @@
   // In third person the body also hangs along the line: turned about the
   // hands so its up runs up the line, the legs trailing a little with speed,
   // never more than TILT_MAX from upright (no flips).
+  //
+  // ALIVE (P9): over whatever clip the arms play, ArmMotion's layer - the
+  // arms lag the view's turn and your acceleration on a spring, dip on a
+  // landing, flutter in the wind, breathe when still, and the free arm swings
+  // against the pendulum. It turns and moves the arms about the eye (their
+  // root), pushes the free hand with the same IK, and rolls the forearms and
+  // curls the fingers; held back so no hand comes near the crosshair
+  // (ArmMotion.keepClear), and toned down by CAMERA MOTION: REDUCED. In third
+  // person the body mixes its jump and fall by how fast he climbs (the 'air'
+  // blend) and leans into the way he flies, pivoting about his middle.
 
   var T = root.THREE;
   var TILT_MAX = 1.05, TRAIL = .35, TRAIL_V = 30, TILT_EASE = 9, IK_EASE = 12, REACH = .97, HANG = 2.15;
@@ -37,6 +47,10 @@
   // FP_OFF radians, nor further than FP_CROSS across to the other hand's side,
   // so the arm stays up at its own edge and the line runs out across the view.
   var FP_OFF = .72, FP_CROSS = .25;
+  // The air lean turns the body about this height (m); a line's hang turns it
+  // about the hands (HANG); between the two the pivot eases.
+  var LEAN_PIVOT = 1, PIVOT_EASE = 6;
+  var FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'], SIDE = { l: 'mixamorig:Left', r: 'mixamorig:Right' };
   var ARM = { l: ['mixamorig:LeftArm', 'mixamorig:LeftForeArm', 'mixamorig:LeftHand'], r: ['mixamorig:RightArm', 'mixamorig:RightForeArm', 'mixamorig:RightHand'] };
 
   // Two-bone IK: turn the upper and lower bones so the end of `names`
@@ -78,6 +92,8 @@
     var v3 = new T.Vector3(), q = new T.Quaternion(), off = new T.Vector3();
     var tilt = new T.Quaternion(), tiltWant = new T.Quaternion(), qy = new T.Quaternion(), UP = new T.Vector3(0, 1, 0), lineUp = new T.Vector3(), aim = new T.Vector3();
     var ikW = { l: 0, r: 0 }, last = { l: null, r: null };
+    var motion = ArmMotion.create(), motionMode = 'full', wasGrounded = true, lastVy = 0, pivot = HANG, saved = [];
+    var qa = new T.Quaternion(), AX = new T.Vector3(1, 0, 0), AY = new T.Vector3(0, 1, 0), hands = { l: null, r: null };
 
     function load() {
       if (loading) return loading;
@@ -115,8 +131,10 @@
       return loading;
     }
 
-    function setMode(m) {
+    // m: CAMERA ('first' / 'third'); cm: CAMERA MOTION ('full' / 'reduced'), if given.
+    function setMode(m, cm) {
       mode = m === 'third' ? 'third' : 'first';
+      if (cm !== undefined) motionMode = cm === 'reduced' ? 'reduced' : 'full';
       if (!ready) return;
       bodyMats.forEach(function (x) { x.mesh.material = mode === 'third' ? x.mesh.userData.own : ghost; });
       armsCam.visible = mode === 'first';
@@ -146,6 +164,8 @@
     function update(f) {
       if (!ready) return [];
       var p = f.player, a = f.anim, ev = [];
+      // Last frame's flutter off the fingers and forearms, before the clips pose them again.
+      saved.forEach(function (x) { x.bone.quaternion.copy(x.q); }); saved = [];
       a.body.forEach(function (c) { bodyRig.play(c[0], c[1]); });
       a.arms.forEach(function (c) { armsRig.play(c[0], c[1]); });
       (f.shots || []).forEach(function (s) {
@@ -153,6 +173,7 @@
         s.arms.forEach(function (c) { armsRig.play(c[0], c[1]); });
       });
       bodyRig.setSpeed(a.speed);
+      if (a.rise !== undefined) bodyRig.setBlend('air', a.rise);
       if (armsRig.state().base === 'fp_run') armsRig.play('fp_run', { speed: a.armSpeed });
 
       var third = mode === 'third', L = f.line, dt = f.dt > 0 ? f.dt : 0;
@@ -165,13 +186,19 @@
         var ang = Math.acos(Math.max(-1, Math.min(1, lineUp.y)));
         if (ang > TILT_MAX) { var hz = Math.hypot(lineUp.x, lineUp.z) || 1; lineUp.set(lineUp.x / hz * Math.sin(TILT_MAX), Math.cos(TILT_MAX), lineUp.z / hz * Math.sin(TILT_MAX)); }
         tiltWant.setFromUnitVectors(UP, lineUp);
+      } else if (a.lean && (a.lean.x || a.lean.z)) {
+        // Off a line, leaning into the way he flies (PlayerAnim's lean, radians toward x and z).
+        var lz = Math.hypot(a.lean.x, a.lean.z);
+        lineUp.set(a.lean.x / lz * Math.sin(lz), Math.cos(lz), a.lean.z / lz * Math.sin(lz));
+        tiltWant.setFromUnitVectors(UP, lineUp);
       }
       tilt.slerp(tiltWant, 1 - Math.exp(-TILT_EASE * dt));
       qy.setFromAxisAngle(UP, f.face + Math.PI);          // the model faces +z; yaw 0 looks -z
       bodyRig.root.quaternion.copy(tilt).multiply(qy);
-      // Turned about the hands, not the feet.
-      v3.set(0, -HANG, 0).applyQuaternion(tilt);
-      bodyRig.root.position.set(p.x + v3.x, p.y + HANG + v3.y, p.z + v3.z);
+      // Turned about the hands on a line, about his middle in a lean.
+      pivot += ((L ? HANG : LEAN_PIVOT) - pivot) * (1 - Math.exp(-PIVOT_EASE * dt));
+      v3.set(0, -pivot, 0).applyQuaternion(tilt);
+      bodyRig.root.position.set(p.x + v3.x, p.y + pivot + v3.y, p.z + v3.z);
       bodyRig.root.visible = third ? !f.hide : cast;
       // Hidden and not casting: nothing needs his pose worked out every frame.
       ev = ev.concat(bodyRig.update(f.dt, third ? 0 : 50, bodyRig.root.visible));
@@ -181,10 +208,16 @@
         bodyRig.root.updateMatrixWorld(true);
         ik(bodyRig, ARM[L.hand], aim.set(L.anchor.x, L.anchor.y, L.anchor.z), ikW[L.hand]);
       }
+      // The alive layer's springs run in both views, so switching view doesn't jolt them.
+      var land = !wasGrounded && p.grounded ? Math.max(0, -lastVy) : 0;
+      if (dt > 0) { wasGrounded = !!p.grounded; lastVy = p.vy || 0; }
+      var alive = ArmMotion.step(motion, { yaw: p.yaw, pitch: p.pitch, vel: { x: p.vx || 0, y: p.vy || 0, z: p.vz || 0 }, land: dt > 0 ? land : 0,
+        idle: a.state === 'idle' || a.state === 'perch', line: L, motion: motionMode }, dt);
       if (!third) {
         var cam = world.camera;
         armsCam.position.copy(cam.position); armsCam.quaternion.copy(cam.quaternion);
         if (armsCam.aspect !== cam.aspect) { armsCam.aspect = cam.aspect; armsCam.updateProjectionMatrix(); }
+        armsRig.root.position.set(0, 0, 0); armsRig.root.rotation.set(0, 0, 0);
         armsCam.updateMatrixWorld(true);
         ev = ev.concat(armsRig.update(f.dt));
         // The hand on the line (or letting go of it, easing back to its clip).
@@ -214,8 +247,45 @@
             ik(armsRig, ARM[hand], aim, ikW[hand]);
           }
         }
+        liven(alive);
       }
       return ev;
+    }
+
+    // The alive layer on the arms (first person), after the clip and the line's IK.
+    function liven(o) {
+      // Where the clip has put each hand, in the arms' camera space; the layer
+      // is held back if it would bring one near the crosshair.
+      armsRig.root.updateMatrixWorld(true);
+      ['l', 'r'].forEach(function (h) {
+        var b = armsRig.bone(ARM[h][2]);
+        hands[h] = b ? armsCam.worldToLocal(b.getWorldPosition(v3)).toArray() : null;
+      });
+      o = ArmMotion.keepClear(o, hands);
+      armsRig.root.position.fromArray(o.pos);
+      armsRig.root.rotation.set(o.rot[0], o.rot[1], o.rot[2]);
+      armsRig.root.updateMatrixWorld(true);
+      ['l', 'r'].forEach(function (h) {
+        var d = o.hands[h], hb = armsRig.bone(ARM[h][2]);
+        // The free hand's counter-swing: its own offset, reached with the arm's IK.
+        if (hb && Math.hypot(d[0], d[1], d[2]) > 1e-4) {
+          hb.getWorldPosition(aim).add(v3.fromArray(d).applyQuaternion(armsCam.quaternion));
+          ik(armsRig, ARM[h], aim, 1);
+        }
+        // The wind: the forearm rolls about its length, the fingers curl and open.
+        var fl = o.flutter[h], fa = armsRig.bone(ARM[h][1]);
+        if (!(Math.abs(fl.fore) > 1e-5 || Math.abs(fl.fingers) > 1e-5)) return;
+        if (fa) { saved.push({ bone: fa, q: fa.quaternion.clone() }); fa.quaternion.multiply(qa.setFromAxisAngle(AY, fl.fore)); }
+        FINGERS.forEach(function (fn, i) {
+          [1, 2].forEach(function (k) {
+            var fb = armsRig.bone(SIDE[h] + 'Hand' + fn + k);
+            if (!fb) return;
+            saved.push({ bone: fb, q: fb.quaternion.clone() });
+            fb.quaternion.multiply(qa.setFromAxisAngle(AX, fl.fingers * (k === 1 ? 1 : .6) * (1 - .15 * i)));
+          });
+        });
+      });
+      armsRig.root.updateMatrixWorld(true);
     }
 
     // A new life (place() in world-game.js: a RETRY, a new fight, roaming):
@@ -225,7 +295,10 @@
     // view until the next fight's first step. The hang's tilt and the
     // line's IK go too.
     function reset() {
-      tilt.identity(); ikW.l = ikW.r = 0; last.l = last.r = null;
+      tilt.identity(); ikW.l = ikW.r = 0; last.l = last.r = null; pivot = HANG;
+      ArmMotion.reset(motion); wasGrounded = true; lastVy = 0;
+      saved.forEach(function (x) { x.bone.quaternion.copy(x.q); }); saved = [];
+      if (armsRig) { armsRig.root.position.set(0, 0, 0); armsRig.root.rotation.set(0, 0, 0); }
       if (!ready) return;
       bodyRig.reset(PlayerAnim.BASE.body); armsRig.reset(PlayerAnim.BASE.arms);
     }

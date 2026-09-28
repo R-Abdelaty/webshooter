@@ -12,7 +12,7 @@ function clipsOf(file){
 const BODY=manifest.player.spiderman,ARMS=manifest.player.spiderman_arms;
 const bodyClips=Object.assign(clipsOf(BODY.file),{shoot_l:clipsOf(BODY.file).shoot});   // shoot_l is made at load (mirrors)
 const armsClips=clipsOf(ARMS.file);
-const bodyMachine=()=>Rig.machine({clips:bodyClips,loops:BODY.loops,speeds:BODY.speeds,events:BODY.events,layers:BODY.layers,mirrors:BODY.mirrors});
+const bodyMachine=()=>Rig.machine({clips:bodyClips,loops:BODY.loops,speeds:BODY.speeds,events:BODY.events,layers:BODY.layers,mirrors:BODY.mirrors,blends:BODY.blends});
 const armsMachine=()=>Rig.machine({clips:armsClips,loops:ARMS.loops,events:ARMS.events,layers:ARMS.layers,base:'fp_idle'});
 const DT=1/60;
 
@@ -101,7 +101,7 @@ test('anim: a jump starts its clip past the crouch; stepping off a kerb is not a
   const jump=run([[P(),.2],[P({grounded:false,vy:6.4}),.1],[P({grounded:false,vy:-3}),.4],[P(),.5]]);
   assert.deepEqual(jump.states,['idle','jump','land','idle']);
   const jc=jump.log.flatMap(o=>o.body).find(c=>c[0]==='jump');assert.equal(jc[1].from,J.JUMP_FROM);
-  assert.ok(jump.body.includes('fall'),'the air pose waits under the jump');
+  assert.ok(jump.body.includes('air'),'the air blend (rise and fall, P9) waits under the jump');
   const kerb=run([[P({vz:-6}),.2],[P({grounded:false,vy:-1,vz:-6}),.1],[P({vz:-6}),.3]]);
   assert.deepEqual(kerb.states,['run'],'0.1 s in the air is nothing');
   const drop=run([[P(),.1],[P({grounded:false,vy:-8}),.8],[P(),.1]]);
@@ -157,7 +157,7 @@ test('anim: every clip it asks for is one the models have (or, for shoot_l, make
     [P({grounded:false}),.3,{swing:'l'}],[P({grounded:false}),.3,{swing:'r'}],[P({grounded:false}),.2],[P(),.2,{zip:true}],[P(),.1,{hits:1}],[P(),.1,{hits:2,big:true}],[P(),.2,{dead:true}]]);
   const a=PlayerAnim.create(),shots=[];for(let i=0;i<4;i++)shots.push(PlayerAnim.shoot(a));
   const body=new Set(r.body.concat(shots.flatMap(s=>s.body.map(c=>c[0])))),arms=new Set(r.arms.concat(shots.flatMap(s=>s.arms.map(c=>c[0]))));
-  for(const c of body)assert.ok(c==='loco'||c in bodyClips,'body asked for '+c);
+  for(const c of body)assert.ok(c==='loco'||c in bodyClips||c in BODY.blends,'body asked for '+c);
   for(const c of arms)assert.ok(c in armsClips,'arms asked for '+c);
   // Played through real machines, nothing is refused.
   const bm=bodyMachine(),am=armsMachine();

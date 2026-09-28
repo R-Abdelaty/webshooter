@@ -189,7 +189,7 @@
       a.play(); a.enabled = false;
     });
     this.clipNames = Object.keys(tpl.clips);
-    this.machine = Rig.machine({ clips: durs, loops: e.loops, speeds: e.speeds, events: e.events, base: opts.base, layers: e.layers, mirrors: e.mirrors });
+    this.machine = Rig.machine({ clips: durs, loops: e.loops, speeds: e.speeds, events: e.events, base: opts.base, layers: e.layers, mirrors: e.mirrors, blends: e.blends });
     this.frame = 0; this.every = 1; this.onScreen = true;
     this.apply();
   }
@@ -204,6 +204,8 @@
   // Back to a base state at once, nothing else playing (Rig.reset), posed now.
   CharacterRig.prototype.reset = function (base) { Rig.reset(this.machine, base); this.frame = 0; this.apply(); };
   CharacterRig.prototype.setSpeed = function (v) { Rig.setSpeed(this.machine, v); };
+  // How much of a blend's first clip is in it (Rig.setBlend): the player's rise in the air.
+  CharacterRig.prototype.setBlend = function (name, k) { Rig.setBlend(this.machine, name, k); };
   CharacterRig.prototype.state = function () { return Rig.state(this.machine); };
   // A clip on its layer only (Rig.layer); see play.
   CharacterRig.prototype.layer = function (name, opts) {

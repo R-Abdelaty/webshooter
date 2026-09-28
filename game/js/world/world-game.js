@@ -109,7 +109,7 @@
     hudView = WorldHud.create(city, spots);
     // You: loaded now, so he's there by the time the city is.
     you = WorldPlayer.create(world);
-    you.load().then(function () { you.setMode(camMode().camera); PlayerAnim.resync(anim); });
+    you.load().then(function () { you.setMode(camMode().camera, camMode().cameraMotion); PlayerAnim.resync(anim); });
     applyTier();
     window.addEventListener('resize', function () { if (running) layout(); });
   }
@@ -378,7 +378,7 @@
     var c = camMode();
     if ($('camera-mode')) $('camera-mode').value = c.camera;
     if ($('camera-motion')) $('camera-motion').value = c.cameraMotion;
-    if (you) you.setMode(c.camera);
+    if (you) you.setMode(c.camera, c.cameraMotion);
   }
 
   function frame(now) {
