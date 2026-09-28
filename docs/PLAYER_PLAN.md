@@ -1167,3 +1167,145 @@ anything the next session must know._
   | `spiderman/anim_shimmy_r.fbx` | Right Shimmy (free hanging) [in place] | 1.4 s | 405 KB |
   | `spiderman/anim_climb_top.fbx` | Climbing To Top (up and over onto a standing pose) | 4.0 s | 673 KB |
   | `rhino/anim_throw.fbx` | Throw Object (picks it up and throws it) | 4.87 s | 706 KB |
+- 2026-09-28 — **Session P7 done: the RETRY bug is fixed, the Goblin's laser comes at you, and HARD is hard, proved by
+  bots.** 274 tests pass (263 old, some rewritten for the new rules, plus 11 new: the RETRY and `Rig.reset` tests, 5 in
+  `attacks.test.cjs` for the laser, volley, dive and standing still, 2 for the director and off-screen rules, 1 on the
+  stagger, and 2 bots in the new `game/tests/bots.test.cjs`). No CLASSIC file or test changed (`levels.js`, `combat.js`,
+  `villains.js`, `game.js`, `training.js`, `menu-aim.js`, `menu.js`, `audio.js`, the CSS, `game.test.cjs`). The planning
+  session's uncommitted Round 2 notes were committed first, on their own (`eb1fbc7`). The Round 2 Mixamo FBXs (climbs,
+  shimmies, the Rhino's throw) are still untracked: they're P8's and P10's. **Nothing is pushed.**
+  - **The RETRY bug, reproduced first.** In headless Chrome, driven with `cdp.cjs` and the P4/P5 helpers copied into this
+    session's scratchpad, I went down in all three fights. That covered dying standing, perched, on a swing line, in the
+    air, in each camera mode, twice in a row, and with synthetic wrist packets in EDGE TURN and DIRECT. Then I pressed RETRY.
+    - **The camera was never the problem:** in every case it was back at `player.y + EYE` on the INTRO card and after GO.
+    - **What was wrong was what the plan suspected: the two rigs kept their held `death`/`fp_death` shots.** On the INTRO
+      card after RETRY, the third-person body measured **0.58 m tall** (1.79 m before dying): it was lying on the roof,
+      next to a full health bar. In first person the hands were gone (slumped out of view), and on MED the body's shadow
+      lay flat. It only cleared on GO, when the new `PlayerAnim` asked the rigs for their base again. That lying body is
+      "the character's height sinks to the ground". (Screenshots: `r3_intro_nocard.png` before, `fix_third_1.png` after,
+      in the scratchpad.)
+    - **Fix, at the root.** `Rig.reset(m, base)` puts a machine back on a base at once and drops every one-shot (a held
+      one too), hit and layer. `CharacterRig.reset` does that and poses the model. `WorldPlayer.reset()` resets both rigs to
+      `PlayerAnim.BASE` (`loco`, `fp_idle`), and also the hang tilt and the line IK. `place()` calls it, so every new life
+      (RETRY, a new fight, roaming) starts clean. `place()` also now resets `lastState` (the landing dip) and the shake.
+      `PlayerCamera.slump(null)` is all zeros.
+    - **Tests.** A death is played through `PlayerAnim` into both rig machines. The test checks that a new `PlayerAnim`
+      alone leaves the death held (the bug), that the reset leaves no held shot on either rig, and that the new life's
+      first-person eye is at `player.y + EYE`. Plus a `Rig.reset` machine test. After the fix the page measured the body at
+      1.86 m on the INTRO card after RETRY, with both rigs on their base.
+  - **The laser now targets you.**
+    - **What it aims at.** `ctx.target` is new in `Fight.tick`: world-game.js passes your eye in first person, and your
+      head in third (or your chest, if the head is off the screen).
+    - **Tracking.** `GUN_TRACK` is 14/s (it was 2.5). The aim leads your velocity by the time until the rounds arrive
+      (`Attacks.lead`: `GUN_LEAD` 1, at most `GUN_LEAD_MAX` 4 m).
+    - **The lock** comes only in the wind-up's last `GUN_LOCK` 0.15 s, and the burst goes at the locked point.
+      `fight.attack.laser = { aim, k, locked }` is what attack-view.js draws.
+    - **The beam reaches you.** In first person it stops 0.6 m in front of the lens, where its dot is a small bright point
+      over the gun. world-game.js adds a red lens glare there (`laserGlare`), steady once locked. The off-screen chevron
+      shows while it charges.
+    - **Measured in the page:** the locked aim was 0 m from the eye in first person, and on the head in third.
+      `docs/reference`-style shots are `laser_pov_charge.png` and `laser_3p_locked.png` in the scratchpad.
+    - **Tests:** standing still in first person, the locked aim is within 1° of your eye (seen from the gun), and it locks
+      within a frame of 0.15 s before the burst. Walking steadily at 6 m/s, the burst hits. Turning back at the lock, it
+      misses.
+    - Each attack now carries its own wind-up length (`Attacks.windup(a)`, `a.tele`), which the clips, the sound, the ring
+      and the laser use.
+  - **HARD, reworked (`Difficulty.HARD`):**
+
+    | setting | P5 | now |
+    |---|---|---|
+    | cadence | 3–5 s | 1.6–2.8 s |
+    | breather | 0.8 s | 0.2 s |
+    | telegraph | 0.9 s | 0.65 s, plus `offScreen` 0.5 s when he starts it out of view |
+    | recover | 0.8 s | 0.6 s |
+    | invulnerable | 0.6 s | 0.4 s |
+    | firstAttack | 1.5 s | 1.2 s |
+    | stagger | 2 hits | 4 hits |
+    | director | none | 4 s |
+    | range | 40 m (Rhino 60) | glider 80, charge 60, leap 80 m |
+
+    `range` is now in HARD; `Fight.constants.ATTACK_RANGE`/`RANGES` are only the fallback.
+    - **The framework's restraint.** Off-screen attacks are allowed: a longer wind-up, the red chevron and the sound. A
+      second one from off the screen waits only until the first has landed (`ctx.inFlight`: his bombs, rounds or tentacle
+      still on their way). The old rule, never two in a row off-screen, waited until he was in view, so looking away
+      stopped him. **The director** (`Attacks.quiet`): 4 s with no attack and nothing in flight, and the next one starts at
+      once. It counts while he closes in from out of range too.
+    - **The stagger** now takes 4 hits. The web's 0.35 s cooldown lands at most 2 in an on-screen wind-up, so only an
+      off-screen one (1.15 s) can be staggered. A test pins that down. That is what the plan's numbers give: with good aim
+      his attacks are no longer all cancelled.
+  - **The Goblin's new moves** (`Attacks.MOVES.glider` = bomb, guns, volley, dive):
+    - **volley.** A bomb wind-up (the `attack` clip, the fizz), with the laser on from its start. At the strike he throws
+      2–3 bombs 0.3 s apart (each after the first is a quick re-throw clip), and at 0.9 s the burst goes down the locked
+      line.
+    - **dive.** Within 17 m, with a clear line, he cackles (his `roar`, sped up), then swoops at 24 m/s straight through
+      where your chest is, on 9 m past, levelling out 1.5 m up. He pulls out 1.5 m short of anything in the way.
+      - In his path (0.6 m) it does 28, knocks you off a line and throws you along his line.
+      - When it ends he takes up his circuit round you from wherever he is.
+      - Tests: it hits you standing, misses a 3 m sidestep, and never goes into a building.
+    - **Standing still.** Within 1.5 m of one spot on a roof (or perched) for 2 s, his next attack comes at once, and it's
+      a volley or a bomb (`Fight` `s.still`).
+    - **Every move keeps a telegraph.** Each has its red warning line (`Hud` `WARN`, held until it lands for the volley and
+      the dive), its wind-up sound, and the chevron through the part that's still coming.
+  - **Balanced by what the bots measured.** First, how the bot runs:
+    - It is a node test: `bots.test.cjs` runs `Fight.tick` with you in it, a stand-in body, and your eye as the guns'
+      target.
+    - The human-pace bot shoots every 1.2 s with 30% missed. It moves only a reaction time (0.25–0.45 s) after a wind-up (a
+      sidestep of 0.3–0.9 s). When the laser locks (its beep) it changes what it's doing: it stops if moving, and steps
+      aside if not. It never shoots bombs down.
+    - At first it won **1 of 40**. At 120 m/s the rounds landed about 0.13 s after the lock, which no reaction can answer,
+      so 87% of bursts hit.
+    - Changed:
+      - `GUN_SPEED` 45 m/s: bolts you can see coming, and the lock can be answered. The lock beep now sounds at the real
+        lock.
+      - A bomb's blast reaches `BLAST_R` 4 m (was 5), `BLAST_INNER` 1.
+      - The dive goes for where you are (`DIVE_LEAD` 0; a lead punished the sidestep everyone makes), with `DIVE_R` 0.6.
+      - Tried and dropped: less bomb lead (worse: it lands where you stop), fewer bombs in a volley, and a longer lock
+        (the plan says about 0.15 s).
+    - Each kind of attack now lands on the bot about a quarter of the time. **Measured:**
+      - **Passive** (node, 10 seeds, fight proper): Goblin 6.3–9.4 s (median 8.3), Rhino 14.2 s, Venom 7.6–8.4 s.
+        **In the page**, counted from GO: Goblin 10.9 s, Rhino 18.9 s (four quakes), Venom 20.9 s.
+      - **Human pace vs the Goblin** (node, 40 seeds): **won 28/40**. HP left in the wins: 1 4 5 5 6 8 12 13 15 19 20 21
+        25 30 32 40 42 43 43 44 45 46 47 58 62 80 100 100 (**median 32; under 60 in 24 of 28**). Fights took 19–34 s. What
+        hit it, over all 40: 85 bombs, 50 bursts, 17 dives.
+      - **In the page** (real clicks through `WorldGame.fire`, real A/D keys, first person, 5 seeds): **won 5/5** with 16,
+        5, 34, 44 and 12 HP left. There the 30% aimed off don't count as missed shots: `Swing.decide` turns a click aimed
+        well off him into a line or a release, so they cost time instead.
+  - **Intro cards and README.** All three cards say he is out to kill you. The Goblin's says to change direction when the
+    laser locks, and mentions the volleys, the dive and standing still. "Two hits while he winds up stop him" is gone. The
+    README's fight section describes all of it. A test checks the cards.
+  - **Also fixed:** rounds and bombs outlived you. When one of them killed you, `stopAttacks` emptied the list inside the
+    `filter` that then wrote the rest back.
+  - **Verified** in headless Chrome from `file://` too (the Goblin fight: models, bomb, volley, guns; no console errors
+    beyond the r159 deprecation). Checked by eye in screenshots:
+    - the volley: two bombs in the air over the charging glare, with "Bombs and guns · keep moving";
+    - the dive: the Goblin swooping, with "He's diving at you";
+    - the INTRO cards (the Goblin's longer one still fits).
+  - **Not verified.**
+    - The real wrist shooter. **Ask the user to play all three fights with it**, in both camera modes. In particular: can
+      the laser's lock be read and answered? Are dives and volleys fair? Is it now hard enough?
+    - **MED at 60 fps on the Intel UHD.** Headless Chrome here now always gets the **RTX 4070** (even with
+      `--force_low_power_gpu`): Windows probably sends Chrome to the NVIDIA GPU now, the user's step before P11. I didn't
+      touch Windows settings. On the RTX, the Goblin fight with his attacks going ran at 232–240 fps (capped) with 77–101
+      draw calls. P4 measured 71–96 calls there. Nothing new draws beyond more bombs (the same pool of 4), more tracers
+      and a 2D glare.
+    - The new sounds (the dive's rush, the volley's fizz and charge, the moved lock beep) by ear.
+    - Pointer lock.
+  - **Known, and worth a look.**
+    - The Rhino and Venom get the new pace, the off-screen attacks, the director and the stagger, but not new movement:
+      that is P8. A passive player dies to the Rhino only through quakes (14 s in node, 19 s in the page).
+    - Venom close up was the one view near 60 fps on the Intel UHD in P5. Attacks now come more often, but nothing new is
+      drawn in his fight.
+    - The Goblin only dives when you're within 17 m of him; he circles at 12–20 m, so about half the time.
+  - **Constants to tune.**
+    - `Difficulty.HARD`, including `offScreen`, `director` and `range`.
+    - `Attacks.constants`: `GUN_TRACK`, `GUN_LOCK`, `GUN_LEAD`, `GUN_LEAD_MAX`, `GUN_SPEED`; `BLAST_R`, `BLAST_INNER`;
+      `VOLLEY_N`, `VOLLEY_EVERY`, `VOLLEY_CHARGE`; `DIVE_*`; `STILL_R`, `STILL_T`; `PREFER.glider`.
+    - attack-view.js `LASER` (`lens`, `front`, `lensDot`), and the glare in world-game.js `laserGlare`.
+  - **For P8.**
+    - A new move still needs what P4's note lists. Two more things matter now:
+      - While a strike's projectile is in the air, it counts as `inFlight` in `attacking()`. Add a thrown car or chunk
+        there, or the off-screen rule and the director won't see it.
+      - `allowed()` returning `[]` holds him even against the director. That is how the Rhino waits when he can't reach
+        you, so P8's "never idle for more than 2 s within 80 m" has to come from giving him a move.
+    - `bots.test.cjs`'s `run(enc, bot, seed)` and `human()` are reusable. Add the Rhino and Venom human-pace runs to it,
+      and give the bot a street or roof walk, as their fights need.
