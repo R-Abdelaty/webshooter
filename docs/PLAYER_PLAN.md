@@ -1319,3 +1319,103 @@ anything the next session must know._
     PAUSED while on a swing line keeps the line; RETRY is unchanged. Every other way out of a fight (RETRY, NEXT, TRAINING,
     MENU then START or CONTINUE) already went through `place()`. There is no node test for this one: it is page glue in
     world-game.js, which the tests don't load; the logic it calls (`Rig.reset`, `PlayerCamera.slump(null)`) is tested.
+- 2026-09-28 — **Session P9 done: the arms are alive in the air, in first person, and the body blends and leans in
+  third.** 310 tests pass on HEAD plus this session (295 old, two P2 assertions updated for the new `air` blend, plus 15
+  in the new `game/tests/air.test.cjs`). No CLASSIC file or test changed. **Nothing is pushed.**
+  - **P8 is unfinished in the working tree, and none of it is committed here.** P8's logic is committed (`28943c7`), but its
+    render side (`attack-view.js`, `attacks.js`, `fight.js`, `life.js`, `villain-view.js`, and one line each in
+    `index.html` and `world-game.js`) is uncommitted, and it has no Status entry yet. With those edits in place, 6 Rhino
+    tests fail (throw, debris, stagger, quake reach, the throw clip, the heave cues). They fail the same way on HEAD plus
+    P8's edits alone, and all pass on HEAD, so it isn't P9. P9's own edits to `index.html` (the `arm-motion.js` tag) and
+    `world-game.js` (two `setMode` calls) were committed as those hunks only, and P8's stay in the working tree. P9 was
+    tested and checked in the page from a clean worktree of HEAD plus P9. The Round 2 climb FBXs are still untracked
+    (P10's).
+  - **New first-person clips** (`spiderman.py`, camera space, eased Bezier keys, per-bone delays, no flips). Only
+    `spiderman_arms.glb` was rebuilt (`build-models.cjs --blender --sheets --only spiderman`). The body's rebuild was
+    thrown away again (its decimate isn't repeatable), so `spiderman.glb` and its sheet are unchanged.
+    - `fp_air` (2.4 s loop): arms out for balance, higher and wider than idle, palms down, fingers spread; a slow float,
+      the hands out of step, the fingers flexing between spread and relaxed.
+    - `fp_fall_fast` (0.67 s loop): swept back into the wind. The wrists are low at the corners, the backs of the hands
+      angle back and down, fingers together (a new `flat` grip), with a quick shiver. It took three tries: straight
+      back, the hands are off screen.
+    - `fp_jump` (0.53 s): the hands drop and draw back, drive up past the face, and end in the air pose.
+    - `fp_land` (0.57 s): from the air pose, the palms go down and forward, take the weight, and come back to idle.
+    - `fp_release_reach_l`/`_r` (0.73 s, layer clips on `arm_l`/`arm_r`): the free hand, from low on the swing
+      (`HANG_FREE`), reaches up and ahead, open, for the next line, then settles into the air pose. The plan named one
+      `fp_release_reach`; like `fp_release_*`, each hand needs its own.
+    - `fp_perch_idle` (4 s loop): both hands flat on the ledge, just in view at the bottom, the weight shifting.
+    - `fp_release_l`/`_r` now end in the air pose rather than idle (you're in the air after letting go).
+    - Every air pose keeps its wrists inside the 75° view at 16:9 (`|y| < .77 |z|`); the first drafts of `fp_land`,
+      `fp_perch_idle` and `fp_fall_fast` didn't, and showed only fingertips.
+    - Sheet: `docs/reference/clips/spiderman_arms.png` (18 clips). `blend_grip` now takes grip dicts as well as names.
+  - **Manifest.** The arms' `loops` gain `fp_air`, `fp_fall_fast` and `fp_perch_idle`, and their layers gain the reaches.
+    The body gains **`blends.air`**: `jump` held at 0.65 s (just after take-off, stretched up) mixed with the `fall` loop.
+    `manifest.js` was regenerated (`embed-models.cjs bomb`; `bomb.js` came out byte-identical).
+  - **Rig** (`rig.js`, tested). **Blends** are base states of two clips: `a` held at `at` and `b` running, mixed by
+    `Rig.setBlend(m, name, k)` (`CharacterRig.setBlend`). `validate`/`check` cover them. **`play(name, {stop: true, fade})`**
+    fades a layer clip out early, so a hand that was still reaching lets go of its reach when it takes the new line.
+    `Rig.stop` does the fading; `play` always returns the clip name, so nothing is logged as missing.
+  - **`PlayerAnim`** (P9 part):
+    - In the air (jump or fall) the arms' base is `fp_air`, or `fp_fall_fast` past `FAST_VY` −13 m/s. They stay swept
+      back until the fall slows past `SLOW_VY` −9.5, so they don't flicker between the two.
+    - A jump plays `fp_jump` over `fp_air`; a landing plays `fp_land` over idle or run (`FP_LAND_RUN` 1.7× when running on).
+    - Letting go of a line plays that hand's `fp_release_*` and, unless you went into a zip or a perch, the other hand's
+      `fp_release_reach_*`. Taking a line stops that hand's reach.
+    - A perch plays `fp_perch_idle`.
+    - The body's base in the air is `air`, and `out.rise` (0 at `RISE_VY` −4 m/s, 1 at +5) mixes it.
+    - `out.lean` leans him toward his velocity across the ground in the air (`LEAN_PER` .03 rad per m/s, at most
+      `LEAN_MAX` .35, eased), and back upright on the ground, a line or a perch.
+  - **`world/arm-motion.js` (`ArmMotion`, UMD, tested), the "alive" layer.** `step(state, {yaw, pitch, vel, land, idle,
+    line, motion}, dt)` returns the arms' offset and turn about the eye, each hand's own offset, and each hand's forearm
+    roll and finger curl.
+    - **Inertia.** A damped spring (`W` 10, `Z` .5, stepped at 120 Hz whatever the frame rate) toward a lag of
+      `TURN_LAG` .02 rad per rad/s of turn, with a roll, and `ACC_LAG` 1.6 mm per m/s² of acceleration. Free fall
+      floats the arms up a little.
+    - **Landing dip.** A kick of its own on a spring: `DIP_PER` 4.5 mm per m/s over 3 m/s, at most 6.5 cm.
+    - **Wind.** Forearm roll and finger curl from smooth noise, from 7 m/s and full at 28, turning faster with speed.
+    - **Counter-swing.** The free arm on a line: back and down behind the anchor's vertical, ahead and up past it,
+      by the grip's offset along your travel (`phase`), up to 5.5 cm.
+    - **Breath.** A slow sway while you stand still or perch.
+    - **Limits.** Everything is clamped (`POS_MAX` 3 cm, `ROT_MAX` .07 rad, and the rest). REDUCED keeps `REDUCED` .35 of
+      all of it. `keepClear` scales the layer down so no hand comes nearer the view's middle than `CLEAR` .3 rad, or
+      further in than its clip put it (the thwip sits inside that by design).
+  - **Render (`player-view.js`).**
+    - First person, after the clip and the line's IK: the arms' root turns and moves about the eye, the free hand's
+      offset goes through the same two-bone IK, the forearms roll and the fingers curl. The flutter is undone before the
+      next frame's clip.
+    - `setMode(camera, cameraMotion)` now takes CAMERA MOTION too; `world-game.js` passes it in its two `setMode` calls.
+    - `reset()` also resets the layer (a new life starts still).
+    - Third person: `setBlend('air', rise)`, and the lean through the same tilt the hang uses. That tilt now pivots at
+      his middle (`LEAN_PIVOT` 1 m) off a line and at the hands (`HANG`) on one, eased between the two.
+  - **Verified** in headless Chrome (the driver is `cdp.cjs` from P8, the clean worktree served from this session's
+    scratchpad, and P3's `chain.js` for swinging):
+    - **A 45 m drop:** `fall|fp_air` → `fp_fall_fast` at −13.3 m/s → `land|fp_land` → idle, with the body on `air`
+      throughout and a 4 cm dip on touching down.
+    - **A jump:** `fp_jump` over `fp_air`, then `fp_land`.
+    - **Chained swings**, hand over hand: `fp_swing_hold_l` → let go (`fp_release_l` + `fp_release_reach_r`) →
+      `fp_fall_fast` → the next line on the right hand → the same the other way round.
+    - **Perched:** `fp_perch_idle`.
+    - **Third person:** `rise` .95 → 0 as the climb turns to a fall, leaning up to 11°.
+    - **Turning at 2 rad/s:** the arms lag 0.043 rad (FULL) and 0.015 (REDUCED), and settle to 1e-5.
+    - **The Goblin fight starts** with the layer reset (arms' root at the eye) and the eye at `player.y + EYE`.
+    - The console showed only the r159 deprecation warning. `ArmMotion` costs about 16 µs a frame in node.
+    - Shots are in this session's scratchpad (`fast2.png` the fast fall, `sw3.png` letting go, `perch1.png`,
+      `third1.png`, `jump2.png` the landing).
+  - **Not verified.**
+    - By eye in a real window: the float, flutter and sway are small, and stills don't show motion. **Ask the user to jump
+      off a roof, swing a few lines and turn fast in first person, with CAMERA MOTION on Full and Reduced.**
+    - The model viewer's `,`/`.` should list the new `fp_` clips (they are in the model), but I didn't step through them.
+    - MED at 60 fps on the Intel UHD (headless here gets the RTX, as in P7). Nothing new is drawn; the only cost is the
+      per-frame IK and bone writes.
+    - The real wrist shooter; pointer lock.
+  - **Constants to tune by eye.**
+    - `ArmMotion.constants`: all of them, especially `TURN_LAG`, `ACC_LAG`, `W`/`Z`, `DIP_PER`, `FLUTTER`/`FINGERS`,
+      `COUNTER`, `REDUCED` and `CLEAR`.
+    - `PlayerAnim.constants`: `FAST_VY`, `SLOW_VY`, `RISE_VY`, `FP_LAND_RUN`, `LEAN_PER`, `LEAN_MAX`, `LEAN_EASE`.
+    - `player-view.js`: `LEAN_PIVOT`, `PIVOT_EASE`.
+    - `spiderman.py`: `AIR`, `FALL_FAST`, `FLAT`, `PUSH`, `DRIVE`, `BRACE`, `REACH`, `LEDGE`, and the loops' amplitudes.
+    - The manifest's `blends.air.at`.
+  - **For P10.** The climb clips go into `spiderman.glb`, so that rebuild can't be thrown away as P1, P2 and P9 did; check
+    the lens-frame normals after it. `fp_climb_*` and `fp_wall_idle` belong in `spiderman.py` next to the P9 poses (mind the
+    view limits above). `ArmMotion` has no wall case: give climbing `idle: true`, or its own input, so the hands planted
+    by IK aren't pushed off the wall by the inertia layer. Turning it off while a hand is planted is one line in `liven`.
