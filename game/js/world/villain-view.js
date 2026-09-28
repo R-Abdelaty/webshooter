@@ -245,7 +245,7 @@
       var A = it.rig.entry.attacks, out = {};
       if (!A) return out;
       function at(bone) { v3.setFromMatrixPosition(bone.matrixWorld); return { x: v3.x, y: v3.y, z: v3.z }; }
-      var hand = A.bomb && A.bomb.bone && it.rig.bone(A.bomb.bone);
+      var held = A.bomb || A.throw, hand = held && held.bone && it.rig.bone(held.bone);
       if (hand) out.hand = at(hand);
       var prop = A.guns && (A.guns.prop === 'glider' ? it.glider : null);
       if (prop && prop.root.visible) {

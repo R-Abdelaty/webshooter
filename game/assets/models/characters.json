@@ -55,7 +55,15 @@
       "loops": ["idle", "idle_fidget", "run", "walk"],
       "speeds": { "walk": 1.7, "run": 5.5 },
       "shoulders": ["mixamorig:LeftArm", "mixamorig:RightArm"],
-      "notes": "Clips are keyed at 25 fps (his source rate); durations in the file are right in seconds. run, walk, skid, turn_l/r, dodge_l/r, hit, hit_big, stun and defeat are retargeted from Venom (built the same way as Venom's own). idle, idle_fidget, entrance (drops in from above, lands), roar (flex) and attack (charge wind-up) are his own. All clips are in place except defeat, which falls back ~1 m.",
+      "events": {
+        "throw": { "release_frame": 61, "fps": 25, "release_seconds": 2.4, "grab_seconds": 1.0,
+          "what": "grab_seconds: both hands down at the ground, tearing the debris up; release: the right hand flings it, fastest going forward (16 m/s, 2.5 m up at his real size)" }
+      },
+      "attacks": {
+        "_about": "Where his thrown debris is held and leaves from (docs/PLAYER_PLAN.md P8): `bone`, from throw's grab to its release. villain-view.js samples it into fight.body.points.hand.",
+        "throw": { "bone": "mixamorig:RightHand" }
+      },
+      "notes": "Clips are keyed at 25 fps (his source rate); durations in the file are right in seconds. run, walk, skid, turn_l/r, dodge_l/r, hit, hit_big, stun and defeat are retargeted from Venom (built the same way as Venom's own). throw is Mixamo's Throw Object (X Bot), retargeted by name: he crouches, tears something up (grab 1.0 s), winds up and hurls it (release 2.4 s), then straightens (4.8 s). idle, idle_fidget, entrance (drops in from above, lands), roar (flex) and attack (charge wind-up) are his own. All clips are in place except defeat, which falls back ~1 m; throw lunges ~1.2 m forward into the release and steps back to the spot.",
       "weakSpots": [
         { "name": "CHEST", "bone": "mixamorig:Spine2", "offset": [0, 0.16, -0.04], "radius": 0.34 },
         { "name": "HEAD", "bone": "mixamorig:Head", "offset": [0, 0.09, 0.14], "radius": 0.19 },

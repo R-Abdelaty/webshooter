@@ -310,7 +310,7 @@ def export(path, objects, webp_quality=88, sampled=False):
 
 # ---------------------------------------------------------------- review
 
-def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, props=(), fov=None, aspect=16 / 9):
+def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, props=(), fov=None, aspect=16 / 9, only=None):
     """Re-import an exported GLB and render each clip at a few frames into one image.
 
     Rendering from the exported file (not the working scene) is the point: it proves
@@ -324,7 +324,7 @@ def contact_sheet(glb, out_png, height, frames_per_clip=3, cell=200, cols=9, pro
     objs = imported(bpy.ops.import_scene.gltf, filepath=glb)
     arm = next(o for o in objs if o.type == "ARMATURE")
     clear_nla(arm)
-    acts = sorted(bpy.data.actions, key=lambda a: a.name)
+    acts = sorted((a for a in bpy.data.actions if only is None or a.name in only), key=lambda a: a.name)
     for p in props:
         pobjs = imported(bpy.ops.import_scene.gltf, filepath=p)
         parm = next((o for o in pobjs if o.type == "ARMATURE"), None)

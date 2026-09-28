@@ -158,6 +158,112 @@ for n in ("hit", "dodge_l", "dodge_r"):
 for n in ("hit", "dodge_l", "dodge_r"):
     retarget(n, [bpy.data.actions["venom_" + n]])
 
+
+# --- throw: Mixamo's "Throw Object", downloaded on X Bot (docs/PLAYER_PLAN.md P8) ---------
+# X Bot has the same mixamorig: names as his rig, so bones map by name, with the same
+# rest-pose correction (Q) and arm space as the Venom clips. The file is 30 fps and his
+# clips are 25 (the scene's rate since his FBX came in), so it's sampled every 1.2 of its
+# frames to keep its timing. It has no in-place option: he steps back to crouch and pick
+# the thing up, then lunges ~1.2 m into the throw and steps back to where he started. The
+# hips' drift from first frame to last is taken out (it is ~2 cm), so the clip starts and
+# ends on the spot; the lunge in between stays, because it plants his feet.
+XCHILD = {"Hips": "Spine", "Spine": "Spine1", "Spine1": "Spine2", "Spine2": "Neck", "Neck": "Head"}
+for s_ in ("Left", "Right"):
+    XCHILD.update({s_ + "Shoulder": s_ + "Arm", s_ + "Arm": s_ + "ForeArm", s_ + "ForeArm": s_ + "Hand",
+                   s_ + "Hand": s_ + "HandMiddle1", s_ + "UpLeg": s_ + "Leg", s_ + "Leg": s_ + "Foot",
+                   s_ + "Foot": s_ + "ToeBase"})
+    for f in ("Thumb", "Index", "Middle", "Ring", "Pinky"):
+        for i in (1, 2):
+            XCHILD[s_ + "Hand%s%d" % (f, i)] = s_ + "Hand%s%d" % (f, i + 1)
+XOUT = {"mixamorig:LeftArm": OUTWARD["upperarm_l"], "mixamorig:RightArm": OUTWARD["upperarm_r"]}
+
+
+def retarget_mixamo(name, path):
+    """A Mixamo download (X Bot) onto his rig, by bone name. Returns per-frame hand heights."""
+    fps = bpy.context.scene.render.fps
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.fbx(filepath=path)
+    xobjs = [o for o in bpy.data.objects if o not in before]
+    step = bpy.context.scene.render.fps / fps           # source frames per target frame
+    bpy.context.scene.render.fps = fps
+    X = next(o for o in xobjs if o.type == "ARMATURE")
+    xact = X.animation_data.action
+    clear_nla(X); rest(X); rest(T)
+    names = [b.name for b in X.data.bones if b.name in T.data.bones]
+    X_rest = {b: wq(X, b) for b in names}
+    T_r = {b: wq(T, b) for b in names}
+    XQ = {}
+    for b in names:
+        c = "mixamorig:" + XCHILD.get(b[len("mixamorig:"):], "")
+        if c in X.data.bones and c in T.data.bones:
+            XQ[b] = (whead(T, c) - whead(T, b)).normalized().rotation_difference((whead(X, c) - whead(X, b)).normalized())
+        else:
+            XQ[b] = Quaternion()
+    x_hips0, t_hips = whead(X, "mixamorig:Hips"), whead(T, "mixamorig:Hips")
+    r = t_hips.z / x_hips0.z
+    use_action(X, xact)
+    f0, f1 = xact.frame_range
+    frames, hips, f = [], [], f0
+    while f <= f1 + 1e-4:
+        bpy.context.scene.frame_set(int(math.floor(f)), subframe=f - math.floor(f))
+        bpy.context.view_layer.update()
+        pose_arm, snap = {}, {}
+        for tb in order:
+            bone = T.data.bones[tb]
+            rest_rel = (bone.parent.matrix_local.inverted() @ bone.matrix_local) if bone.parent else bone.matrix_local
+            A = (pose_arm[bone.parent.name] @ rest_rel) if bone.parent else rest_rel
+            if tb not in X_rest:
+                pose_arm[tb] = A
+                continue
+            xpb = X.pose.bones[tb]
+            Rt = ((X.matrix_world @ xpb.matrix).to_quaternion().normalized() @ X_rest[tb].inverted()) @ XQ[tb] @ T_r[tb]
+            if tb in XOUT:
+                Rt = XOUT[tb] @ Rt
+            basis_rot = A.to_quaternion().inverted() @ (Tw_rot.inverted() @ Rt)
+            loc = Vector()
+            if tb == "mixamorig:Hips":
+                want_w = t_hips + (X.matrix_world @ xpb.head - x_hips0) * r
+                hips.append(want_w)
+                loc = A.to_3x3().inverted() @ (Tw.inverted() @ want_w - A.translation)
+            pose_arm[tb] = A @ (Matrix.Translation(loc) @ basis_rot.to_matrix().to_4x4())
+            snap[tb] = (loc, basis_rot, Vector((1, 1, 1)))
+        frames.append(snap)
+        f += step
+    n = len(frames)
+    drift = hips[-1] - hips[0]; drift.z = 0
+    to_loc = T.data.bones["mixamorig:Hips"].matrix_local.to_3x3().inverted() @ Tw.to_3x3().inverted()
+    for i, snap in enumerate(frames):
+        loc, rot, scl = snap["mixamorig:Hips"]
+        snap["mixamorig:Hips"] = (loc - to_loc @ (drift * (i / max(1, n - 1))), rot, scl)
+    use_action(X, None)
+    remove(xobjs)
+    bpy.data.actions.remove(xact)
+    act = bake(T, name, [(i + 1, s) for i, s in enumerate(frames)])
+    reach = max((h - hips[0]).length for h in hips)
+    log("retargeted", name, "from", os.path.basename(path), n, "frames at", fps, "fps; drift %.2f m, lunge %.2f m" % (drift.length, reach))
+    return act
+
+
+def throw_events(act):
+    """The pick-up (right hand lowest) and the release (right hand fastest, going forward)."""
+    use_action(T, act)
+    f0, f1 = act.frame_range
+    fps = bpy.context.scene.render.fps
+    hand, feet_ = [], []
+    for f in range(int(f0), int(f1) + 1):
+        bpy.context.scene.frame_set(f)
+        hand.append(T.matrix_world @ T.pose.bones["mixamorig:RightHand"].head)
+    use_action(T, None)
+    grab = min(range(len(hand)), key=lambda i: hand[i].z)
+    fwd = [(hand[i + 1] - hand[i]).dot(FWD) * fps for i in range(len(hand) - 1)]
+    rel = max(range(grab, len(fwd)), key=lambda i: fwd[i]) + 1
+    log("throw: grab at frame", grab + 1, "(hand %.2f m up), release at frame" % hand[grab].z, rel + 1,
+        "(%.1f m/s forward, hand %.2f m up)" % (fwd[rel - 1], hand[rel].z), "of", len(hand))
+    return grab, rel
+
+
+throw_events(retarget_mixamo("throw", os.path.join(DIR, "anim_throw.fbx")))
+
 # his own clips. The "MaleBig_Entry" drops in from above: his entrance.
 rename(own["Anim_Rhino_Shell"], "idle")
 rename(own["Anim_Rhino_Shell_Fidget"], "idle_fidget")
