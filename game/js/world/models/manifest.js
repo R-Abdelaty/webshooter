@@ -459,6 +459,14 @@ window.CharacterManifest = {
    "mirrors": {
     "shoot_l": "shoot"
    },
+   "blends": {
+    "air": {
+     "a": "jump",
+     "at": 0.65,
+     "b": "fall",
+     "note": "In the air (P9): the jump just after take-off (legs pushing, arms up) mixed with the fall by how fast he rises (PlayerAnim out.rise, CharacterRig.setBlend)."
+    }
+   },
    "wrists": {
     "l": {
      "bone": "mixamorig:LeftHand",
@@ -607,7 +615,10 @@ window.CharacterManifest = {
     "fp_idle",
     "fp_run",
     "fp_swing_hold_l",
-    "fp_swing_hold_r"
+    "fp_swing_hold_r",
+    "fp_air",
+    "fp_fall_fast",
+    "fp_perch_idle"
    ],
    "events": {
     "fp_shoot_l": {
@@ -671,7 +682,8 @@ window.CharacterManifest = {
      ],
      "clips": [
       "fp_shoot_l",
-      "fp_release_l"
+      "fp_release_l",
+      "fp_release_reach_l"
      ]
     },
     "arm_r": {
@@ -703,11 +715,12 @@ window.CharacterManifest = {
      ],
      "clips": [
       "fp_shoot_r",
-      "fp_release_r"
+      "fp_release_r",
+      "fp_release_reach_r"
      ]
     }
    },
-   "notes": "The arms, hands and web shooters of spiderman.glb (17k triangles), on the same skeleton, in camera space: add the root to the camera as it is. The cut runs across the chest and back, behind the eye, so it is never in view. Poses were framed for a 75 degree vertical FOV at 16:9 and nothing flips or spins. fp_idle (3 s) and fp_run (0.53 s, one stride cycle, as long as run) are loops for both arms. fp_shoot_l/r (0.37 s) drive only the shooting arm (layers; the build strips the rest), snapping into the thwip pose at the event: palm up (the forearm turned over), the wrist snapped back so the fingers point down and the web shooter faces the target, index and pinky straight, middle and ring curled, thumb out, then recoil and return. fp_swing_hold_l/r loop the named hand raised in a fist on the line (the runtime IK-aims it at the anchor) and the other low. fp_release_l/r drive only that arm: the fist opens and drops back to idle. fp_zip (0.6 s, hold the end) hauls the line in with both fists. fp_hit (0.43 s) flinches both forearms up before the face. fp_death (1 s, hold the end) slumps both arms out of view."
+   "notes": "The arms, hands and web shooters of spiderman.glb (17k triangles), on the same skeleton, in camera space: add the root to the camera as it is. The cut runs across the chest and back, behind the eye, so it is never in view. Poses were framed for a 75 degree vertical FOV at 16:9 and nothing flips or spins. fp_idle (3 s) and fp_run (0.53 s, one stride cycle, as long as run) are loops for both arms. fp_shoot_l/r (0.37 s) drive only the shooting arm (layers; the build strips the rest), snapping into the thwip pose at the event: palm up (the forearm turned over), the wrist snapped back so the fingers point down and the web shooter faces the target, index and pinky straight, middle and ring curled, thumb out, then recoil and return. fp_swing_hold_l/r loop the named hand raised in a fist on the line (the runtime IK-aims it at the anchor) and the other low. fp_release_l/r drive only that arm: the fist opens and drops back into the air pose. fp_release_reach_l/r (0.73 s, P9) drive only the named arm, the free one as a line is let go: from low on the swing it reaches up and ahead, open, for the next line, then settles into the air pose. fp_zip (0.6 s, hold the end) hauls the line in with both fists. fp_hit (0.43 s) flinches both forearms up before the face. fp_death (1 s, hold the end) slumps both arms out of view. In the air (P9): fp_air (2.4 s loop) holds the arms out for balance, palms down and fingers spread, floating; fp_fall_fast (0.67 s loop) sweeps them back into the wind, fingers together, shivering; fp_jump (0.53 s) loads and drives the hands up into the air pose; fp_land (0.57 s) takes the landing on the palms and comes back to idle; fp_perch_idle (4 s loop) has both hands flat on the ledge, shifting weight."
   }
  }
 };

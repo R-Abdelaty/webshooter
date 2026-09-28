@@ -489,7 +489,7 @@ SPREAD = {"Index": 6, "Middle": 0, "Ring": -5, "Pinky": -10}     # fanned a litt
 
 
 def blend_grip(g1, g2, t):
-    g1, g2 = GRIPS.get(g1, g1), GRIPS.get(g2, g2)
+    g1, g2 = (GRIPS[g] if isinstance(g, str) else g for g in (g1, g2))
     return {k: tuple(a + (b - a) * t for a, b in zip(g1[k], g2[k])) for k in g1}
 
 
@@ -644,6 +644,24 @@ ZIP_BACK = (dict(w=(.06, -.2, -.2), elbow=(.4, -1, .3), f=(-1, .2, 0), n=(0, -.5
             dict(w=(.03, -.28, -.12), elbow=(.4, -1, .3), f=(-1, .2, 0), n=(0, -.5, -1), grip="fist"))
 GUARD = dict(w=(.11, -.08, -.24), elbow=(.5, -1, 0), f=(-.3, .9, -.2), n=(-.2, .1, -1), grip="loose")
 SLUMP = dict(w=(.33, -.78, -.12), elbow=(.3, -1, .3), f=(0, -1, -.3), n=(-1, 0, 0), grip="relaxed")
+# In the air (Session P9). A hand is on screen while its wrist is within the 75 degree view
+# (|y| < .77 |z|, |x| < 1.36 |z| at 16:9), so every air pose keeps the hands in the lower corners.
+# AIR: arms out for balance, higher and wider than idle, palms down, fingers spread and out.
+AIR = dict(w=(.29, -.13, -.28), elbow=(.9, -.5, .2), f=(.45, .12, -1), n=(-.1, -1, -.1), grip="open", clav=(6, 0))
+# FALL_FAST: swept back into the wind - elbows up and out, hands low at the corners with the
+# fingers together, trailing back and out.
+FLAT = {"Index": (2, 3, 0), "Middle": (2, 3, 0), "Ring": (4, 4, 0), "Pinky": (6, 5, 0), "Thumb": (0, 4, 6, 0)}
+GRIPS["flat"] = FLAT
+FALL_FAST = dict(w=(.22, -.155, -.32), elbow=(.7, -.6, .45), f=(.35, -.6, .7), n=(-.3, -1, .05), grip="flat", clav=(10, -8))
+# The jump: the hands drop and draw back as the legs load, then drive up past the face.
+PUSH = dict(w=(.25, -.33, -.2), elbow=(.4, -1, .5), f=(-.1, -.2, -1), n=(-1, -.2, .1), grip="loose")
+DRIVE = dict(w=(.21, -.07, -.3), elbow=(.5, -1, .1), f=(-.15, .85, -.5), n=(-.85, .1, -.4), grip="loose", clav=(12, 6))
+# The landing: palms down and forward as if onto the ground ahead, taking the weight.
+BRACE = dict(w=(.23, -.2, -.32), elbow=(.6, -1, .2), f=(-.1, -.3, -1), n=(0, -1, .3), grip="open")
+# Reaching ahead for the next line after letting go: the free hand up and forward, open.
+REACH = dict(w=(.15, -.03, -.31), elbow=(.7, -.7, .15), f=(-.35, .8, -.5), n=(-.5, -.2, -.85), grip="open", clav=(18, 12))
+# Perched: both hands flat on the ledge in front, fingers forward, just in view at the bottom.
+LEDGE = dict(w=(.19, -.2, -.32), elbow=(.6, -1, .1), f=(-.05, -.35, -1), n=(0, -1, .3), grip="open")
 
 loop_clip("fp_idle", 90, lambda t: (moved(IDLE, (.004 * math.sin(t + .6), .01 * math.sin(t), .005 * math.cos(t))),
                                      moved(IDLE, (-.004 * math.sin(t + 1.1), .01 * math.sin(t + .5), .005 * math.cos(t + .5)))), step=5)
@@ -662,7 +680,11 @@ for side, other in (("r", "l"), ("l", "r")):
     hold = lambda t: (moved(HOLD, (.006 * math.sin(t), .01 * math.sin(2 * t), .006 * math.cos(t))),
                       moved(HANG_FREE, (.01 * math.sin(t + 1), .015 * math.sin(t + .4), .01 * math.cos(t))))
     loop_clip("fp_swing_hold_" + side, 60, (lambda t: hold(t)) if side == "r" else (lambda t: hold(t)[::-1]), step=5)
-    keyed("fp_release_" + side, [(1, one(HOLD)), (4, one(LET_GO)), (8, one(lerp_pose(LET_GO, IDLE, .5))), (15, one(IDLE))], 15)
+    # Let go: the fist opens and drops back into the air pose (you're in the air after it).
+    keyed("fp_release_" + side, [(1, one(HOLD)), (4, one(LET_GO)), (8, one(lerp_pose(LET_GO, AIR, .5))), (15, one(AIR))], 15)
+    # ...while the other hand, low on the swing (HANG_FREE), reaches ahead for the next line (P9).
+    keyed("fp_release_reach_" + side, [(1, one(HANG_FREE)), (7, one(REACH)), (13, one(moved(REACH, (.005, .012, -.005)))),
+                                       (22, one(AIR))], 22)
     EVENTS["fp_shoot_" + side] = {"release_frame": SNAP, "fps": FPS, "release_seconds": round(SNAP / FPS, 3),
                                   "what": "the snap: the web leaves the shooting wrist"}
 
@@ -672,8 +694,29 @@ keyed("fp_hit", [(1, pose(IDLE, IDLE)), (4, pose(GUARD, GUARD)), (7, pose(moved(
                  (13, pose(IDLE, IDLE))], 13)
 keyed("fp_death", [(1, pose(IDLE, IDLE)), (5, pose(moved(IDLE, (0, .03, .02), grip="open"), moved(IDLE, (0, .03, .02), grip="open"))),
                    (18, pose(lerp_pose(IDLE, SLUMP, .6), lerp_pose(IDLE, SLUMP, .5))), (30, pose(SLUMP, SLUMP))], 30)
+
+# --- in the air and on a ledge (Session P9) ----------------------------------------------------
+# fp_air: arms out for balance, a slow float - the hands rise and settle out of step, the
+# fingers flexing a little between spread and relaxed.
+loop_clip("fp_air", 72, lambda t: (moved(AIR, (.008 * math.sin(t + .4), .016 * math.sin(t), .008 * math.cos(t)),
+                                          grip=blend_grip("open", "relaxed", .5 + .5 * math.sin(t + 1.2))),
+                                    moved(AIR, (-.008 * math.sin(t + 1.3), .016 * math.sin(t + 1.9), .008 * math.cos(t + 1.9)),
+                                          grip=blend_grip("open", "relaxed", .5 + .5 * math.sin(t + 2.6)))), step=4)
+# fp_fall_fast: swept back, a quick shiver in the wind (twice a cycle, out of step).
+loop_clip("fp_fall_fast", 20, lambda t: (moved(FALL_FAST, (.006 * math.sin(t), .005 * math.sin(2 * t + .5), .004 * math.cos(t))),
+                                          moved(FALL_FAST, (-.006 * math.sin(t + 2), .005 * math.sin(2 * t + 1.7), .004 * math.cos(t + 2)))))
+# fp_jump: load, then the push - the hands drive up, and end in the air pose.
+keyed("fp_jump", [(1, pose(IDLE, IDLE)), (4, pose(PUSH, PUSH)), (9, pose(DRIVE, moved(DRIVE, (0, -.015, .01)))),
+                  (16, pose(AIR, AIR))], 16)
+# fp_land: from the air pose the palms go down and forward and take the landing, then back to idle.
+keyed("fp_land", [(1, pose(AIR, AIR)), (4, pose(BRACE, BRACE)), (7, pose(moved(BRACE, (0, -.035, .02)), moved(BRACE, (0, -.03, .025)))),
+                  (11, pose(lerp_pose(BRACE, IDLE, .55), lerp_pose(BRACE, IDLE, .45))), (17, pose(IDLE, IDLE))], 17)
+# fp_perch_idle: both hands on the ledge, the weight shifting slowly from one to the other.
+loop_clip("fp_perch_idle", 120, lambda t: (moved(LEDGE, (.006 * math.sin(t), .007 * math.sin(t), .004 * math.sin(2 * t))),
+                                            moved(LEDGE, (.006 * math.sin(t), -.007 * math.sin(t), -.004 * math.sin(2 * t)),
+                                                  grip=blend_grip("open", "relaxed", .3 + .3 * math.sin(t + 2)))), step=6)
 for a in bpy.data.actions:
-    a.use_cyclic = a.name in ("fp_idle", "fp_run", "fp_swing_hold_l", "fp_swing_hold_r")
+    a.use_cyclic = a.name in ("fp_idle", "fp_run", "fp_swing_hold_l", "fp_swing_hold_r", "fp_air", "fp_fall_fast", "fp_perch_idle")
 log("fp clips", sorted(a.name for a in bpy.data.actions))
 prune_static()
 
