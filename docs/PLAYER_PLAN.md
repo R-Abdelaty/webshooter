@@ -849,3 +849,107 @@ anything the next session must know._
       `knock` (≥ 22) lets go of your line. For Venom's lash, pass a damage of at least `knockOff`, or add a `knock: true` option to `hurt`.
     - Add "he fights back" to the Rhino's and Venom's intro cards, and their attack clips to `VillainAnim` (the Goblin's `attack`
       handling is the pattern), and their cues to `fightEvents` in `world-game.js`.
+- 2026-09-28 — **Session P5 done: the Rhino and Venom fight back, and all three fights can be won and lost.** 263 tests pass (242 old,
+  one P4 assertion rewritten because the Rhino and Venom now have moves, plus 21 in the new `game/tests/fightback.test.cjs`). No CLASSIC
+  file or test changed (`levels.js`, `combat.js`, `villains.js`, `game.js`, `training.js`, `menu-aim.js`, `menu.js`, `audio.js`,
+  `menu.css`, `game.test.cjs`); the `game.css` edit is one rule in its 3D HUD section. **Nothing is pushed.**
+  - **What exists.**
+    - `attacks.js`: the framework now takes `allow` (the moves open to him now; none means he waits, like the off-screen rule),
+      `finish(a, rest)` for strikes that last as long as they last (charge, ram, pounce, combo; `activeFor` is null for those), `busy`,
+      `a.clock` (seconds since the wind-up began) and Difficulty's `breather` after each recovery. `PREFER` is now per kind. New sums:
+      the Rhino's `under` (the building someone stands on: its base box), `anchored`, `wallPoint`, `blocked`, `clearRun`, `rhinoBody`,
+      `touches`, `quakeDamage`; Venom's `room`, `landing`, `arcClear`, `sidesteps`, `claw`/`swipeHits`, `stepLash`, `lashReach`; and
+      `damage(share)`.
+    - `difficulty.js`: `breather` .8, `stagger` 2, `dazed` 2.5, `dazedDamage` 2.
+    - `fight.js`: the Rhino's free movement off his patrol (`m.free`; states `brace` → `charge` → `overrun` → `rest` → `return`, or
+      `stun` after a crash) and `rejoin`; Venom's `pounce`, `land` onto a `spot` by you, `slam`, and holding still while busy; the
+      attack driver (`allowed`, `windUp`, `stagger`, `strike`, `combo`, `swipe`, the lash's step); double damage in `fire`;
+      `Fight.dazed`/`committed`; `hurt` takes `knock`. New events: `charge`, `quake`, `crash`, `pounce`, `slam`, `swipe`, `lash`,
+      `stagger`. `ctx.anchor` (the swing line's anchor) is new.
+    - `villain-anim.js`: the Rhino's new states; `plan()` schedules Venom's attack clips from `a.clock`; `land_heavy` after a pounce;
+      `hit_big` on a stagger. `sound-cues.js`: `QUIET` (clips whose sound comes from the fight's events instead), `stun`, `land_heavy`.
+    - `hud.js`: during a wind-up the objective line is a red warning of what's coming (`WARN`; a ram's and a pounce's stay until they
+      land), and "is dazed · hits do double" while he is. `right.warn` → `.hud-objtext.is-warn`.
+    - Render: `attack-view.js` draws the red ring (`a.zone`, clipped to the roof's footprint by a small shader) and the tentacle;
+      `fx.js`/`hitfx.js` add dust (`dust`/`grit` kinds, `HitFx.dust`, `fx.dust`); `attack-audio.js` adds build-ups for the charge and
+      for Venom's moves, `quake`, `crash`, `swipe`, `lash`; `world-game.js` turns the new events into sound, dust and shakes.
+    - **Manifest.** Venom's strike frames are `events` (attack .33, attack2 .2, attack3 .27, tentacles .23 s), measured where the hand
+      is fastest and furthest out (a scratch script sampling the GLB's bones). `land_heavy` joined `airborne.clips` (its feet start
+      up). `manifest.js` was regenerated with `embed-models.cjs bomb` (`bomb.js` came out byte-identical).
+  - **How each villain picks** (`allowed()` in fight.js, only worked out when an attack is due):
+    - **Rhino.** You within `HIGH` (2.5 m) of his street, standing or in the air: **charge** (within 45 m, level). Higher: **ram** the
+      building under you (standing or perched), or the one your line is anchored to (swinging), if its wall is within 45 m and the
+      run to it is clear. In the air above a roof, or zipping: nothing, he waits. His attack range is 60 m (`RANGES.charge`).
+    - **Venom** (not mid-leap, crouch or dash), by chest-to-chest distance: up to 3.2 m and standing: **combo**; 3.25–12.5 m with a
+      clear line: **lash** (in the air it's the only one); 4–27 m, standing, with somewhere to land by you within 12 m of his beams
+      and a clear arc: **pounce**. Otherwise he keeps leaping between his beams.
+  - **The moves.**
+    - Rhino **charge**: a 0.9 s wind-up braking to a stop facing you (his `attack` clip sped up to fit, a snort, a rising growl), then
+      straight at where you are at the strike, up to 12 m/s, on past you until he skids to a stop. Run over: 30 (heavy, knocks you
+      off a line), thrown 11 m/s ahead of him and 5 up. Once per charge.
+    - Rhino **ram**: the same wind-up facing the wall, a red ring on your roof (the quake's reach, clipped to the building), then he
+      runs at the wall and stops against it. The quake does 30 within 6 m of where he hit, down to 15 at 16 m, to someone standing or
+      perched on that building or hanging from a line anchored to it (which also knocks them off it). Dust, a boom, and a shake felt
+      within 45 m, hurt or not.
+    - **Dazed**: after a ram, or running into any wall (a skid past you into a building counts), `stun` for 2.5 s and your hits do
+      double. He doesn't dodge while off his patrol. Then he trots back to the nearest point of his stretch and patrols on.
+    - Venom **pounce**: the wind-up is `roar`, then `leap_start` so its take-off ends it; a ring where he'll land. He comes down
+      2.5 m from you (on his side first) with `land_heavy` and dust: 28, and knocked off a line, if you're still within 2.4 m of his
+      chest. Down there he faces you for 3 s (`SPOT_STAY`), sidesteps if shot where there's room, then leaps back to his nearest beam.
+    - Venom **combo**: three swipes 0.65 s apart (`attack` slowed so its strike frame ends the wind-up, then `attack2` and `attack3`
+      timed so theirs land on their swipes); each does 20 if you're within reach of his claw (1.4 m ahead of his chest, 1 m round
+      it). It stops if you get more than 4.2 m away. Invulnerability (0.6 s) is shorter than the gap, so all three can land: 60.
+    - Venom **lash**: the tentacle's aim follows your chest through the wind-up (eased at 3.5/s), then shoots out at 70 m/s up to
+      13 m (or the city) and back: 24, knocked off a line, and pulled 7 m/s towards him. Moving out of its line as it comes dodges it.
+    - **Stagger**: 2 of your hits in one wind-up (either villain) cancel it: `hit_big`, then his recovery.
+  - **Decisions to know about.**
+    1. **The ram's ring is on your roof, behind you**, when you face him from the parapet. So every wind-up, for all three villains,
+       also puts a red warning in the objective line ("He's ramming your building · get off it").
+    2. **Venom lands 2.5 m from you, not right beside you.** At 1.6 m his model filled the view and the Intel UHD fell to 55–56 fps; at
+       2.5 m it holds about 60. His claws reach 1.4 m to match, and the lash only starts past claw range, so close in it's claws.
+    3. **His lash never left his beams at first**: his chest is inside the column of the node he perches on, so every line from it
+       met the city. `lashReach` ignores its first 0.6 m (the pounce's arc check already did). A test covers it.
+    4. Committed (winding up or striking, or the Rhino off his patrol), neither dodges your shots. That is what lets you stagger them.
+    5. The Rhino doesn't hunt you as the Goblin does; out of reach he patrols, and Venom keeps to his beams (the plan's "keeps his
+       perches ... when he's out of reach"). Venom's `crawl_*` clips are wall poses (C2), so they aren't used on beam tops.
+  - **Measured** in headless Chrome on the **Intel UHD at 1920×1080, MED**, over http, alternating this build with the pre-session
+    one (`908aad6`, served from a scratch copy), 3 × 3 s each, looking at the villain, attacks going (made invulnerable). For the
+    first runs the laptop was **on battery at 5%**, and Chrome capped every view at exactly 30 fps; these numbers are from after it
+    was plugged in. First person: **Goblin** 85–90 (before 81–89); **Rhino** 70–76 (before 71–75), 58–66 draw calls; **Venom** 75–79
+    on his beams (before 85–88), **58–63 while he's down 2.5 m from you** (third person 61–63), 96–102 calls. Venom close up is the
+    one view near 60. The new fight logic costs 0.002–0.008 ms a frame (median; under 1 ms at worst), measured in node.
+  - **Verified** in headless Chrome (the app's pane was hidden again), with `cdp.cjs`, `p4.js` and `perf.js` from P4 and `p5.js`/
+    `boot.sh` in this session's scratchpad:
+    - the Rhino's ram (wind-up, run, quake, stun, back to patrol) and its ring on the roof; the charge on the street (the wind-up
+      facing you, the red warning, the run, skidding past);
+    - Venom's pounce (roar, leap, coming down in dust by you), the combo (the wind-up with "Claws · back off", the swipes landing),
+      and the lash at you on a swing line, in both views;
+    - **both fights won through the real `WorldGame.fire`** (a click every 0.4 s at him): the Rhino in 10 s (15 of 15 hits, both his
+      rams staggered), Venom in 17 s (15 hits of 33, three wind-ups staggered, ending on CITY SAVED); and **both lost standing
+      still**: the Rhino in 22 s (four quakes), Venom in 22 s (pounces and a lash), each ending on DEFEAT;
+    - from **`file://`**: both fights, the models, the attacks and their rings. The console showed only the r159 deprecation warning.
+    - Shots: `docs/reference/p5_rhino_ring_third.png`, `p5_rhino_charge_windup.png`, `p5_venom_pounce_air.png`, `p5_venom_slam.png`,
+      `p5_venom_combo_windup.png`, `p5_venom_combo_swipe.png` (these two from before he landed 2.5 m off) and `p5_venom_lash_third.png`.
+  - **Not verified.**
+    - The real wrist shooter. **Ask the user to play all three fights with it, in both camera modes.** Can a wrist land two hits in a
+      0.9 s wind-up? Can a ram be escaped by zipping off the roof in time? Can a pounce be read and avoided?
+    - A real Chrome window with vsync (press P in each fight), on mains power.
+    - The new sounds by ear.
+    - Pointer lock.
+  - **Known, and worth a look.**
+    - Once, the headless page stopped responding while a script waited for a lash and asked for a screenshot from inside the page.
+      It never happened again (several minutes more of the same fight in the page, and 120 s of it in node, found nothing), so it
+      may have been the capture rather than the game. If the Venom fight ever freezes for the user, start there.
+    - With perfect aim at full rate every wind-up is staggered and you're never hurt. At a human pace (P4's ran a shot every 1.2 s)
+      it's much rarer. `stagger` is the lever.
+    - From his vantage the Rhino only rams; he charges only once you're down on the street.
+  - **Constants to tune** (P6):
+    - `Difficulty.HARD`: `breather`, `stagger`, `dazed`, `dazedDamage`.
+    - `Attacks.constants`: the Rhino's `HIGH`, `CHARGE_RANGE`, `RAM_RANGE`, `CHARGE_V`, `CHARGE_ACCEL`, `BRAKE`, `CHARGE_MAX`,
+      `RHINO_R`, `RAM_R`/`RAM_LOW`/`RAM_TOP`/`RAM_FRONT`, `CHARGE_SHARE`, `KNOCK_V`/`KNOCK_UP`, `QUAKE_R`, `QUAKE_INNER`; Venom's
+      `MELEE`, `COMBO_N`/`COMBO_GAP`/`COMBO_END`, `SWIPE_REACH`/`SWIPE_R`/`SWIPE_SHARE`, `LASH_*`, `POUNCE_*`, `HOME`; `PREFER.leap`.
+    - `Fight.constants`: `RANGES`, `SPOT_STAY`, `RETURN_EASE`.
+    - `VillainAnim.constants.MIN_WIND`; attack-view.js `RING`, `LASH`; `HitFx.KINDS.dust/grit` and `DUST`; `AttackAudio.constants`
+      `QUAKE`, `CRASH`, `SWIPE`, `LASH`; the shake reaches in world-game.js `fightEvents`; the `WARN` texts in hud.js.
+  - **For P6.** Everything the plan lists, plus: the stagger count, how far Venom lands from you (and that view's frame rate), and
+    whether the Rhino should ever charge the street under his building rather than ram it.
