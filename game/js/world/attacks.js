@@ -5,21 +5,24 @@
   //
   // THE FRAMEWORK every villain uses. An attack goes
   //   wait -> telegraph -> active -> recover -> wait ...
-  //   telegraph  the wind-up, Difficulty's `telegraph` long (0.9 s): a clip,
+  //   telegraph  the wind-up, Difficulty's `telegraph` long (0.65 s): a clip,
   //              a sound and - when he is off the screen - a red chevron at
   //              its edge. Nothing ever lands without one.
   //   active     it lands: a bomb leaves his hand, the guns fire. What it
   //              hurts is tested against the player's body at the moment it
   //              gets there, so moving out of the way dodges it.
   //   recover    a window where he's open.
-  // One starts every `cadence` seconds (3-5, from the start of the last),
-  // never during his entrance (fight.js only runs this once it's over), and
-  // never two in a row from off the screen: if the last one began with him
-  // out of view, the next waits until you can see him. A long move (a charge
-  // down the avenue, a dazed Rhino) is followed by at least Difficulty's
-  // `breather` before the next wind-up. Which moves he can use depends on
+  // One starts every `cadence` seconds (from the start of the last), never
+  // during his entrance (fight.js only runs this once it's over). From off
+  // the screen he still attacks, but its wind-up is Difficulty's `offScreen`
+  // longer (the red chevron and the sound give it away), and a second one
+  // from out there waits until the first has landed - nothing of his still
+  // on its way to you (ctx.inFlight). A long move (a charge down the avenue,
+  // a dazed Rhino) is followed by at least Difficulty's `breather`. And a
+  // director: once `director` seconds go by with no attack and nothing in
+  // flight, the next one starts at once. Which moves he can use depends on
   // how far you are and what you're doing, so fight.js passes them in
-  // (`allow`); with none he waits, as off the screen.
+  // (`allow`); with none he waits.
   //
   //   var a = Attacks.create(kind, difficulty, seed)
   //   var events = Attacks.step(a, dt, { onScreen, state, rand, allow })
@@ -145,7 +148,7 @@
   // --- the framework ---------------------------------------------------------------
   function create(kind, diff, seed) {
     var d = diff || DiffRef.get('HARD');
-    return { kind: kind, d: d, moves: (MOVES[kind] || []).slice(), phase: 'wait', t: 0, clock: 0, wait: d.firstAttack,
+    return { kind: kind, d: d, moves: (MOVES[kind] || []).slice(), phase: 'wait', t: 0, clock: 0, wait: d.firstAttack, quiet: 0, tele: d.telegraph,
       move: null, last: null, twice: false, n: 0, off: false, offLast: false, held: 0, aim: null, rest: null, seed: (seed || 1) >>> 0 };
   }
   function rnd(a) { a.seed = (a.seed * 1103515245 + 12345) & 0x7fffffff; return a.seed / 0x7fffffff; }
@@ -175,24 +178,27 @@
 
   // ctx: { onScreen: is he in view, state: yours ('ground', 'perch',
   // 'swing', 'fly', 'zip'), rand: optional random source, allow: the moves
-  // he can use now (all when left out) }.
+  // he can use now (all when left out), inFlight: something of his is still
+  // on its way to you (a bomb, rounds, the tentacle) }.
   function step(a, dt, ctx) {
     var ev = [], c = ctx || {}, u = c.rand || function () { return rnd(a); };
     dt = dt > 0 ? dt : 0;
     if (!a.moves.length) return ev;
     a.wait -= dt;
+    quiet(a, dt, c);
     if (a.phase === 'wait') {
       if (a.wait > 0) return ev;
-      // Fairness: never two in a row from off the screen.
-      if (!c.onScreen && a.offLast) { a.held += dt; return ev; }
+      // Fairness: a second one from off the screen waits for the first to land.
+      if (!c.onScreen && a.offLast && c.inFlight) { a.held += dt; return ev; }
       var m = pick(a, c.state, u(), c.allow);
       // Nothing he can do from where he is: he waits for you.
       if (!m) { a.held += dt; return ev; }
       a.twice = m === a.last; a.last = m;
-      a.phase = 'telegraph'; a.t = 0; a.clock = 0; a.move = m; a.n++; a.held = 0;
+      a.phase = 'telegraph'; a.t = 0; a.clock = 0; a.move = m; a.n++; a.held = 0; a.quiet = 0;
       a.off = !c.onScreen; a.offLast = a.off;
+      a.tele = a.d.telegraph + (a.off ? a.d.offScreen || 0 : 0);
       a.wait = DiffRef.span(a.d.cadence, u());
-      ev.push({ type: 'telegraph', move: m, off: a.off });
+      ev.push({ type: 'telegraph', move: m, off: a.off, tele: a.tele });
       return ev;
     }
     a.t += dt; a.clock += dt;
@@ -209,6 +215,14 @@
       ev.push({ type: 'ready' });
     }
     return ev;
+  }
+  // The director: seconds with no attack of his going and nothing of his in
+  // flight; at Difficulty's `director` the next one is due now. fight.js
+  // also counts it while he's closing in from out of range.
+  function quiet(a, dt, c) {
+    if (a.phase !== 'wait' || (c && c.inFlight)) { a.quiet = 0; return; }
+    a.quiet = (a.quiet || 0) + dt;
+    if (a.d.director && a.quiet >= a.d.director) a.wait = Math.min(a.wait, 0);
   }
   // A strike that lasts as long as it lasts is over: recover (for `rest`
   // seconds, or Difficulty's `recover`).
@@ -594,7 +608,7 @@
     return w ? s0 + (K.LASH_REACH - s0) * w.t : K.LASH_REACH;
   }
 
-  var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, windup: windup, busy: busy, pick: pick, MOVES: MOVES,
+  var api = { create: create, step: step, finish: finish, cancel: cancel, winding: winding, windup: windup, quiet: quiet, busy: busy, pick: pick, MOVES: MOVES,
     activeFor: activeFor, airborne: airborne, damage: damage,
     onSeg: onSeg, segSeg: segSeg, gap: gap, centre: centre, standIn: standIn, hitCity: hitCity,
     throwBomb: throwBomb, bombAt: bombAt, stepBomb: stepBomb, blastDamage: blastDamage, push: push, aimBomb: aimBomb,

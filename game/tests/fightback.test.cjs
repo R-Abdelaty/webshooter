@@ -24,7 +24,7 @@ const EVENTS={charge:MANIFEST.villains.rhino.events,leap:MANIFEST.villains.venom
 // optionally the villain's animation run alongside.
 function fightWith(enc,you,o){
   o=o||{};
-  const s=Fight.play(Fight.start(enc,levels));
+  const s=Fight.play(Fight.start(enc,levels,o.diff));
   const r={s,you:Object.assign({vx:0,vy:0,vz:0},you),ev:[],state:o.state||'ground',onScreen:true,anchor:null,anim:null,plays:[],
     ctx(){return{you:r.you,body:Attacks.standIn(r.you,r.state==='perch'),state:r.state,onScreen:r.onScreen,city,anchor:r.anchor};},
     tick(dt){
@@ -161,17 +161,24 @@ test('rhino: dazed, your hits do double - for HARD\'s window, then single again'
   assert.ok(out.hit&&!out.dazed);assert.equal(hp-r.s.health,H.shotDamage,'back to single');
   assert.match(Hud.status({mode:'fight',fight:Object.assign({},r.s,{dazedUntil:r.s.time+1}),enc:rhino,villain:{name:'RHINO'},damage:20}).right.text,/dazed/i);
 });
-test('rhino: two hits during his wind-up stagger him and call the charge off',()=>{
-  const r=fightWith(rhino,{x:RV.x,y:RV.y,z:RV.z},{anim:true});
+// HARD's stagger (P7) takes more hits than the web's cooldown lets you land in
+// an on-screen wind-up, so these run on a level with a longer one.
+const LONG=Object.assign(Difficulty.get('HARD'),{telegraph:2});
+test('stagger: HARD takes more hits in a wind-up than the cooldown allows on screen - only a long, off-screen one can be called off',()=>{
+  const most=w=>Math.floor(w/Combat.COOLDOWN)+1;
+  assert.ok(most(H.telegraph)<H.stagger,'an on-screen wind-up can be staggered');
+  assert.ok(most(H.telegraph+H.offScreen)>=H.stagger,'not even an off-screen one can');
+});
+test('rhino: HARD\'s stagger of hits during his wind-up staggers him and calls the charge off',()=>{
+  const r=fightWith(rhino,{x:RV.x,y:RV.y,z:RV.z},{anim:true,diff:LONG});
   r.until(()=>r.s.attack.phase==='telegraph');
   const n=r.s.attack.n;
-  assert.ok(r.shoot().hit);r.tick();assert.equal(r.s.attack.phase,'telegraph','one hit is not enough');
-  Fight.tick(r.s,Combat.COOLDOWN,r.ctx());assert.equal(r.s.attack.phase,'telegraph');
+  for(let k=1;k<H.stagger;k++){assert.ok(r.shoot().hit);r.tick();assert.equal(r.s.attack.phase,'telegraph',k+' hits are not enough');Fight.tick(r.s,Combat.COOLDOWN,r.ctx());}
   assert.ok(r.shoot().hit);r.tick();
   assert.equal(r.s.attack.phase,'recover');assert.equal(r.s.staggers,1);assert.equal(r.s.m.state,'rest');
   assert.equal(r.events('stagger').length,1);
   assert.ok(r.plays.some(p=>p.c==='hit_big'),'he reels (hit_big)');
-  r.for(1);assert.ok(!r.events('charge').length&&!r.events('quake').length,'the charge went ahead anyway');
+  r.for(H.recover-.05);assert.ok(!r.events('charge').length&&!r.events('quake').length,'the charge went ahead anyway');
   assert.equal(r.s.attack.n,n);
 });
 
@@ -238,12 +245,13 @@ test('venom: at mid range - you on a line - the tentacle lash follows you throug
   r.until(()=>r.s.attack.phase==='active');r.you.z+=3;
   r.until(()=>r.s.attack.phase!=='active',60*2);assert.equal(r.events('hurt').length,0,'it hit you out of its line');
 });
-test('venom: two hits during a wind-up interrupt him (hit_big), and he doesn\'t dodge while committed',()=>{
-  const r=fightWith(venom,{x:VV.x,y:VV.y,z:VV.z},{anim:true});
+test('venom: HARD\'s stagger of hits during a wind-up interrupts him (hit_big), and he doesn\'t dodge while committed',()=>{
+  const r=fightWith(venom,{x:VV.x,y:VV.y,z:VV.z},{anim:true,diff:LONG});
   r.until(()=>r.s.attack.phase==='telegraph');
   const dodges=r.s.dodge.n;
   assert.ok(r.shoot().hit);assert.equal(r.s.dodge.n,dodges,'he dodged mid wind-up');
-  Fight.tick(r.s,Combat.COOLDOWN,r.ctx());assert.ok(r.shoot().hit);r.tick();
+  for(let k=1;k<H.stagger;k++){Fight.tick(r.s,Combat.COOLDOWN,r.ctx());assert.ok(r.shoot().hit);}
+  r.tick();
   assert.equal(r.s.attack.phase,'recover');assert.equal(r.s.staggers,1);
   assert.ok(r.plays.some(p=>p.c==='hit_big'));
   r.for(1.5);assert.ok(!r.events('pounce').length,'the pounce went ahead');

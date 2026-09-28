@@ -32,17 +32,30 @@ test('attacks: every attack is telegraphed for HARD\'s wind-up, then lands, then
   // And the recovery follows each strike.
   const rec=log.filter(e=>e.type==='recover');assert.ok(rec.length>=hit.length-1);
 });
-test('attacks: never two in a row from off the screen - the next waits until he is in view',()=>{
-  const a=Attacks.create('glider',H,3);
-  // Off the screen for the first 20 s, then in view.
-  const log=runAttack(a,30,t=>({onScreen:t>20,state:'ground'}));
-  const tel=log.filter(e=>e.type==='telegraph');
-  assert.equal(tel[0].off,true);
-  assert.equal(tel.filter(e=>e.t<20).length,1,'a second one came from off the screen');
-  assert.ok(tel[1].t>=20&&tel[1].off===false,'the next one waited for him to be in view');
-  // Alternating in and out of view never gives two off-screen ones running.
-  const b=Attacks.create('glider',H,11),l2=runAttack(b,120,t=>({onScreen:Math.floor(t/2.3)%2===0,state:'swing'})).filter(e=>e.type==='telegraph');
-  for(let i=1;i<l2.length;i++)assert.ok(!(l2[i].off&&l2[i-1].off),'two in a row off-screen at '+l2[i].t);
+test('attacks: from off the screen he still attacks, with a longer wind-up; a second from out there waits until the first has landed',()=>{
+  // Out of view throughout; something of his in flight for the first 10 s.
+  const a=Attacks.create('glider',H,3),log=runAttack(a,20,t=>({onScreen:false,state:'ground',inFlight:t<10}));
+  const tel=log.filter(e=>e.type==='telegraph'),hit=log.filter(e=>e.type==='strike');
+  assert.equal(tel[0].off,true);near(tel[0].tele,H.telegraph+H.offScreen);
+  assert.ok(near(hit[0].t-tel[0].t,H.telegraph+H.offScreen,DT+1e-6),'off-screen wind-up '+(hit[0].t-tel[0].t));
+  assert.equal(tel.filter(e=>e.t<10).length,1,'a second off-screen one while the first was still on its way');
+  assert.ok(tel[1].t>=10&&tel[1].off,'two off-screen in a row, once the first had landed');
+  // With nothing in flight they come at the cadence, in view or not; in view the wind-up is the short one.
+  const b=Attacks.create('glider',H,11),l2=runAttack(b,60,t=>({onScreen:Math.floor(t/2.3)%2===0,state:'swing'})).filter(e=>e.type==='telegraph');
+  assert.ok(l2.length>=20,'held back: '+l2.length);
+  l2.forEach(e=>near(e.tele,e.off?H.telegraph+H.offScreen:H.telegraph));
+  assert.ok(l2.some((e,i)=>i&&e.off&&l2[i-1].off),'two off-screen in a row are allowed now');
+});
+test('attacks: the director - four quiet seconds and the next attack starts at once; while something is in flight it waits',()=>{
+  const slow=Object.assign(Difficulty.get('HARD'),{cadence:[30,30],firstAttack:30});
+  let log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground'});
+  let tel=log.filter(e=>e.type==='telegraph');
+  assert.ok(tel.length&&near(tel[0].t,H.director,DT+1e-6),'the first came at '+(tel.length&&tel[0].t)+', not after '+H.director+' quiet seconds');
+  const ready=log.filter(e=>e.type==='ready')[0];
+  assert.ok(tel[1]&&near(tel[1].t-ready.t,H.director,2*DT),'the next after '+(tel[1]&&tel[1].t-ready.t)+' s quiet');
+  // Nothing while a bomb of his is still coming at you.
+  log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground',inFlight:true});
+  assert.equal(log.filter(e=>e.type==='telegraph').length,0);
 });
 test('attacks: the goblin mixes bombs and guns - more guns at you in the air - never three the same running',()=>{
   const count=(state)=>{const a=Attacks.create('glider',H,5),m=runAttack(a,400,{onScreen:true,state}).filter(e=>e.type==='telegraph').map(e=>e.move);

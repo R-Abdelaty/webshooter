@@ -102,7 +102,7 @@
     // under where he'll be LOOK_AHEAD seconds on, rising at up to LIFT_RATE.
     HUNT_SPEED: 22, HUNT_EASE: 1.2, HUNT_CLIMB: 20, CLEAR: 1.5, LOOK_AHEAD: .5, LIFT_RATE: 16, LIFT_EASE: 1.5,
     CHEST: 1.1,                     // metres over your feet his attacks aim at
-    ATTACK_RANGE: 40,               // further from you than this he's closing in, not attacking...
+    ATTACK_RANGE: 40,               // further from you than this he's closing in, not attacking (the level's range comes first)...
     RANGES: { charge: 60 },         // ...or this, for the Rhino, who can charge a building from his avenue
     SPOT_STAY: 3,                   // seconds Venom stays down by you after a pounce before leaping back up
     RETURN_EASE: 11                 // how hard the Rhino slows arriving back on his avenue (m/s/s)
@@ -557,6 +557,9 @@
 
   // --- he fights back ---------------------------------------------------------------
   function chest(y) { return { x: y.x, y: y.y + K.CHEST, z: y.z }; }
+  // How near you must be for him to attack rather than close in: the level's
+  // range (HARD's), or for a level without one, the constants'.
+  function range(s) { var r = s.rules && s.rules.range; return (r && r[s.kind]) || K.RANGES[s.kind] || K.ATTACK_RANGE; }
   // A point on the model the render side sampled (villain-view.js puts the
   // manifest's attack bones in body.points), or `or`.
   function point(s, name, or) { var p = s.body && s.body.points && s.body.points[name]; return p || or; }
@@ -589,11 +592,13 @@
   function attacking(s, dt, ctx) {
     var a = s.attack, you = ctx.you, A = AttacksRef.constants;
     if (!a) return;
-    // Still closing in on you (you swung off): no wind-ups until he's near.
-    if (a.phase === 'wait' && Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z) > (K.RANGES[s.kind] || K.ATTACK_RANGE)) return;
+    var inFlight = s.bombs.length > 0 || s.rounds.length > 0 || !!a.lash;
+    // Still closing in on you (you swung off): no wind-ups until he's near -
+    // though the quiet counts, so he starts one as soon as he is.
+    if (a.phase === 'wait' && Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z) > range(s)) { AttacksRef.quiet(a, dt, { inFlight: inFlight }); return; }
     // Which moves he has from here (only worked out when one is due).
-    var allow = a.phase === 'wait' && a.wait <= dt ? allowed(s, ctx) : null;
-    var ev = AttacksRef.step(a, dt, { onScreen: ctx.onScreen !== false, state: ctx.state, rand: function () { return rand(s); }, allow: allow || undefined });
+    var allow = a.phase === 'wait' && (a.wait <= dt || a.quiet + dt >= (s.rules.director || Infinity)) ? allowed(s, ctx) : null;
+    var ev = AttacksRef.step(a, dt, { onScreen: ctx.onScreen !== false, state: ctx.state, rand: function () { return rand(s); }, allow: allow || undefined, inFlight: inFlight });
     // Laid into during a wind-up: enough hits stagger him and call it off.
     if (a.phase === 'telegraph' && s.kind !== 'glider' && s.hits - a.hits0 >= s.rules.stagger) stagger(s);
     // What follows you through a wind-up: the guns' laser, the tentacle's
@@ -748,6 +753,9 @@
       if (out === 'body') { hurt(s, AttacksRef.gunDamage(s.rules), { kind: 'guns', from: r.from }); return false; }
       return !out;
     });
+    // Gone down to one of them: stopAttacks emptied the lists, but the
+    // filters above put back what was left in them.
+    if (s.mode !== 'playing') { s.bombs = []; s.rounds = []; }
   }
   // You're hit for `dmg`: unless you were hit a moment ago (invulnerable),
   // it comes off your health, and at 0 the fight is lost. o: { kind, from,
