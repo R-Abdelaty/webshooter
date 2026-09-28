@@ -44,6 +44,14 @@
   //         wind-up's last GUN_LOCK seconds it locks, and a short burst of
   //         tracers goes down that line. Change direction or swing out of it
   //         once it locks.
+  //   volley (P7) bombs and guns at once: he throws 2-3 bombs, one after
+  //         another, while the guns charge (the laser is on from the wind-up),
+  //         then the burst goes down the locked line. Keep moving.
+  //   dive  (P7) close in, he swoops at you on the glider: straight at where
+  //         you are (a little ahead) and on past, levelling out. Being in
+  //         the way is heavy and knocks you off a line. Step or swing aside.
+  //   Standing still on a roof (STILL_T seconds), he punishes it: the next
+  //   attack comes at once, and it's bombs (fight.js).
   //
   // THE RHINO'S MOVES (P5). fight.js runs him; these are the sums.
   //   charge  you're down on the street: he winds up (a snort), then runs
@@ -97,6 +105,19 @@
     GUN_R: .22,             // how close to your body a round has to pass to hit
     GUN_SPREAD: .006,       // radians of scatter per round
     GUN_SHARE: .35,         // a burst does this share of the damage range (once: then you're invulnerable)
+    // The volley (P7): bombs thrown this many at a time, this far apart, and
+    // the guns' charge before the burst (from the strike; the laser is on
+    // from the wind-up).
+    VOLLEY_N: [2, 3], VOLLEY_EVERY: .3, VOLLEY_CHARGE: .9,
+    // The dive (P7): he dives from within DIVE_RANGE metres of your chest, at
+    // DIVE_V m/s, at where you'll be DIVE_LEAD s on, and on DIVE_PAST metres
+    // past you, levelling out DIVE_LIFT above that point. His body hits
+    // yours within DIVE_R; it does DIVE_SHARE of the damage range and throws
+    // you DIVE_PUSH m/s along his line.
+    DIVE_RANGE: 14, DIVE_V: 24, DIVE_LEAD: .2, DIVE_PAST: 9, DIVE_LIFT: 1.5, DIVE_R: .8, DIVE_SHARE: .85, DIVE_PUSH: 9,
+    // Standing still (P7): within STILL_R metres of one spot on a roof for
+    // STILL_T seconds, and the Goblin's next attack is bombs, at once.
+    STILL_R: 1.5, STILL_T: 2,
     // The Rhino (P5).
     HIGH: 2.5,              // metres over his street at which you're up high (a ram, not a charge)
     CHARGE_RANGE: 45,       // metres (level) from him you can be for a charge...
@@ -130,12 +151,13 @@
     // 'ground': on your feet or perched), and never the same one three times
     // running (unless it's the only one there is). On a line or in the air
     // the Goblin prefers the guns, on your feet the bombs.
+    // The Goblin's dive only comes up when you're close, and then he likes it.
     PREFER: {
-      glider: { air: { guns: .7, bomb: .3 }, ground: { guns: .35, bomb: .65 } },
+      glider: { air: { guns: .45, volley: .3, bomb: .15, dive: .5 }, ground: { guns: .25, volley: .4, bomb: .35, dive: .5 } },
       leap: { air: { lash: 1 }, ground: { combo: 1, lash: .45, pounce: .55 } }
     }
   };
-  var MOVES = { glider: ['bomb', 'guns'], charge: ['charge', 'ram'], leap: ['combo', 'lash', 'pounce'] };
+  var MOVES = { glider: ['bomb', 'guns', 'volley', 'dive'], charge: ['charge', 'ram'], leap: ['combo', 'lash', 'pounce'] };
 
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
   function sub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }

@@ -76,14 +76,20 @@
     }
     // Winding up a throw (P4, attacks.js): the attack clip, slowed or sped so
     // its release frame - where the bomb leaves his hand - ends the wind-up.
-    var at = s.attack;
+    // The volley (P7) starts the same way, and each bomb after the first is
+    // a quick throw from just before the release; the dive's wind-up is his
+    // cackle (roar), sped up to fit.
+    var at = s.attack, rel = (a.events.attack && a.events.attack.release_seconds) || (a.clips.attack || 1) / 2;
     if (at && at.n > a.attacks) {
-      a.attacks = at.n;
-      if (at.phase === 'telegraph' && at.move === 'bomb' && a.clips.attack) {
-        var rel = (a.events.attack && a.events.attack.release_seconds) || a.clips.attack / 2, tel = at.tele || (at.d && at.d.telegraph) || .9;
-        play('attack', { speed: rel / tel, fade: .12 });
-      }
+      a.attacks = at.n; a.thrown = 1;
+      var tel = at.tele || (at.d && at.d.telegraph) || .9;
+      if (at.phase === 'telegraph' && (at.move === 'bomb' || at.move === 'volley') && a.clips.attack) play('attack', { speed: rel / tel, fade: .12 });
+      if (at.phase === 'telegraph' && at.move === 'dive' && a.clips.roar) play('roar', { speed: Math.max(1, dur(a, 'roar') / (tel + .6)), fade: .1 });
       a.plan = plan(a, at);
+    }
+    if (at && at.volley && at.volley.thrown > (a.thrown || 1) && a.clips.attack) {
+      a.thrown = at.volley.thrown;
+      play('attack', { from: Math.max(0, rel - .15), speed: 1.6, fade: .05, restart: true });
     }
     // The rest of Venom's attack clips, as the attack's clock reaches them.
     if (at && a.plan.length) {

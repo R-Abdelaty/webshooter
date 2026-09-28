@@ -10,7 +10,8 @@
   // and mute from Settings, which world-game.js passes in each frame.
   //
   //   AttackAudio.frame(eye, yaw, pitch, volume)   the listener and volume
-  //   AttackAudio.warn(at, move, secs)  a wind-up this long: 'guns' charges, 'bomb' fizzes
+  //   AttackAudio.warn(at, move, secs)  a wind-up this long: 'guns' charges, 'bomb' fizzes,
+  //                                     'volley' both, 'dive' a rush of wind building
   //   AttackAudio.fuse(at)          one beep of a bomb's fuse
   //   AttackAudio.boom(at, big)     a bomb going off
   //   AttackAudio.round(at)         one round from a glider gun
@@ -84,6 +85,17 @@
   function warn(at, move, secs) {
     if (!live()) return;
     var t = ctx.currentTime, o = out(at, 10), T = secs > 0 ? secs : K.TELEGRAPH;
+    if (move === 'volley') {
+      // The fizz of the first bomb, and the guns starting to charge.
+      warn(at, 'bomb', secs); warn(at, 'guns', T + ((root.Attacks && root.Attacks.constants.VOLLEY_CHARGE) || .9));
+      return;
+    }
+    if (move === 'dive') {
+      // He tips over: a rush of wind building, and the glider's engine rising.
+      noise(o, t, T + .5, 'bandpass', 300, 2200, K.WARN * .6, 1.2);
+      tone(o, t, T + .4, 'sawtooth', 70, 190, K.WARN * .3, T * .6);
+      return;
+    }
     if (move === 'guns') {
       // Charging: a whine rising to the lock, with a warble that quickens.
       var osc = ctx.createOscillator(), g = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();

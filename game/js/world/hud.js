@@ -31,10 +31,11 @@
   // those in HOLD, until it lands): the move, and how to get out of it.
   var WARN = {
     bomb: 'Bomb coming · shoot it down or move', guns: 'Guns locking on · get out of the laser',
+    volley: 'Bombs and guns · keep moving', dive: 'He\'s diving at you · get out of the way',
     charge: 'He\'s charging · get out of his way', ram: 'He\'s ramming your building · get off it',
     pounce: 'He\'s pouncing · move off the ring', combo: 'Claws · back off', lash: 'Tentacle · out of its line'
   };
-  var HOLD = { ram: 1, pounce: 1 };
+  var HOLD = { ram: 1, pounce: 1, volley: 1, dive: 1 };
 
   // --- the minimap ------------------------------------------------------------------
   // p relative to you, in minimap pixels from its centre: x to the right, y
@@ -142,7 +143,9 @@
   function threat(f, visible) {
     if (!f || f.mode !== 'playing' || !f.at) return null;
     var mid = { x: f.at.x, y: f.at.y + 1.2, z: f.at.z };
-    if (f.attack && f.attack.phase === 'telegraph' && !visible(mid)) { mid.kind = 'villain'; return mid; }
+    // (and through a strike that's still coming: the volley's charging guns, a dive)
+    var a = f.attack, coming = a && (a.phase === 'telegraph' || (a.phase === 'active' && (a.laser || a.dive)));
+    if (coming && !visible(mid)) { mid.kind = 'villain'; return mid; }
     var bombs = f.bombs || [];
     for (var i = 0; i < bombs.length; i++) {
       var b = bombs[i];

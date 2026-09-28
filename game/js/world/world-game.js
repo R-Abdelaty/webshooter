@@ -527,9 +527,11 @@
       if (e.type === 'telegraph') {
         AttackAudio.warn(up(e.at), e.move, e.tele || fight.rules.telegraph);
         // Reaching for a bomb, he cackles; Venom snarls before he claws or lashes.
-        if (e.move === 'bomb' && WSAudio.roar) WSAudio.roar(up(e.at), 'glider', .45);
+        if ((e.move === 'bomb' || e.move === 'volley') && WSAudio.roar) WSAudio.roar(up(e.at), 'glider', .45);
         if ((e.move === 'combo' || e.move === 'lash') && WSAudio.roar) WSAudio.roar(up(e.at), 'leap', .35);
       } else if (e.type === 'throw') { if (WSAudio.whoosh) WSAudio.whoosh(e.from, .6); }
+      // The Goblin diving at you (P7): the glider rushing past.
+      else if (e.type === 'dive') { if (WSAudio.whoosh) WSAudio.whoosh(up(e.at), 1); }
       // The Rhino (P5): off he goes with a bellow; a ram's quake, a crash into a wall.
       else if (e.type === 'charge') { if (WSAudio.roar) WSAudio.roar(up(e.at), 'charge', .6); }
       else if (e.type === 'quake' || e.type === 'crash') {

@@ -127,7 +127,7 @@
     s.you = { hp: D.playerHp, maxHp: D.playerHp, safeUntil: 0, hits: 0, big: false, hitAt: -1e9, last: null };
     s.attack = AttacksRef.create(enc.kind, D, (enc.index + 1) * 104729);
     s.bombs = []; s.rounds = []; s.events = []; s.nextId = 1; s.foe = null;
-    s.dazedUntil = -1; s.staggers = 0;
+    s.dazedUntil = -1; s.staggers = 0; s.still = 0; s.stillAt = null;
     s.hunt = enc.kind === 'glider' ? { cx: p.cx, cz: p.cz, y: p.y } : null;
     // Venom's beams: their middle, and how far past them he'll pounce.
     if (enc.kind === 'leap' && p.perches.length) {
@@ -413,7 +413,8 @@
   function place(s) {
     var m = s.m, p = s.path;
     if (s.phase === 'thugs') { s.at = null; return; }
-    if (s.kind === 'glider') { var c = s.hunt || p; s.at = { x: c.cx + Math.cos(m.ang) * m.r, y: c.y + m.h + (m.lift || 0), z: c.cz + Math.sin(m.ang) * m.r }; }
+    if (s.kind === 'glider' && m.dive) s.at = diveAt(m.dive);
+    else if (s.kind === 'glider') { var c = s.hunt || p; s.at = { x: c.cx + Math.cos(m.ang) * m.r, y: c.y + m.h + (m.lift || 0), z: c.cz + Math.sin(m.ang) * m.r }; }
     else if (s.kind === 'charge') s.at = m.free ? { x: m.x, y: p.y, z: m.z } : { x: p.x + m.lane * p.lane, y: p.y, z: lerp(p.z0, p.z1, m.u) };
     else if (!p.perches.length) s.at = null;
     else if (s.phase === 'arrive') {
@@ -583,16 +584,35 @@
   // The laser (attack-view.js draws a.laser): through the guns' wind-up it
   // follows you fast, a little ahead, and in its last GUN_LOCK seconds it
   // holds still - the line the burst goes down.
+  // The volley's guns charge on through its strike, while the bombs go.
   function laser(s, dt, ctx) {
-    var a = s.attack, A = AttacksRef.constants, left = AttacksRef.windup(a) - a.t;
+    var a = s.attack, A = AttacksRef.constants, tele = AttacksRef.windup(a), total = tele, left = -1;
+    if (a.move === 'guns' && a.phase === 'telegraph') left = tele - a.t;
+    else if (a.move === 'volley') {
+      total = tele + A.VOLLEY_CHARGE;
+      if (a.phase === 'telegraph') left = total - a.t;
+      else if (a.phase === 'active' && a.volley && !a.volley.fired) left = A.VOLLEY_CHARGE - a.t;
+    }
+    if (left < 0) { a.laser = null; return; }
     if (left > A.GUN_LOCK) a.aim = AttacksRef.track(a.aim, gunAim(s, ctx, left), dt);
     else a.locked = true;
-    a.laser = { aim: copy(a.aim), k: Math.min(1, a.t / AttacksRef.windup(a)), locked: !!a.locked };
+    a.laser = { aim: copy(a.aim), k: Math.min(1, Math.max(0, 1 - left / total)), locked: !!a.locked };
   }
+  // Standing still on a roof (or perched): how long you've been within
+  // STILL_R of one spot - the Goblin punishes it.
+  function stillness(s, dt, ctx) {
+    var y = ctx.you, A = AttacksRef.constants, st = ctx.state, at = s.stillAt;
+    if ((st === 'ground' || st === 'perch') && at && Math.hypot(y.x - at.x, y.z - at.z) < A.STILL_R && Math.abs(y.y - at.y) < 1) s.still += dt;
+    else { s.stillAt = copy(y); s.still = 0; }
+  }
+  function punishing(s) { return s.kind === 'glider' && s.still >= AttacksRef.constants.STILL_T; }
   function attacking(s, dt, ctx) {
     var a = s.attack, you = ctx.you, A = AttacksRef.constants;
     if (!a) return;
     var inFlight = s.bombs.length > 0 || s.rounds.length > 0 || !!a.lash;
+    if (s.kind === 'glider') stillness(s, dt, ctx);
+    // Standing still: his next attack comes now.
+    if (a.phase === 'wait' && punishing(s)) a.wait = Math.min(a.wait, 0);
     // Still closing in on you (you swung off): no wind-ups until he's near -
     // though the quiet counts, so he starts one as soon as he is.
     if (a.phase === 'wait' && Math.hypot(s.at.x - you.x, s.at.y - you.y, s.at.z - you.z) > range(s)) { AttacksRef.quiet(a, dt, { inFlight: inFlight }); return; }
@@ -603,9 +623,9 @@
     if (a.phase === 'telegraph' && s.kind !== 'glider' && s.hits - a.hits0 >= s.rules.stagger) stagger(s);
     // What follows you through a wind-up: the guns' laser, the tentacle's
     // aim, the charge's target, the ring where he'll land.
-    a.laser = null;
+    if (a.move === 'guns' || a.move === 'volley') laser(s, dt, ctx); else a.laser = null;
     if (a.phase === 'telegraph') {
-      if (a.move === 'guns') laser(s, dt, ctx);
+      if (a.move === 'guns' || a.move === 'volley') { /* the laser, above */ }
       else if (a.move === 'lash') a.aim = AttacksRef.track(a.aim, chest(you), dt, A.LASH_TRACK);
       else if (a.move === 'charge') a.goal = { x: you.x, y: s.path.y, z: you.z };
       else if (a.move === 'pounce') { var L = AttacksRef.landing(ctx.city, you, s.at); if (L) a.zone = { x: L.x, y: L.y, z: L.z, r: A.POUNCE_HIT }; }
@@ -614,8 +634,11 @@
       if (e.type === 'telegraph') windUp(s, e, ctx);
       else if (e.type === 'strike') strike(s, e.move, ctx);
     });
-    // What's still going on in a strike: the combo's next swipes, the tentacle.
+    // What's still going on in a strike: the combo's next swipes, the
+    // volley's bombs and burst, the tentacle. (The dive is diving().)
     if (a.phase === 'active' && a.move === 'combo') combo(s, ctx);
+    if (a.phase === 'active' && a.move === 'volley') volley(s, ctx);
+    if (a.move === 'volley' || a.move === 'guns') { if (a.phase === 'active' || a.phase === 'telegraph') laser(s, 0, ctx); else a.laser = null; }
     if (a.lash) {
       var r = AttacksRef.stepLash(a.lash, dt, ctx.body);
       if (r === 'body') {
@@ -629,7 +652,13 @@
   // The moves open to him now, from how far you are and what you're doing
   // (null: all of them - the Goblin's aren't limited).
   function allowed(s, ctx) {
-    if (s.kind === 'glider') return null;
+    if (s.kind === 'glider') {
+      // Standing still: bombs on where you stand.
+      if (punishing(s)) return ['volley', 'bomb'];
+      var list = ['bomb', 'guns', 'volley'], c = chest(ctx.you), me = { x: s.at.x, y: s.at.y + .9, z: s.at.z };
+      if (Math.hypot(c.x - me.x, c.y - me.y, c.z - me.z) <= AttacksRef.constants.DIVE_RANGE && !AttacksRef.hitCity(ctx.city, me, c)) list.push('dive');
+      return list;
+    }
     var you = ctx.you, m = s.m, A = AttacksRef.constants, st = ctx.state, stands = st === 'ground' || st === 'perch';
     if (s.kind === 'charge') {
       if (m.free && m.state !== 'return' && m.state !== 'rest') return [];
@@ -658,7 +687,9 @@
   function windUp(s, e, ctx) {
     var a = s.attack, you = ctx.you, m = s.m;
     a.aim = e.move === 'guns' ? gunAim(s, ctx, AttacksRef.windup(a)) : e.move === 'lash' ? chest(you) : null;
-    a.locked = false; a.laser = null;
+    a.locked = false; a.laser = null; a.volley = null; a.dive = null;
+    if (e.move === 'volley') a.aim = gunAim(s, ctx, AttacksRef.windup(a) + AttacksRef.constants.VOLLEY_CHARGE);
+    if (s.kind === 'glider') { s.still = 0; s.stillAt = copy(you); }
     a.hits0 = s.hits; a.goal = null; a.zone = null; a.box = null; a.wall = null; a.combo = null; a.lash = null;
     if (s.kind === 'charge') {
       freeRhino(s); m.state = 'brace'; m.hit = false; m.ram = false;
@@ -728,13 +759,82 @@
       a.lash = { from: from, dir: dir, s: 0, reach: AttacksRef.lashReach(ctx.city, from, dir), out: true, hit: false };
       s.events.push({ type: 'lash', at: copy(from), dir: copy(dir) });
     } else if (move === 'bomb') {
-      var from = point(s, 'hand', up), b = AttacksRef.throwBomb(from, chest(you), { x: you.vx || 0, z: you.vz || 0 }, s.nextId++);
-      s.bombs.push(b);
-      s.events.push({ type: 'throw', from: copy(from), id: b.id });
+      throwAt(s, you);
+    } else if (move === 'volley') {
+      a.volley = { n: A.VOLLEY_N[0] + Math.floor(rand(s) * (A.VOLLEY_N[1] - A.VOLLEY_N[0] + 1)), thrown: 0, fired: false, done: 0 };
+      volley(s, ctx);
+    } else if (move === 'dive') {
+      dive(s, ctx);
     } else if (move === 'guns') {
       a.laser = null;
       s.rounds = s.rounds.concat(AttacksRef.burst(guns(s), a.aim || gunAim(s, ctx, 0), s.time, function () { return rand(s); }));
     }
+  }
+  // A pumpkin bomb from his hand, at where you'll be.
+  function throwAt(s, you) {
+    var from = point(s, 'hand', { x: s.at.x, y: s.at.y + 1.3, z: s.at.z }), b = AttacksRef.throwBomb(from, chest(you), { x: you.vx || 0, z: you.vz || 0 }, s.nextId++);
+    s.bombs.push(b);
+    s.events.push({ type: 'throw', from: copy(from), id: b.id });
+  }
+  // The volley: its bombs VOLLEY_EVERY apart from the strike, and at
+  // VOLLEY_CHARGE the burst down the locked laser; over once the rounds are out.
+  function volley(s, ctx) {
+    var a = s.attack, A = AttacksRef.constants, v = a.volley;
+    if (!v) return;
+    while (v.thrown < v.n && a.t >= v.thrown * A.VOLLEY_EVERY) { throwAt(s, ctx.you); v.thrown++; }
+    if (!v.fired && a.t >= A.VOLLEY_CHARGE) {
+      v.fired = true; a.laser = null; v.done = a.t + A.GUN_ROUNDS * A.GUN_EVERY + .1;
+      s.rounds = s.rounds.concat(AttacksRef.burst(guns(s), a.aim || gunAim(s, ctx, 0), s.time, function () { return rand(s); }));
+    }
+    if (v.fired && v.thrown >= v.n && a.t >= v.done) AttacksRef.finish(a);
+  }
+  // The dive: from where he is, straight at where you'll be (DIVE_LEAD on),
+  // then on DIVE_PAST level, a little up - cut short of anything in the way.
+  // m.dive: { pts: [3 points], lens, s, len, hit, dir }.
+  function dive(s, ctx) {
+    var a = s.attack, A = AttacksRef.constants, y = ctx.you, m = s.m, c = chest(y);
+    var to = { x: c.x + (y.vx || 0) * A.DIVE_LEAD, y: c.y, z: c.z + (y.vz || 0) * A.DIVE_LEAD }, from = copy(s.at);
+    from.y += .9; to.y = Math.max(to.y, y.y + .9);
+    var h = { x: to.x - from.x, z: to.z - from.z }, hl = Math.hypot(h.x, h.z) || 1;
+    var past = { x: to.x + h.x / hl * A.DIVE_PAST, y: to.y + A.DIVE_LIFT, z: to.z + h.z / hl * A.DIVE_PAST };
+    var pts = [from, to, past], lens = [Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z), Math.hypot(past.x - to.x, past.y - to.y, past.z - to.z)], len = lens[0] + lens[1];
+    // Anything in the way of either leg: he pulls out a metre and a half short of it.
+    for (var i = 0; i < 2; i++) {
+      var w = AttacksRef.hitCity(ctx.city, pts[i], pts[i + 1]);
+      if (w) { len = Math.max(.5, (i ? lens[0] : 0) + lens[i] * w.t - 1.5); break; }
+    }
+    m.dive = { pts: pts, lens: lens, s: 0, len: len, hit: false, dir: { x: h.x / hl, z: h.z / hl } };
+    a.dive = true;
+    s.events.push({ type: 'dive', at: copy(s.at), to: copy(to) });
+  }
+  // A point `d` metres along the dive (his feet: the path is his middle).
+  function diveAt(D) {
+    var k = Math.min(D.s, D.len), i = k <= D.lens[0] ? 0 : 1, u = i ? (k - D.lens[0]) / (D.lens[1] || 1) : k / (D.lens[0] || 1);
+    var p0 = D.pts[i], p1 = D.pts[i + 1];
+    return { x: lerp(p0.x, p1.x, u), y: lerp(p0.y, p1.y, u) - .9, z: lerp(p0.z, p1.z, u) };
+  }
+  // Each frame of the dive: on along it, hitting you once if his body meets
+  // yours; at its end he takes up his circuit again from where he is.
+  function diving(s, dt, ctx) {
+    var m = s.m, D = m.dive, A = AttacksRef.constants, a = s.attack;
+    var p0 = diveAt(D);
+    D.s += A.DIVE_V * dt;
+    var p1 = diveAt(D), caps = ctx && ctx.body;
+    if (!D.hit && caps && caps.length && s.mode === 'playing') {
+      var q0 = { x: p0.x, y: p0.y + .9, z: p0.z }, q1 = { x: p1.x, y: p1.y + .9, z: p1.z };
+      if (caps.some(function (c) { return AttacksRef.segSeg(q0, q1, c.a, c.b) <= c.r + A.DIVE_R; })) {
+        D.hit = true;
+        hurt(s, AttacksRef.damage(A.DIVE_SHARE, s.rules), { kind: 'dive', from: q1, knock: true,
+          push: { x: D.dir.x * A.DIVE_PUSH, y: 3, z: D.dir.z * A.DIVE_PUSH } });
+      }
+    }
+    if (D.s < D.len) return;
+    // Back on his circuit round you, from here, easing out to it.
+    var h = s.hunt || s.path, e = p1;
+    m.ang = Math.atan2(e.z - h.cz, e.x - h.cx); m.r = Math.hypot(e.x - h.cx, e.z - h.cz);
+    m.h = e.y - h.y - (m.lift || 0);
+    m.dive = null; wantGlide(s);
+    if (a && a.move === 'dive') { a.dive = false; AttacksRef.finish(a); }
   }
   // Bombs in flight and rounds on their way: what they hit, when they get there.
   function flying(s, dt, ctx) {
@@ -777,7 +877,7 @@
   }
   function stopAttacks(s) {
     s.bombs = []; s.rounds = [];
-    if (s.attack) { AttacksRef.cancel(s.attack); s.attack.lash = null; s.attack.laser = null; s.attack.zone = null; s.attack.goal = null; }
+    if (s.attack) { AttacksRef.cancel(s.attack); s.attack.lash = null; s.attack.laser = null; s.attack.volley = null; s.attack.zone = null; s.attack.goal = null; }
   }
 
   // --- the fight's time -------------------------------------------------------------
@@ -803,7 +903,7 @@
     } else {
       s.elapsed += dt;
       s.dodgeRemaining = Math.max(0, s.dodgeRemaining - dt);
-      if (s.kind === 'glider') { hunt(s, dt, ctx); moveGlider(s, dt); }
+      if (s.kind === 'glider') { hunt(s, dt, ctx); if (s.m.dive) diving(s, dt, ctx); else moveGlider(s, dt); }
       else if (s.kind === 'charge') { if (s.m.free) moveRhino(s, dt, ctx); else moveCharge(s, dt); }
       else moveLeap(s, dt, ctx);
     }

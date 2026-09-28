@@ -12,10 +12,13 @@ function aimAt(o,p){const d=d3(o,p);return{x:(p.x-o.x)/d,y:(p.y-o.y)/d,z:(p.z-o.
 
 // --- the framework ------------------------------------------------------------------
 // Run an attack state for `sec`, logging its events with the time they came.
+// OPEN: the Goblin's moves whose strike ends by itself; the volley and the
+// dive last until fight.js says they're over, so a bare framework leaves them out.
+const OPEN=['bomb','guns'];
 function runAttack(a,sec,ctx){const log=[];let t=0;for(let n=0;n<Math.round(sec/DT);n++){t+=DT;Attacks.step(a,DT,typeof ctx==='function'?ctx(t):ctx).forEach(e=>log.push({...e,t}));}return log;}
 
 test('attacks: every attack is telegraphed for HARD\'s wind-up, then lands, then he recovers',()=>{
-  const a=Attacks.create('glider',Difficulty.get('HARD'),7),log=runAttack(a,60,{onScreen:true,state:'ground'});
+  const a=Attacks.create('glider',Difficulty.get('HARD'),7),log=runAttack(a,60,{onScreen:true,state:'ground',allow:OPEN});
   const tel=log.filter(e=>e.type==='telegraph'),hit=log.filter(e=>e.type==='strike');
   assert.ok(tel.length>=11,'about one every 3-5 s: '+tel.length);
   assert.ok(hit.length>=tel.length-1);
@@ -34,36 +37,37 @@ test('attacks: every attack is telegraphed for HARD\'s wind-up, then lands, then
 });
 test('attacks: from off the screen he still attacks, with a longer wind-up; a second from out there waits until the first has landed',()=>{
   // Out of view throughout; something of his in flight for the first 10 s.
-  const a=Attacks.create('glider',H,3),log=runAttack(a,20,t=>({onScreen:false,state:'ground',inFlight:t<10}));
+  const a=Attacks.create('glider',H,3),log=runAttack(a,20,t=>({onScreen:false,state:'ground',inFlight:t<10,allow:OPEN}));
   const tel=log.filter(e=>e.type==='telegraph'),hit=log.filter(e=>e.type==='strike');
   assert.equal(tel[0].off,true);near(tel[0].tele,H.telegraph+H.offScreen);
   assert.ok(near(hit[0].t-tel[0].t,H.telegraph+H.offScreen,DT+1e-6),'off-screen wind-up '+(hit[0].t-tel[0].t));
   assert.equal(tel.filter(e=>e.t<10).length,1,'a second off-screen one while the first was still on its way');
   assert.ok(tel[1].t>=10&&tel[1].off,'two off-screen in a row, once the first had landed');
   // With nothing in flight they come at the cadence, in view or not; in view the wind-up is the short one.
-  const b=Attacks.create('glider',H,11),l2=runAttack(b,60,t=>({onScreen:Math.floor(t/2.3)%2===0,state:'swing'})).filter(e=>e.type==='telegraph');
+  const b=Attacks.create('glider',H,11),l2=runAttack(b,60,t=>({onScreen:Math.floor(t/2.3)%2===0,state:'swing',allow:OPEN})).filter(e=>e.type==='telegraph');
   assert.ok(l2.length>=20,'held back: '+l2.length);
   l2.forEach(e=>near(e.tele,e.off?H.telegraph+H.offScreen:H.telegraph));
   assert.ok(l2.some((e,i)=>i&&e.off&&l2[i-1].off),'two off-screen in a row are allowed now');
 });
 test('attacks: the director - four quiet seconds and the next attack starts at once; while something is in flight it waits',()=>{
   const slow=Object.assign(Difficulty.get('HARD'),{cadence:[30,30],firstAttack:30});
-  let log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground'});
+  let log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground',allow:OPEN});
   let tel=log.filter(e=>e.type==='telegraph');
   assert.ok(tel.length&&near(tel[0].t,H.director,DT+1e-6),'the first came at '+(tel.length&&tel[0].t)+', not after '+H.director+' quiet seconds');
   const ready=log.filter(e=>e.type==='ready')[0];
   assert.ok(tel[1]&&near(tel[1].t-ready.t,H.director,2*DT),'the next after '+(tel[1]&&tel[1].t-ready.t)+' s quiet');
   // Nothing while a bomb of his is still coming at you.
-  log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground',inFlight:true});
+  log=runAttack(Attacks.create('glider',slow,5),12,{onScreen:true,state:'ground',inFlight:true,allow:OPEN});
   assert.equal(log.filter(e=>e.type==='telegraph').length,0);
 });
 test('attacks: the goblin mixes bombs and guns - more guns at you in the air - never three the same running',()=>{
-  const count=(state)=>{const a=Attacks.create('glider',H,5),m=runAttack(a,400,{onScreen:true,state}).filter(e=>e.type==='telegraph').map(e=>e.move);
+  const count=(state)=>{const a=Attacks.create('glider',H,5),m=runAttack(a,400,{onScreen:true,state,allow:OPEN}).filter(e=>e.type==='telegraph').map(e=>e.move);
     for(let i=2;i<m.length;i++)assert.ok(!(m[i]===m[i-1]&&m[i]===m[i-2]),'three '+m[i]+' in a row');return m.filter(x=>x==='guns').length/m.length;};
   const air=count('swing'),ground=count('ground');
   assert.ok(air>ground,'guns in the air '+air.toFixed(2)+' vs on the ground '+ground.toFixed(2));
   assert.ok(ground>.15&&air<.85);
   // Since P5 the Rhino and Venom have moves too - but with none open to them (allow: []) they wait.
+  assert.deepEqual(Attacks.MOVES.glider,['bomb','guns','volley','dive']);
   assert.deepEqual(Attacks.MOVES.charge,['charge','ram']);assert.deepEqual(Attacks.MOVES.leap,['combo','lash','pounce']);
   assert.deepEqual(runAttack(Attacks.create('charge',H,1),30,{onScreen:true,allow:[]}),[]);
 });
@@ -132,6 +136,10 @@ function fightWith(enc){
   const s=Fight.play(Fight.start(enc,levels)),v=enc.vantage;
   const you={x:v.x,y:v.y,z:v.z,vx:0,vy:0,vz:0};
   const r={s,you,ev:[],state:'ground',onScreen:true,pov:false,
+    // A restless player shuffles a metre to and fro every second, so he isn't standing still (which the Goblin punishes with bombs).
+    restless(){const k=Math.floor(s.time)%2?1:-1;you.x+=k*2*DT;},
+    // Tough: a lot of health, so what comes before the attack a test is about can't end the fight.
+    tough(){s.you.hp=s.you.maxHp=1e6;return r;},
     // pov: the guns aim at your eye, as world-game.js tells them to in first person.
     tick(dt){Fight.tick(s,dt||DT,{you,body:Attacks.standIn(you),state:r.state,onScreen:r.onScreen,city,target:r.pov?{x:you.x,y:you.y+1.7,z:you.z}:undefined});r.ev.push(...Fight.drain(s).map(e=>({...e,t:s.time})));return r;},
     until(fn,max){for(let n=0;n<(max||60*60)&&!fn();n++)r.tick();assert.ok(fn(),'never happened: '+fn);return r;}};
@@ -177,8 +185,8 @@ test('guns: the laser follows you through the wind-up, locks, and the burst hits
   assert.ok(near(Attacks.segSeg({x:0,y:0,z:0},{x:10,y:0,z:0},{x:5,y:3,z:-1},{x:5,y:3,z:1}),3));
   assert.ok(near(Attacks.segSeg({x:0,y:0,z:0},{x:1,y:0,z:0},{x:3,y:0,z:0},{x:4,y:0,z:0}),2),'ends apart');
   // In a fight: stand still through a burst and it hits for its share.
-  const r=fightWith(goblin),s=r.s;
-  r.until(()=>s.attack.phase==='telegraph'&&s.attack.move==='guns',60*120);
+  const r=fightWith(goblin).tough(),s=r.s;
+  r.until(()=>{r.restless();return s.attack.phase==='telegraph'&&s.attack.move==='guns';},60*120);
   const a0=s.attack.aim&&{...s.attack.aim};
   r.you.x+=3;                                                // step aside while he winds up
   r.tick();r.tick();r.tick();
@@ -190,8 +198,8 @@ test('guns: the laser follows you through the wind-up, locks, and the burst hits
   assert.equal(hp-s.you.hp,Attacks.gunDamage(H),'the burst');
   assert.equal(r.ev.filter(e=>e.type==='round').length>=A.GUN_ROUNDS-1,true,'its rounds');
   // Again, but move out of the line as it locks.
-  const q=fightWith(goblin);
-  q.until(()=>q.s.attack.phase==='telegraph'&&q.s.attack.move==='guns',60*120);
+  const q=fightWith(goblin).tough();
+  q.until(()=>{q.restless();return q.s.attack.phase==='telegraph'&&q.s.attack.move==='guns';},60*120);
   q.until(()=>q.s.attack.phase==='active');
   const hp2=q.s.you.hp;q.you.x+=2.5;q.you.z+=1;
   q.until(()=>q.s.attack.phase==='recover');q.until(()=>!q.s.rounds.length);
@@ -201,8 +209,8 @@ test('guns: the laser follows you through the wind-up, locks, and the burst hits
 const gunsOf=s=>({x:s.at.x,y:s.at.y+.1,z:s.at.z});   // between the two fallback guns
 const deg=(u,v)=>Math.acos(Math.max(-1,Math.min(1,(u.x*v.x+u.y*v.y+u.z*v.z)/(Math.hypot(u.x,u.y,u.z)*Math.hypot(v.x,v.y,v.z)))))*180/Math.PI;
 test('guns: in first person the laser comes at your eye - locked on it within a degree when you stand still - and locks only at the very end',()=>{
-  const r=fightWith(goblin),s=r.s;r.pov=true;
-  r.until(()=>s.attack.phase==='telegraph'&&s.attack.move==='guns',60*120);
+  const r=fightWith(goblin).tough(),s=r.s;r.pov=true;
+  r.until(()=>{r.restless();return s.attack.phase==='telegraph'&&s.attack.move==='guns';},60*120);
   const tele=Attacks.windup(s.attack);let lockedAt=null,laserSeen=false;
   r.until(()=>{if(s.attack.laser){laserSeen=true;if(s.attack.laser.locked&&lockedAt===null)lockedAt=s.attack.t;}return s.attack.phase!=='telegraph';});
   assert.ok(laserSeen,'no laser for the renderer');
@@ -218,20 +226,72 @@ test('guns: in first person the laser comes at your eye - locked on it within a 
 test('guns: walking steadily the rounds meet you (they lead you); change direction after the lock and they miss',()=>{
   const W=6;                                               // Player's walk, m/s
   function walk(turnAtLock){
-    const r=fightWith(goblin),s=r.s;r.pov=true;
-    r.until(()=>s.attack.phase==='telegraph'&&s.attack.move==='guns',60*120);
-    const hp=s.you.hp;let dir=1,flipped=false;
+    const r=fightWith(goblin).tough(),s=r.s;r.pov=true;
+    r.until(()=>{r.restless();return s.attack.phase==='telegraph'&&s.attack.move==='guns';},60*120);
+    const hp=s.you.hp,n0=r.ev.length;let dir=1,flipped=false;
     // Walk square to his line of sight, as you might along a roof.
     const to={x:s.at.x-r.you.x,z:s.at.z-r.you.z},l=Math.hypot(to.x,to.z),side={x:-to.z/l,z:to.x/l};
     const step=()=>{if(turnAtLock&&s.attack.locked&&!flipped){dir=-1;flipped=true;}
       r.you.vx=side.x*W*dir;r.you.vz=side.z*W*dir;r.you.x+=r.you.vx*DT;r.you.z+=r.you.vz*DT;};
     for(let n=0;n<60*3&&(s.attack.phase==='telegraph'||s.attack.phase==='active'||s.rounds.length);n++){step();r.tick();}
-    const lost=hp-s.you.hp,passes=r.ev.filter(e=>e.type==='hurt'&&e.kind==='guns').length;
+    const lost=hp-s.you.hp,passes=r.ev.slice(n0).filter(e=>e.type==='hurt'&&e.kind==='guns').length;
     return {lost,passes,flipped};
   }
   const steady=walk(false),dodged=walk(true);
   assert.ok(steady.passes>0&&steady.lost===Attacks.gunDamage(H),'walking steadily, the burst missed');
   assert.ok(dodged.flipped);assert.equal(dodged.passes,0,'turned back after the lock and it still hit');
+});
+// P7: the Goblin mixes bombs and bursts, dives at you, and punishes standing still.
+test('volley: 2-3 bombs while the guns charge - the laser on from the wind-up - then the burst down the locked line',()=>{
+  const r=fightWith(goblin).tough(),s=r.s;
+  r.until(()=>{r.restless();return s.attack.phase==='telegraph'&&s.attack.move==='volley';},60*120);
+  const t0=s.time,n0=r.ev.length;assert.ok(s.attack.laser,'the laser from the start of the wind-up');
+  let lockedAt=null;
+  r.until(()=>{if(s.attack.laser&&s.attack.laser.locked&&lockedAt===null)lockedAt=s.time;return s.attack.phase==='recover';},60*6);
+  const ev=r.ev.slice(n0),throws=ev.filter(e=>e.type==='throw'),rounds=ev.filter(e=>e.type==='round');
+  assert.ok(throws.length>=A.VOLLEY_N[0]&&throws.length<=A.VOLLEY_N[1],throws.length+' bombs');
+  const strike=t0+Attacks.windup(s.attack);
+  throws.forEach((e,i)=>assert.ok(Math.abs(e.t-(strike+i*A.VOLLEY_EVERY))<=DT+1e-6,'bomb '+i+' at '+(e.t-strike).toFixed(2)));
+  assert.ok(rounds.length>=A.GUN_ROUNDS-1,'the burst');
+  const burst=rounds[0].t;
+  assert.ok(Math.abs(burst-(strike+A.VOLLEY_CHARGE))<=DT+1e-6,'the burst at '+(burst-strike).toFixed(2)+' s after the strike');
+  assert.ok(lockedAt!==null&&burst-lockedAt<=A.GUN_LOCK+DT&&burst-lockedAt>=A.GUN_LOCK-2*DT,'locked '+(burst-lockedAt).toFixed(2)+' s before it');
+  assert.ok(throws.every(e=>e.t>t0+Attacks.windup(s.attack)-1e-6),'a bomb before the wind-up was over');
+});
+test('dive: close in, he swoops through where you are - heavy, and it knocks you off a line; step aside and he misses; never into a building',()=>{
+  function run(sidestep){
+    const r=fightWith(goblin).tough(),s=r.s;
+    r.until(()=>{r.restless();return s.attack.phase==='telegraph'&&s.attack.move==='dive';},60*120);
+    const n0=r.ev.length,me={x:s.at.x,y:s.at.y+.9,z:s.at.z},c={x:r.you.x,y:r.you.y+1.1,z:r.you.z};
+    assert.ok(Math.hypot(me.x-c.x,me.y-c.y,me.z-c.z)<=A.DIVE_RANGE+1,'a dive from far off');
+    r.until(()=>s.attack.phase==='active');
+    const hp=s.you.hp;let moved=0,inside=0;
+    r.until(()=>{if(sidestep&&moved<3){const D=s.m.dive;if(D){r.you.x+=-D.dir.z*9*DT;r.you.z+=D.dir.x*9*DT;moved+=9*DT;}}
+      if(City.query(city,s.at.x,s.at.z,s.at.x,s.at.z).some(b=>s.at.x>b.x0&&s.at.x<b.x1&&s.at.z>b.z0&&s.at.z<b.z1&&s.at.y+.5<b.y1&&s.at.y+.5>b.y0))inside++;
+      return s.attack.phase==='recover';},60*4);
+    const hurt=r.ev.slice(n0).filter(e=>e.type==='hurt'&&e.kind==='dive');
+    return {hurt,lost:hp-s.you.hp,inside,s};
+  }
+  const hit=run(false);
+  assert.equal(hit.hurt.length,1,'standing in his way');assert.equal(hit.lost,Attacks.damage(A.DIVE_SHARE,H));
+  assert.ok(hit.hurt[0].knock&&hit.hurt[0].big,'heavy, and off a line');assert.ok(hit.hurt[0].push);
+  assert.equal(hit.inside,0,'he dived into a building');
+  assert.equal(hit.s.m.dive,null,'back on his circuit after');
+  const miss=run(true);
+  assert.equal(miss.hurt.length,0,'stepped three metres aside and it still hit');
+});
+test('standing still on a roof: two seconds of it and his next attack comes at once, and it is bombs',()=>{
+  const r=fightWith(goblin).tough(),s=r.s;
+  // Let one attack go by, then stand stock still.
+  r.until(()=>s.attack.phase==='wait'&&s.attack.n>0&&!s.bombs.length&&!s.rounds.length,60*20);
+  const slow=s.attack.wait;
+  let t=0;r.until(()=>{t+=DT;return s.attack.phase==='telegraph';},60*10);
+  assert.ok(['volley','bomb'].includes(s.attack.move),'punished with '+s.attack.move);
+  assert.ok(t<=A.STILL_T+.1||t<=slow+.02,'it waited '+t.toFixed(2)+' s');
+  assert.equal(s.still,0,'the clock on standing still starts over with the attack');
+  // Keep moving and he doesn't punish: nothing but his cadence.
+  const q=fightWith(goblin).tough();q.until(()=>q.s.attack.n>0,60*10);
+  for(let n=0;n<60*20;n++){q.you.x+=Math.sin(n/40)*4*DT;q.tick();assert.ok(q.s.still<A.STILL_T,'moving about counted as standing still');}
 });
 test('the goblin hunts you: his circuit follows you across the roofs, keeping his distance and clear of the buildings',()=>{
   const r=fightWith(goblin),s=r.s;
@@ -242,11 +302,15 @@ test('the goblin hunts you: his circuit follows you across the roofs, keeping hi
   r.you.vx=0;for(let n=0;n<300;n++)r.tick();
   // Too far off to reach you while he closes in, he doesn't wind up.
   const q=fightWith(goblin);q.you.x+=120;q.you.y-=100;
-  for(let n=0;n<60*3;n++){q.tick();if(Math.hypot(q.s.at.x-q.you.x,q.s.at.y-q.you.y,q.s.at.z-q.you.z)>Fight.constants.ATTACK_RANGE)assert.notEqual(q.s.attack.phase,'telegraph','a wind-up from '+Math.round(Math.hypot(q.s.at.x-q.you.x,q.s.at.z-q.you.z))+' m away');}
+  for(let n=0;n<60*3;n++){q.tick();if(Math.hypot(q.s.at.x-q.you.x,q.s.at.y-q.you.y,q.s.at.z-q.you.z)>H.range.glider)assert.notEqual(q.s.attack.phase,'telegraph','a wind-up from '+Math.round(Math.hypot(q.s.at.x-q.you.x,q.s.at.z-q.you.z))+' m away');}
   for(let n=0;n<60*20&&q.s.attack.n===0;n++)q.tick();
   assert.ok(q.s.attack.n>0,'he never attacked once he got to you');
+  // His stand-off: what his circuit round you wants (a dive takes him in through you for a moment, then he eases back out).
+  assert.ok(s.m.rWant>=goblin.path.r0&&s.m.rWant<=goblin.path.r1,'he keeps his stand-off: '+s.m.rWant.toFixed(1));
+  r.until(()=>!s.m.dive,60*5);
+  for(let n=0;n<60*3;n++)r.tick();
   const d=Math.hypot(s.at.x-r.you.x,s.at.z-r.you.z);
-  assert.ok(d>=goblin.path.r0-1&&d<=goblin.path.r1+2,'he keeps his stand-off: '+d.toFixed(1));
+  assert.ok(s.m.dive||(d>=goblin.path.r0-3&&d<=goblin.path.r1+2),'he keeps his distance: '+d.toFixed(1));
   // Without you in the fight (the old tests) he circles where it started.
   const t=Fight.play(Fight.start(goblin,levels));for(let n=0;n<60*20;n++)Fight.tick(t,DT);
   assert.ok(Math.hypot(t.at.x-goblin.path.cx,t.at.z-goblin.path.cz)<=goblin.path.r1+.01);
