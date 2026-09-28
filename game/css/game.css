@@ -47,6 +47,7 @@ body.is-training #shade{background:rgba(6,4,8,.35)}
 .hud-goal{display:flex;flex-direction:column;align-items:flex-end;gap:5px;max-width:min(420px,52vw)}
 .hud-objective{display:grid;justify-items:end;gap:3px;text-align:right}
 .hud-objtext{color:var(--hud-ink);font-size:12px;font-weight:700;letter-spacing:.05em;text-shadow:0 1px 2px #000c}
+.hud-objtext.is-warn{color:#ff6a6a;text-shadow:0 0 6px #ff3a3a88,0 1px 2px #000c}
 .hud-clockbar{width:min(220px,40vw);height:4px;border:1px solid #5fe3ff66;background:var(--hud-bg);transform:skewX(20deg)}
 .hud-clockbar i{display:block;height:100%;width:100%;margin-left:auto;background:var(--hud);box-shadow:var(--hud-glow);transition:width .15s}
 .hud-clockbar.is-low i{background:#ff6a6a;box-shadow:0 0 6px #ff6a6a}

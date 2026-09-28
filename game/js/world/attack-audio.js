@@ -17,8 +17,15 @@
   //   AttackAudio.hurt(damage)      you're hit (not placed: it's you)
   //   AttackAudio.down()            you go down
   //   AttackAudio.stop()            silence (pause, quit)
+  // And the Rhino's and Venom's (P5):
+  //   warn(at, 'charge' | 'ram', secs)   his rumbling build-up
+  //   warn(at, 'combo' | 'lash' | 'pounce', secs)   a wet hiss
+  //   AttackAudio.quake(at)         a ram hitting a building: a deep boom and rumble
+  //   AttackAudio.crash(at)         running into a wall
+  //   AttackAudio.swipe(at)         a claw cutting the air
+  //   AttackAudio.lash(at)          the tentacle's crack
 
-  var K = { REF: 6, WARN: .5, FUSE: .16, BOOM: 1, ROUND: .28, HURT: .7, DOWN: .6, TELEGRAPH: .9 };
+  var K = { REF: 6, WARN: .5, FUSE: .16, BOOM: 1, ROUND: .28, HURT: .7, DOWN: .6, TELEGRAPH: .9, QUAKE: 1.1, CRASH: .8, SWIPE: .45, LASH: .55 };
   var ctx = null, bus = null, noiseBuf = null, dead = false, vol = 0;
 
   function init() {
@@ -87,6 +94,14 @@
       g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(K.WARN * .5, t + T * .8); g.gain.linearRampToValueAtTime(0, t + T + .05);
       osc.connect(f).connect(g).connect(o); osc.start(t); osc.stop(t + T + .1); lfo.start(t); lfo.stop(t + T + .1);
       tone(o, t + T - .06, .08, 'square', 2400, 2400, K.WARN * .35);          // the lock
+    } else if (move === 'charge' || move === 'ram') {
+      // The Rhino building up: a low growl rising, and his hooves scraping.
+      tone(o, t, T, 'sawtooth', 48, 90, K.WARN * .55, T * .7);
+      noise(o, t + T * .3, T * .7, 'lowpass', 500, 1400, K.WARN * .35, .8);
+    } else if (move === 'combo' || move === 'lash' || move === 'pounce') {
+      // Venom: a wet, rising hiss.
+      noise(o, t, T * .95, 'bandpass', 2500, move === 'pounce' ? 1200 : 4200, K.WARN * .45, 2.5);
+      tone(o, t, T * .8, 'sawtooth', 110, move === 'pounce' ? 70 : 150, K.WARN * .2, T * .5);
     } else {
       // A bomb's fuse lit: a fizz as he reaches for it.
       noise(o, t, T, 'highpass', 3500, 6000, K.WARN * .5, .7);
@@ -120,7 +135,32 @@
     tone(bus, t + .05, 1.3, 'sine', 330, 82, K.DOWN * .5, .02);
     noise(bus, t, .5, 'lowpass', 600, 80, K.DOWN * .5, .7);
   }
+  function quake(at) {
+    if (!live()) return;
+    var t = ctx.currentTime, o = out(at, 18);
+    tone(o, t, 1.1, 'sine', 70, 24, K.QUAKE, .006);                 // the thump
+    noise(o, t, 1.6, 'lowpass', 900, 60, K.QUAKE * .7, .7);          // the rumble through the building
+    noise(o, t + .02, .35, 'bandpass', 1800, 500, K.QUAKE * .4, 1.3); // the crack of it
+  }
+  function crash(at) {
+    if (!live()) return;
+    var t = ctx.currentTime, o = out(at, 10);
+    tone(o, t, .45, 'sine', 95, 40, K.CRASH, .004);
+    noise(o, t, .5, 'lowpass', 1600, 150, K.CRASH * .6, .8);
+  }
+  function swipe(at) {
+    if (!live()) return;
+    var t = ctx.currentTime;
+    noise(out(at, 5), t, .16, 'bandpass', 900, 3800, K.SWIPE, 1.6);
+  }
+  function lash(at) {
+    if (!live()) return;
+    var t = ctx.currentTime, o = out(at, 7);
+    noise(o, t, .12, 'bandpass', 1200, 5200, K.LASH * .7, 1.8);       // out it goes
+    noise(o, t + .13, .06, 'highpass', 3000, 6000, K.LASH, .8);       // the crack
+  }
   function stop() { if (ctx) bus.gain.setTargetAtTime(0, ctx.currentTime, .03); vol = 0; }
 
-  root.AttackAudio = { frame: frame, warn: warn, fuse: fuse, boom: boom, round: round, hurt: hurt, down: down, stop: stop, constants: K };
+  root.AttackAudio = { frame: frame, warn: warn, fuse: fuse, boom: boom, round: round, hurt: hurt, down: down, stop: stop,
+    quake: quake, crash: crash, swipe: swipe, lash: lash, constants: K };
 })(window);

@@ -11,8 +11,15 @@
   //    on, flickering faster as it's about to fire, with a red dot there;
   //  - the rounds: bright tracer streaks down the line.
   //
-  // The blasts, muzzle flashes and sounds are fx.js's and attack-audio.js's,
-  // started by world-game.js from the fight's events.
+  // And the Rhino's and Venom's (P5):
+  //  - a red ring where an attack will land - on the roof the Rhino is about
+  //    to ram (the quake's reach), under where Venom will come down - pulsing
+  //    faster as it comes;
+  //  - Venom's tentacle: a black, glistening lash from his hand out along
+  //    its line, and back.
+  //
+  // The blasts, muzzle flashes, dust and sounds are fx.js's and
+  // attack-audio.js's, started by world-game.js from the fight's events.
 
   var T = root.THREE;
   var POOL = 4;                    // bombs in flight at once, at most
@@ -25,6 +32,11 @@
   // (so it never runs past the camera), and a red dot there.
   var LASER = { far: .022, near: .003, short: 1.2, color: [1.5, .06, .04], opacity: .85, dot: .2 };
   var TRACER = { length: 4, color: [7, 4.2, 1.6], max: 16 };
+  // The ring: its line's width (share of the radius), colour and opacity.
+  var RING = { width: .06, color: [1.4, .08, .05], opacity: .75, fill: .12 };
+  // The tentacle: metres of radius at his hand and at its tip, its colour,
+  // and a faint blue-violet sheen so the black reads against dark steel.
+  var LASH = { base: .15, tip: .05, color: [.02, .02, .03], sheen: [.05, .045, .12] };
 
   function glowTex() {
     var c = document.createElement('canvas'); c.width = c.height = 64;
@@ -90,6 +102,38 @@
     var tracers = new T.LineSegments(tg, new T.LineBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, blending: T.AdditiveBlending, fog: false }));
     tracers.frustumCulled = false; tracers.visible = false; tracers.renderOrder = 6; group.add(tracers);
 
+    // --- the ring where an attack will land ---
+    var ringGeo = new T.RingGeometry(1 - RING.width, 1, 64, 1); ringGeo.rotateX(-Math.PI / 2);
+    var fillGeo = new T.CircleGeometry(1 - RING.width, 48); fillGeo.rotateX(-Math.PI / 2);
+    // Drawn only inside `clip` (x0, z0, x1, z1: the roof it's on), so a
+    // ram's ring stops at the building's edge rather than hanging in the air.
+    function flat(geo, op) {
+      var mat = new T.ShaderMaterial({
+        uniforms: { color: { value: new T.Color(RING.color[0], RING.color[1], RING.color[2]) }, opacity: { value: op },
+          clip: { value: new T.Vector4(-1e9, -1e9, 1e9, 1e9) } },
+        vertexShader: 'varying vec3 vW; void main() { vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+        fragmentShader: ['uniform vec3 color; uniform float opacity; uniform vec4 clip; varying vec3 vW;',
+          'void main() {',
+          '  if (vW.x < clip.x || vW.z < clip.y || vW.x > clip.z || vW.z > clip.w) discard;',
+          '  gl_FragColor = vec4(color, opacity);',
+          '  #include <tonemapping_fragment>',
+          '  #include <colorspace_fragment>',
+          '}'].join('\n'),
+        transparent: true, depthWrite: false, side: T.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+      });
+      var m = new T.Mesh(geo, mat);
+      m.renderOrder = 4; m.visible = false; m.frustumCulled = false; group.add(m);
+      return m;
+    }
+    var ring = flat(ringGeo, RING.opacity), fill = flat(fillGeo, RING.fill);
+
+    // --- venom's tentacle ---
+    var lashGeo = new T.CylinderGeometry(LASH.tip / LASH.base, 1, 1, 7, 1, true); lashGeo.translate(0, .5, 0);
+    var lash = new T.Mesh(lashGeo, new T.MeshStandardMaterial({ roughness: .25, metalness: .1 }));
+    lash.material.color.setRGB(LASH.color[0], LASH.color[1], LASH.color[2]);
+    lash.material.emissive.setRGB(LASH.sheen[0], LASH.sheen[1], LASH.sheen[2]);
+    lash.frustumCulled = false; lash.visible = false; lash.castShadow = false; group.add(lash);
+
     // Each frame. f: the fight (or null); t: the fight's time; now: ms.
     function update(f, now) {
       var live = f && (f.mode === 'playing' || f.mode === 'paused') ? f : null, i;
@@ -136,6 +180,26 @@
       }
       tracers.visible = n > 0;
       if (n) { tg.setDrawRange(0, n * 2); tg.attributes.position.needsUpdate = true; tg.attributes.color.needsUpdate = true; }
+
+      // The ring, through the wind-up (and a pounce's flight), pulsing
+      // faster as the attack comes.
+      var z = a && a.zone && (a.phase === 'telegraph' || a.phase === 'active') ? a.zone : null;
+      ring.visible = fill.visible = !!z;
+      if (z) {
+        var u = a.phase === 'telegraph' ? Math.min(1, a.t / a.d.telegraph) : 1, pulse = .6 + .4 * Math.abs(Math.sin(now / 1000 * (3 + 9 * u) * Math.PI));
+        ring.position.set(z.x, z.y + .06, z.z); fill.position.copy(ring.position);
+        ring.scale.setScalar(z.r); fill.scale.setScalar(Math.max(.01, z.r * (a.phase === 'telegraph' ? u : 1)));
+        ring.material.uniforms.opacity.value = RING.opacity * pulse; fill.material.uniforms.opacity.value = RING.fill * (.5 + .5 * u);
+        var c = z.clip;
+        [ring, fill].forEach(function (m) { if (c) m.material.uniforms.clip.value.set(c.x0, c.z0, c.x1, c.z1); else m.material.uniforms.clip.value.set(-1e9, -1e9, 1e9, 1e9); });
+      }
+      // The tentacle, out and back.
+      var L = a && a.lash;
+      lash.visible = !!(L && L.s > .05);
+      if (lash.visible) {
+        var tip = { x: L.from.x + L.dir.x * L.s, y: L.from.y + L.dir.y * L.s, z: L.from.z + L.dir.z * L.s };
+        stretch(lash, L.from, tip, LASH.base);
+      }
     }
 
     return { group: group, update: update, get ready() { return ready; } };

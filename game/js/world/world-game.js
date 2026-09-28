@@ -53,6 +53,13 @@
   // you off a swing line; at 0 you go down, the view slumps, and DEFEAT
   // offers a RETRY. attack-view.js draws the bombs, lasers and tracers;
   // attack-audio.js makes their sounds.
+  //
+  // The Rhino and Venom fight back too (P5): the Rhino charges you on the
+  // street or rams the building you're up on (a red ring on the roof shows
+  // the quake's reach; the building shakes under you), and is dazed after;
+  // Venom pounces (a red ring where he'll land), claws you up close and
+  // whips a tentacle at you from further off. Their dust, sounds and shakes
+  // come from the fight's events here.
 
   var $ = function (id) { return document.getElementById(id); };
   var SEED = 20180907;             // one fixed city; change it for a different one
@@ -469,7 +476,8 @@
     var b = you && you.ready ? you.sample() : null, caps = b && b.capsules && b.capsules.length ? b.capsules : Attacks.standIn(player, swing.mode === 'perch');
     var mid = fight.at && { x: fight.at.x, y: fight.at.y + 1.2, z: fight.at.z };
     return { you: { x: player.x, y: player.y, z: player.z, vx: player.vx, vy: player.vy, vz: player.vz }, body: caps,
-      state: swing.mode === 'none' ? (player.grounded ? 'ground' : 'fly') : swing.mode, onScreen: !!mid && visible(mid), city: city };
+      state: swing.mode === 'none' ? (player.grounded ? 'ground' : 'fly') : swing.mode, onScreen: !!mid && visible(mid), city: city,
+      anchor: swing.mode === 'swing' ? swing.anchor : null };
   }
   function visible(p) { return Hud.onScreen(world.project(p)); }
   // What PlayerAnim needs besides Player: the swing's (line, zip, perch) and
@@ -486,9 +494,30 @@
     ev.forEach(function (e) {
       if (e.type === 'telegraph') {
         AttackAudio.warn(up(e.at), e.move, fight.rules.telegraph);
-        // Reaching for a bomb, he cackles.
+        // Reaching for a bomb, he cackles; Venom snarls before he claws or lashes.
         if (e.move === 'bomb' && WSAudio.roar) WSAudio.roar(up(e.at), 'glider', .45);
+        if ((e.move === 'combo' || e.move === 'lash') && WSAudio.roar) WSAudio.roar(up(e.at), 'leap', .35);
       } else if (e.type === 'throw') { if (WSAudio.whoosh) WSAudio.whoosh(e.from, .6); }
+      // The Rhino (P5): off he goes with a bellow; a ram's quake, a crash into a wall.
+      else if (e.type === 'charge') { if (WSAudio.roar) WSAudio.roar(up(e.at), 'charge', .6); }
+      else if (e.type === 'quake' || e.type === 'crash') {
+        var hitAt = { x: e.at.x, y: e.at.y + .8, z: e.at.z }, qd = dist(hitAt, Player.eye(player));
+        fx.dust(e.type, hitAt, null);
+        if (e.type === 'quake') { AttackAudio.quake(hitAt); if (WSAudio.thud) WSAudio.thud(hitAt, 1); }
+        else AttackAudio.crash(hitAt);
+        // The building shakes under you: felt the nearer you are, hurt or not.
+        var reach = e.type === 'quake' ? 45 : 20;
+        if (qd < reach) kick(now, PlayerCamera.hurtShake((e.type === 'quake' ? 22 : 10) * (1 - qd / reach), motion));
+      }
+      // Venom (P5): a swipe, the tentacle, a pounce's take-off and landing.
+      else if (e.type === 'swipe') AttackAudio.swipe(e.at);
+      else if (e.type === 'lash') AttackAudio.lash(e.at);
+      else if (e.type === 'pounce') { if (WSAudio.whoosh) WSAudio.whoosh(up(e.at), .9); }
+      else if (e.type === 'slam') {
+        fx.dust('slam', e.at, null);
+        var sd = dist(e.at, Player.eye(player));
+        if (sd < 12) kick(now, PlayerCamera.hurtShake(9 * (1 - sd / 12), motion));
+      }
       else if (e.type === 'round') { fx.muzzle(e.from, now); AttackAudio.round(e.from); }
       else if (e.type === 'blast') {
         popped[e.id] = e.at;

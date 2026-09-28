@@ -79,7 +79,7 @@
       var foe = s.right.foe;
       flag('wh-foe', 'is-hidden', !foe);
       if (foe) { put('wh-foe-name', foe.title); bar('wh-foe-segs', 'wh-foe-hp', foe.segments, foe.value); }
-      put('wh-objtitle', s.right.title); put('wh-objtext', s.right.text);
+      put('wh-objtitle', s.right.title); put('wh-objtext', s.right.text); flag('wh-objtext', 'is-warn', !!s.right.warn);
       flag('wh-clockbar', 'is-hidden', s.right.frac === null);
       if (s.right.frac !== null) width('wh-clockfill', s.right.frac);
       put('world-timer', s.right.timer); flag('world-timer', 'is-low', !!s.right.low);

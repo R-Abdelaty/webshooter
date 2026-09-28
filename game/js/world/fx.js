@@ -5,7 +5,8 @@
   // flash where a shot met a villain, and - on LOW, where villains cast no
   // real shadow - a soft blob shadow under the villain's feet. Since P4 also
   // the Goblin's: a pumpkin bomb's blast (fire, sparks, smoke and a big
-  // flash) and the flash at a glider gun's muzzle.
+  // flash) and the flash at a glider gun's muzzle. Since P5 the dust of the
+  // Rhino's rams and crashes and of Venom's pounces.
   //
   // Three pools, drawn only while something is in them: soft round points
   // for web and symbiote, line streaks for sparks, and a few flash sprites.
@@ -16,7 +17,7 @@
   var MAX_POINTS = 600, MAX_SPARKS = 200, MAX_FLASH = 8;
   var FLASH_MS = 160, FLASH_GAIN = 2;          // how long a flash lasts; how far over white it is
   var SPARK_COLOR = [6, 3.2, 1.1], WEB_COLOR = [1.35, 1.35, 1.3], SYMBIOTE_COLOR = [.018, .018, .024];
-  var POINT_COLOR = { symbiote: SYMBIOTE_COLOR, fire: [2.6, 1, .22], smoke: [.16, .15, .14] };
+  var POINT_COLOR = { symbiote: SYMBIOTE_COLOR, fire: [2.6, 1, .22], smoke: [.16, .15, .14], dust: [.5, .45, .38], grit: [.3, .27, .23] };
   var MUZZLE = { color: [4, 2.4, 1], size: .45 };
   var BLOB = { SIZE: 1.9, FADE_H: 3.5, OPACITY: .55 };  // metres across per metre of villain; fades out by this height
 
@@ -131,6 +132,8 @@
     }
     // A glider gun firing a round.
     function muzzle(point, now) { flashAt(point, MUZZLE.color, MUZZLE.size, now); }
+    // Dust off an impact (P5): 'quake' (a ram), 'crash' (into a wall), 'slam' (a pounce landing).
+    function dust(kind, point, normal) { add(HitFx.dust(kind, point, normal, { scale: scale })); }
     function flashAt(point, color, size, now) {
       var f = flashes[nextFlash++ % MAX_FLASH];
       f.born = now; f.size = size; f.color = color;
@@ -202,7 +205,7 @@
 
     function clear() { list = []; points.visible = sparks.visible = blob.visible = false; flashes.forEach(function (f) { f.born = -1e9; f.sprite.visible = false; }); }
 
-    return { group: group, web: web, hit: hit, wrap: wrap, blast: blast, muzzle: muzzle, update: update, setBlob: setBlob, clear: clear,
+    return { group: group, web: web, hit: hit, wrap: wrap, blast: blast, muzzle: muzzle, dust: dust, update: update, setBlob: setBlob, clear: clear,
       setScale: function (s) { scale = s; }, count: function () { return list.length; } };
   }
 
